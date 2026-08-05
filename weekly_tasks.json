@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "reset_hint": "当前程序只会在你点击“开始执行”后运行，不会自动定时执行。",
+  "tasks": [
+    {
+      "name": "菜单模板循环点击",
+      "enabled": true,
+      "weekday": "any",
+      "description": "第一步先识别点击 menu1，之后从 menu2 到 menu99 不断循环，直到手动停止。",
+      "steps": [
+        {
+          "action": "tap_image",
+          "label": "先识别并点击 menu1",
+          "template": "menu1.png",
+          "templates": [],
+          "loop": false,
+          "skip_missing": true,
+          "threshold": 0.82,
+          "timeout": 8,
+          "offset_x": 80,
+          "offset_y": 0,
+          "x": null,
+          "y": null,
+          "x2": null,
+          "y2": null,
+          "duration_ms": 300,
+          "seconds": 0.15,
+          "text": ""
+        },
+        {
+          "action": "tap_image_cycle",
+          "label": "循环识别 menu2 到 menu99",
+          "template": "",
+          "templates": [
+            "menu2.png",
+            "menu3.png",
+            "menu4.png",
+            "menu5.png",
+            "menu6.png",
+            "menu7.png",
+            "menu8.png",
+            "menu9.png",
+            "menu91.png",
+            "menu92.png",
+            "menu93.png",
+            "menu94.png",
+            "menu95.png",
+            "menu96.png",
+            "menu97.png",
+            "menu98.png",
+            "menu99.png"
+          ],
+          "loop": true,
+          "skip_missing": true,
+          "threshold": 0.82,
+          "timeout": 1,
+          "offset_x": 0,
+          "offset_y": 0,
+          "x": null,
+          "y": null,
+          "x2": null,
+          "y2": null,
+          "duration_ms": 300,
+          "seconds": 0.15,
+          "text": ""
+        }
+      ]
+    }
+  ]
+}
