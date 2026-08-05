@@ -6,7 +6,7 @@
       "name": "菜单模板循环点击",
       "enabled": true,
       "weekday": "any",
-      "description": "第一步先识别点击 menu1，之后从 menu2 到 menu99 不断循环，直到手动停止。",
+      "description": "第一步先识别点击 menu1，之后从 menu2 到 menu99 循环识别；选择拿满奖励时执行 15 轮，选择拿满星声时执行 13 轮，也可以手动停止。",
       "steps": [
         {
           "action": "tap_image",

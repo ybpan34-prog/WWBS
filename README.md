@@ -1,34 +1,104 @@
 # wwbs
 
-## Remote Updates
+wwbs 是一个面向《鸣潮》Windows PC 客户端的图像识别自动点击工具。它会识别游戏窗口中的模板图片，并按照任务配置自动点击目标位置。
 
-The packaged application can check the latest GitHub Release from:
+当前版本：`1.3.1`
 
-`https://github.com/ybpan34-prog/WWBS`
+项目地址：<https://github.com/ybpan34-prog/WWBS>
 
-Each Release must include an asset named `wwbs-exe.zip`. Users can click `检查更新` in the application; when a newer tag is available, wwbs downloads the asset, replaces the current packaged files, and restarts.
+## 当前功能
 
-Recommended release flow:
+- 自动检测《鸣潮》PC 客户端窗口。
+- 按 `1920x1080` 模板基准进行识别，并支持游戏窗口等比例缩放。
+- 显示游戏窗口预览、运行日志和识别结果。
+- 支持制作、刷新、删除模板图片。
+- 支持模板组：一组 `menu1.png` 到 `menu99.png` 图片属于一个完整任务模板组。
+- 默认模板组名称为“幻梦游园”。
+- 任务可以绑定不同模板组，切换任务时自动切换对应图片组。
+- 第一阶段识别并点击 `menu1.png`，之后按顺序识别 `menu2.png` 到 `menu99.png`。
+- 支持“拿满奖励（15轮）”和“拿满星声（13轮）”两种自动停止模式。
+- 支持手动停止任务，并在连续 5 次找不到目标模板时自动停止。
+- 概率计算支持星声、抽数、角色水位、武器水位、角色大保底和目标数量。
+- 支持查看历史更新公告。
+- 支持从 GitHub Releases 检查、下载和安装远程更新。
 
-1. Increase `APP_VERSION` in `app.py`.
-2. Rebuild `wwbs-exe.zip` with PyInstaller.
-3. Create a GitHub Release whose tag is the new version, such as `v1.4`.
-4. Upload the rebuilt `wwbs-exe.zip` as a Release asset.
+## 使用前准备
 
-wwbs 是一个 Windows 桌面自动点击工具，面向鸣潮 PC 客户端窗口。它通过模板图像识别按钮位置，并按配置自动点击。
+1. 请以管理员身份运行软件。
+2. 将游戏设置为 `1920x1080`，或者使用等比例缩放的窗口分辨率。
+3. 请先完成周本的新手教程。
+4. 将游戏速度调整至 `MAX`。
+5. 让游戏停留在任务开始前的正确界面。
 
-当前默认任务会先点击 `menu1.png`，然后从 `menu2.png` 到 `menu99.png` 按顺序循环识别点击，直到你手动停止。
+## 直接运行
 
-## 功能
+推荐普通用户使用 GitHub Release 中的 `wwbs-exe.zip`：
 
-- 识别鸣潮 PC 客户端窗口。
-- 根据 `templates/` 里的模板图片自动找按钮。
-- 支持循环任务，手动开始、手动停止。
-- 支持每个模板单独设置点击偏移。
-- 支持制作、刷新、删除模板。
-- 可显示游戏窗口预览和运行日志。
+1. 下载并解压 `wwbs-exe.zip`。
+2. 保持 `wwbs.exe` 和 `_internal` 文件夹在同一目录。
+3. 右键 `wwbs.exe`，选择“以管理员身份运行”。
+4. 点击“检测游戏窗口”，确认软件显示正确的游戏画面。
+5. 在“开始”页面选择任务。
+6. 点击“拿满奖励（15轮）”或“拿满星声（13轮）”。
+7. 需要提前结束时，点击“停止当前任务”。
 
-## 环境要求
+“先预演一次”只识别模板，不会实际点击，适合开始前检查模板是否正确。
+
+## 模板组
+
+模板图片位于 `templates/` 文件夹中。
+
+默认模板组直接使用 `templates/` 根目录中的图片：
+
+```text
+templates/menu1.png
+templates/menu2.png
+templates/menu3.png
+...
+templates/menu99.png
+```
+
+其他任务模板组使用独立文件夹：
+
+```text
+templates/
+  幻梦游园/
+    menu1.png
+    menu2.png
+    ...
+  其他任务/
+    menu1.png
+    menu2.png
+    ...
+```
+
+在“模板”页面中可以：
+
+- 新建模板组。
+- 选择模板组并制作图片。
+- 将当前模板组绑定到“开始”页面选中的任务。
+- 删除当前模板组。
+
+模板最好包含按钮文字、图标、边框等稳定特征，不建议只截取纯色背景。
+
+## 概率计算
+
+“概率”页面支持填写：
+
+- 星声数量，或者抽数，二者会自动同步。
+- 角色水位。
+- 武器水位。
+- 是否拥有角色大保底。
+- 想要获得的 UP 角色数量。
+- 想要获得的 UP 武器数量。
+
+换算规则为 `160 星声 = 1 抽`。抽数最多允许 `1000` 抽。复杂计算会在后台执行，避免界面卡死。
+
+角色池按 50% 和大保底计算；武器池按当前设定默认 5 星即为 UP。角色和武器目标同时填写时，程序默认先计算角色目标，再用剩余抽数计算武器目标。
+
+## 源码运行
+
+环境要求：
 
 - Windows
 - Python 3.10 或更高版本
@@ -39,124 +109,63 @@ wwbs 是一个 Windows 桌面自动点击工具，面向鸣潮 PC 客户端窗�
 pip install -r requirements.txt
 ```
 
-## 启动
-
-双击：
-
-```text
-启动 wwbs.bat
-```
-
-或在项目目录运行：
+启动：
 
 ```powershell
 python app.py
 ```
 
-## 使用流程
-
-1. 打开鸣潮 PC 客户端，并停在任务开始画面。
-2. 打开 wwbs。
-3. 点 `检测游戏窗口`。
-4. 点 `开始执行`。
-5. 需要结束时点 `停止当前任务`。
-
-`先预演一次` 只识别、不点击；真实点击请点 `开始执行`。
-
-## 默认循环逻辑
-
-默认任务名为 `菜单模板循环点击`：
-
-1. 先识别并点击 `menu1.png`。
-2. 然后进入循环：
-   `menu2.png -> menu3.png -> ... -> menu99.png`
-3. 到 `menu99.png` 后回到 `menu2.png`。
-4. 一直循环，直到手动停止。
-
-当前每步点击后的等待时间在 `weekly_tasks.json` 里配置为 `0.15` 秒。
-
-## 模板文件
-
-模板放在：
+也可以双击：
 
 ```text
-templates/
+启动 wwbs.bat
 ```
 
-模板命名示例：
+## 主要文件
+
+- `app.py`：主界面、任务执行、概率计算和远程更新。
+- `windows_client.py`：Windows 游戏窗口检测、截图和鼠标点击。
+- `image_matcher.py`：模板图像识别。
+- `weekly_tasks.json`：任务和循环配置。
+- `templates/`：默认模板组和其他模板组。
+- `wwbs.ico`：程序图标。
+
+## GitHub 远程更新
+
+程序会检查以下 GitHub Releases 地址：
+
+<https://github.com/ybpan34-prog/WWBS/releases>
+
+每个正式 Release 必须上传一个名称完全相同的文件：
 
 ```text
-menu1.png
-menu2.png
-menu3.png
-...
-menu99.png
+wwbs-exe.zip
 ```
 
-模板制作建议：
+用户点击程序顶部的“检查更新”后，程序会：
 
-- 尽量包含按钮文字、图标、边框等明显特征。
-- 不要只截纯色背景。
-- 如果识别错位置，重新截更有辨识度的区域。
+1. 查询最新 Release。
+2. 对比当前版本号。
+3. 下载新的 `wwbs-exe.zip`。
+4. 关闭当前程序。
+5. 替换程序文件并自动重启。
 
-## 配置
+源码模式只能检查版本，自动替换功能需要使用打包后的 `wwbs.exe`。
 
-主要配置文件：
+## 发布新版本
 
-```text
-weekly_tasks.json
-```
+1. 修改 `app.py` 中的 `APP_VERSION`。
+2. 重新生成 `wwbs-exe.zip`。
+3. 创建新的 Git 标签，例如 `v1.4`。
+4. 在 GitHub 创建同名 Release。
+5. 将 `wwbs-exe.zip` 上传到该 Release。
+6. 在 Release 描述中填写本次更新内容。
 
-常用字段：
+不要修改发布文件名，否则客户端无法找到更新包。
 
-- `template`：单个模板名。
-- `templates`：循环模板列表。
-- `seconds`：点击后等待秒数。
-- `threshold`：识别阈值。
-- `offset_x` / `offset_y`：点击点偏移。
-- `template_offsets`：给某个模板单独设置偏移。
+## 注意事项
 
-## 发布给朋友
-
-最简单的方式：发送 `wwbs-exe.zip`。
-
-朋友使用方式：
-
-1. 解压 `wwbs-exe.zip`。
-2. 打开解压后的文件夹。
-3. 双击 `wwbs.exe`。
-
-如果发送源码版，则需要把以下内容一起发给朋友：
-
-- `app.py`
-- `windows_client.py`
-- `image_matcher.py`
-- `weekly_tasks.json`
-- `requirements.txt`
-- `templates/`
-- `wwbs.ico`
-- `wwbs_icon.png`
-- `启动 wwbs.bat`
-
-运行缓存、调试图、截图缓存不需要发送。
-
-## GitHub 上传建议
-
-本项目已包含 `.gitignore`，会自动忽略：
-
-- `debug/`
-- `__pycache__/`
-- `_runtime_screenshot.png`
-- `_target_preview.png`
-- `_template_source.png`
-
-如果电脑已安装 Git，可执行：
-
-```powershell
-git init
-git add .
-git commit -m "Initial release"
-git branch -M main
-git remote add origin https://github.com/<你的用户名>/wwbs.git
-git push -u origin main
-```
+- 本工具只对当前桌面上的游戏窗口执行图像识别和鼠标操作。
+- 请先使用“先预演一次”确认模板位置正确。
+- 不要在游戏新手教程尚未完成时启动自动任务。
+- 识别异常时可以查看“日志”页面，并使用模板组功能重新制作图片。

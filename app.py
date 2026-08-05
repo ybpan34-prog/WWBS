@@ -26,10 +26,10 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 DEFAULT_GROUP_NAME = "幻梦游园"
 APP_ICON = APP_DIR / "wwbs.ico"
-APP_VERSION = "1.3"
+APP_VERSION = "1.3.1"
 UPDATE_API_URL = "https://api.github.com/repos/ybpan34-prog/WWBS/releases/latest"
 UPDATE_ASSET_NAME = "wwbs-exe.zip"
-UPDATE_NOTICE = """v1.3 更新内容
+UPDATE_NOTICE = """v1.3.1 更新内容
 1. 新增抽取概率计算，可以分别填写角色水位和武器水位。
 2. 新增“现在是否拥有大保底”选项，角色概率可按当前保底状态计算。
 3. 优化小概率显示，不再把极低概率显示成 0.00%。
@@ -40,7 +40,7 @@ UPDATE_NOTICE = """v1.3 更新内容
 2. 请将游戏窗口调整为 1920*1080p 或等比例缩放。
 3. 请先完成周本的新手教程，并将速度调整至 MAX。"""
 UPDATE_HISTORY = [
-    ("v1.3", UPDATE_NOTICE.split("\n使用前请确认", 1)[0]),
+    ("v1.3.1", UPDATE_NOTICE.split("\n使用前请确认", 1)[0]),
 ]
 LOCAL_TZ = timezone(timedelta(hours=8))
 PREVIEW_ASPECT = 16 / 9
@@ -1620,7 +1620,7 @@ Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
             count = len(step.templates) if step.templates else len(
                 [path for path in TEMPLATES_DIR.glob("menu*.png") if re.fullmatch(r"menu\d+\.png", path.name)]
             )
-            loop_text = "循环执行，直到手动停止" if step.loop else "执行一轮"
+            loop_text = "循环执行，直到达到已选择的轮数或手动停止" if step.loop else "执行一轮"
             return f"{label}按顺序识别 {count} 个模板，每步间隔 {step.seconds} 秒，{loop_text}"
         if step.action == "tap":
             return f"{label}点击固定位置 ({step.x}, {step.y})"
