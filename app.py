@@ -41,7 +41,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 DEFAULT_GROUP_NAME = "幻梦游园"
 APP_ICON = APP_DIR / "wwbs.ico"
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.4.1"
 THEME_CONFIG = APP_DIR / "theme-settings.json"
 PET_CONFIG = APP_DIR / "pet-settings.json"
 PET_DISPLAY_CONFIG = APP_DIR / "pet-display-settings.json"
@@ -64,6 +64,14 @@ UPDATE_NOTICE = """v1.3.5 更新内容
 2. 请将游戏窗口调整为 1920*1080p 或等比例缩放。
 3. 请先完成周本的新手教程，并将速度调整至 MAX。"""
 UPDATE_HISTORY = [
+    (
+        "v1.4.1",
+        """v1.4.1 更新内容
+1. 修复日常战斗结束后镜头过低、水平转向仍找不到奖励光球的问题。
+2. 奖励搜索改为分层扫描：先保持当前高度寻找，连续未找到才逐级抬高，最后恢复初始高度，避免正常视角被抬得过高。
+3. 设置页新增“日常战斗回血”，默认关闭；开启后定时切换三号位执行回血连段，并自动切回一号位继续战斗。
+4. 日常回血会暂停一号位持续普攻，连段完成后再恢复，避免角色切换期间产生误操作。""",
+    ),
     (
         "v1.4.0",
         """v1.4.0 更新内容
@@ -461,6 +469,7 @@ class TaskRunner:
         combat_skill_key: str = "E",
         combat_ultimate_key: str = "R",
         daily_zone_name: str = "",
+        daily_heal_enabled: bool = False,
     ):
         self.controller = controller
         self.log = log
@@ -470,6 +479,7 @@ class TaskRunner:
         self.combat_skill_key = combat_skill_key
         self.combat_ultimate_key = combat_ultimate_key
         self.daily_zone_name = daily_zone_name
+        self.daily_heal_enabled = bool(daily_heal_enabled)
         self.matcher = TemplateMatcher(TEMPLATES_DIR)
         self.template_root = TEMPLATES_DIR
         self.debug_matches = False
@@ -757,7 +767,7 @@ class TaskRunner:
             attack_finished.wait(self.MAIN_ATTACK_CLICK_INTERVAL)
 
     def _run_daily_routine(self, step: Step) -> None:
-        """Run the two-round daily tacet-field flow without the 4C healer rotation."""
+        """Run the two-round daily tacet-field flow with optional healing."""
         required = (
             "press_keys",
             "press_key",
@@ -782,6 +792,11 @@ class TaskRunner:
         skill_key = self.controller.normalize_input_binding(self.combat_skill_key)
         ultimate_key = self.controller.normalize_input_binding(self.combat_ultimate_key)
         self.log(f"    一键日常目标：{self.daily_zone_name}。")
+        self.log(
+            "    日常三号位回血已开启。"
+            if self.daily_heal_enabled
+            else "    日常三号位回血未开启，仅使用一号位战斗。"
+        )
         try:
             self._open_daily_tacet_field(template_name)
             for cycle_index in (1, 2):
@@ -1127,6 +1142,7 @@ class TaskRunner:
         last_skill = started
         last_q = started
         last_ultimate = started
+        last_heal = started
         last_approach = 0.0
         last_task_check = 0.0
         task_seen = False
@@ -1136,7 +1152,10 @@ class TaskRunner:
         if self.stop_event.is_set():
             return
         self.controller.middle_click()
-        self.log(f"    第{cycle_index}轮：中键锁定后，仅使用一号位持续战斗。")
+        self.log(
+            f"    第{cycle_index}轮：中键锁定后，"
+            f"{'按设置定时切三号位回血' if self.daily_heal_enabled else '仅使用一号位持续战斗'}。"
+        )
 
         attack_enabled = threading.Event()
         attack_finished = threading.Event()
@@ -1172,6 +1191,18 @@ class TaskRunner:
                         if missing_confirmations >= 2:
                             self.log("    左侧清理目标文字快速复核后仍消失，进入奖励获取阶段。")
                             return
+                if self.daily_heal_enabled and now - last_heal >= self.HEAL_ROTATION_INTERVAL:
+                    attack_enabled.clear()
+                    with attack_lock:
+                        pass
+                    self.controller.release_keys()
+                    self.log(
+                        "    日常回血：切换三号位执行技能、跳跃与普攻连段，随后切回一号位。"
+                    )
+                    self._perform_4c_heal_rotation(skill_key)
+                    last_heal = time.monotonic()
+                    attack_enabled.set()
+                    continue
                 if now - last_skill >= 10.0:
                     self.controller.press_binding(skill_key, 65)
                     last_skill = time.monotonic()
@@ -1226,6 +1257,7 @@ class TaskRunner:
         screenshot = APP_DIR / "_runtime_screenshot.png"
         deadline = time.monotonic() + 75.0
         previous_forward_confidence: float | None = None
+        search_misses = 0
         while time.monotonic() < deadline and not self.stop_event.is_set():
             self._capture_for_matching(screenshot)
             # Ultimate effects can temporarily cover the task text and cause the
@@ -1253,10 +1285,19 @@ class TaskRunner:
                 return True
             target_x, _target_y, density = self._daily_reward_orb_location(screenshot)
             if target_x is None or density <= DAILY_REWARD_ORB_MIN_CONFIDENCE:
-                self.controller.move_mouse_relative(260, 0)
+                search_misses += 1
+                vertical_adjustment = self._daily_reward_vertical_adjustment(search_misses)
+                self.controller.move_mouse_relative(260, vertical_adjustment)
+                if vertical_adjustment < 0:
+                    height_action = "抬高一档并"
+                elif vertical_adjustment > 0:
+                    height_action = "恢复初始高度并"
+                else:
+                    height_action = ""
                 self.log(
                     f"    奖励光球置信度 {density:.2f} 未超过"
-                    f"{DAILY_REWARD_ORB_MIN_CONFIDENCE:.2f}，小幅向右转动继续搜索。"
+                    f"{DAILY_REWARD_ORB_MIN_CONFIDENCE:.2f}，"
+                    f"{height_action}向右转动搜索。"
                 )
                 previous_forward_confidence = None
             elif self._daily_reward_movement_stalled(previous_forward_confidence, density):
@@ -1267,6 +1308,7 @@ class TaskRunner:
                 )
                 previous_forward_confidence = None
             else:
+                search_misses = 0
                 offset = target_x - width * 0.5
                 if abs(offset) > width * 0.05:
                     self.controller.move_mouse_relative(int(max(-300, min(300, offset * 0.40))), 0)
@@ -1279,6 +1321,16 @@ class TaskRunner:
     @staticmethod
     def _daily_reward_movement_stalled(previous: float | None, current: float) -> bool:
         return previous is not None and current <= previous
+
+    @staticmethod
+    def _daily_reward_vertical_adjustment(search_misses: int) -> int:
+        """Sweep several camera heights and always return to the starting pitch."""
+        phase = max(1, int(search_misses)) % 18
+        if phase in {5, 11}:
+            return -180
+        if phase == 17:
+            return 360
+        return 0
 
     def _claim_daily_double_reward(self, cycle_index: int) -> None:
         self._click_daily_template(
@@ -2300,6 +2352,7 @@ class App:
         self.device_id = StringVar(value="")
         self.combat_skill_key = StringVar(value=self._load_combat_skill_key())
         self.combat_ultimate_key = StringVar(value=self._load_combat_ultimate_key())
+        self.daily_heal_enabled = BooleanVar(value=self._load_daily_heal_enabled())
         self.daily_zone = StringVar(value=self._load_daily_zone())
         self.pet_size = StringVar(value=f"{self._load_pet_size_percent()}%")
         self.dry_run = BooleanVar(value=True)
@@ -2450,6 +2503,14 @@ class App:
             return "R"
 
     @staticmethod
+    def _load_daily_heal_enabled() -> bool:
+        try:
+            saved = json.loads(COMBAT_CONFIG.read_text(encoding="utf-8"))
+            return saved.get("daily_heal_enabled") is True
+        except (OSError, ValueError, json.JSONDecodeError):
+            return False
+
+    @staticmethod
     def _load_daily_zone() -> str:
         try:
             selected = str(json.loads(DAILY_CONFIG.read_text(encoding="utf-8")).get("zone", ""))
@@ -2500,16 +2561,25 @@ class App:
         self.combat_ultimate_key.set(self._combat_binding_display(normalized_ultimate))
         COMBAT_CONFIG.write_text(
             json.dumps(
-                {"skill_key": normalized_skill, "ultimate_key": normalized_ultimate},
+                {
+                    "skill_key": normalized_skill,
+                    "ultimate_key": normalized_ultimate,
+                    "daily_heal_enabled": self.daily_heal_enabled.get(),
+                },
                 ensure_ascii=False,
                 indent=2,
             ),
             encoding="utf-8",
         )
-        self._log(f"4C技能键位已保存为：{normalized_skill}；大招键位：{normalized_ultimate}。")
+        heal_text = "开启" if self.daily_heal_enabled.get() else "关闭"
+        self._log(
+            f"4C技能键位已保存为：{normalized_skill}；大招键位：{normalized_ultimate}；"
+            f"日常三号位回血：{heal_text}。"
+        )
         messagebox.showinfo(
             "已保存",
-            f"4C技能键位：{normalized_skill}\n4C大招键位：{normalized_ultimate}",
+            f"4C技能键位：{normalized_skill}\n4C大招键位：{normalized_ultimate}"
+            f"\n日常三号位回血：{heal_text}",
             parent=self.root,
         )
 
@@ -3054,6 +3124,20 @@ class App:
         ).pack(side=LEFT, padx=6)
         Label(ultimate_row, text="默认 R；与技能键一起点击“保存键位”", fg="#697386").pack(side=LEFT)
 
+        daily_heal_row = Frame(self.settings_tab)
+        daily_heal_row.pack(fill=X, pady=5)
+        Label(daily_heal_row, text="日常战斗回血", width=12, anchor="w").pack(side=LEFT)
+        Checkbutton(
+            daily_heal_row,
+            text="启用三号位回血连段（默认关闭）",
+            variable=self.daily_heal_enabled,
+        ).pack(side=LEFT, padx=6)
+        Label(
+            daily_heal_row,
+            text="勾选后点击上方“保存键位”；日常战斗会定时切三号位并自动切回一号位",
+            fg="#697386",
+        ).pack(side=LEFT)
+
         row1 = Frame(self.settings_tab)
         row1.pack(fill=X, pady=5)
         Label(row1, text="ADB 路径", width=12, anchor="w").pack(side=LEFT)
@@ -3166,16 +3250,12 @@ class App:
     def _show_update_notice(self) -> None:
         messagebox.showinfo(
             f"wwbs {APP_VERSION} 更新公告",
-            "1.4.0 正式版\n\n"
-            "• 一键日常正式上线：滑动选择无音区，自动完成两轮双倍领取\n"
-            "• 体力不足只使用结晶单质或结晶溶剂，绝不使用星声\n"
-            "• 结晶单质为0或补充后仍不足时，自动改用结晶溶剂\n"
-            "• 优化无音区滚动、角色一号位确认与战斗结束复核\n"
-            "• 优化奖励光球识别、靠近、停滞转向与领取速度\n"
-            "• 自动领取活跃度100宝箱和先约电台免费奖励\n"
-            "• 改进4C声骸搜索，排除广告牌等相似目标\n"
-            "• 修复 Ctrl + Alt + S 全局停止快捷键\n"
-            "• 桌宠可直接启动周常任务和一键日常\n\n"
+            "1.4.1 修复版\n\n"
+            "• 修复战斗结束后镜头过低、找不到奖励光球的问题\n"
+            "• 奖励搜索先扫描当前高度，再按需逐级抬高视角\n"
+            "• 扫描结束会恢复初始高度，不会把正常镜头抬到天空\n"
+            "• 设置页新增可选的日常三号位回血，默认关闭\n"
+            "• 开启后会暂停一号位普攻，完成回血连段并切回一号位\n\n"
             "正式版支持通过 GitHub Releases 检查和安装后续更新。",
             parent=self.root,
         )
@@ -4212,6 +4292,7 @@ Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
                 self.combat_skill_key.get(),
                 self.combat_ultimate_key.get(),
                 self.daily_zone.get(),
+                self.daily_heal_enabled.get(),
             )
             for task in tasks:
                 runner.run_task(task)
@@ -4689,7 +4770,7 @@ def ensure_default_config() -> None:
 def main() -> None:
     ensure_default_config()
     try:
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ybpan34.wwbs.1.4.0")
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ybpan34.wwbs.1.4.1")
     except Exception:
         pass
     root = Tk()

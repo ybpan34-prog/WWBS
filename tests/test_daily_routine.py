@@ -193,6 +193,30 @@ class DailyRoutineTests(unittest.TestCase):
         controller.move_mouse_relative.assert_not_called()
         controller.press_keys.assert_not_called()
 
+    def test_reward_search_scans_current_height_then_raises_and_restores_pitch(self):
+        adjustments = [TaskRunner._daily_reward_vertical_adjustment(index) for index in range(1, 19)]
+
+        self.assertEqual(adjustments[4], -180)
+        self.assertEqual(adjustments[10], -180)
+        self.assertEqual(adjustments[16], 360)
+        self.assertEqual(sum(adjustments), 0)
+        self.assertEqual(adjustments[0], 0)
+
+    def test_daily_healing_is_disabled_by_default(self):
+        runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)
+
+        self.assertFalse(runner.daily_heal_enabled)
+
+    def test_daily_healing_can_be_enabled_explicitly(self):
+        runner = TaskRunner(
+            Mock(),
+            lambda _message: None,
+            dry_run=False,
+            daily_heal_enabled=True,
+        )
+
+        self.assertTrue(runner.daily_heal_enabled)
+
     def test_refill_never_selects_star_currency_card(self):
         runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)
         taps = []
