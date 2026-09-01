@@ -41,7 +41,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 DEFAULT_GROUP_NAME = "幻梦游园"
 APP_ICON = APP_DIR / "wwbs.ico"
-APP_VERSION = "1.4.1"
+APP_VERSION = "1.4.2"
 THEME_CONFIG = APP_DIR / "theme-settings.json"
 PET_CONFIG = APP_DIR / "pet-settings.json"
 PET_DISPLAY_CONFIG = APP_DIR / "pet-display-settings.json"
@@ -64,6 +64,15 @@ UPDATE_NOTICE = """v1.3.5 更新内容
 2. 请将游戏窗口调整为 1920*1080p 或等比例缩放。
 3. 请先完成周本的新手教程，并将速度调整至 MAX。"""
 UPDATE_HISTORY = [
+    (
+        "v1.4.2",
+        """v1.4.2 更新内容
+1. 修复第二轮挑战结束后点击“退出副本”，卡在“确认离开”二次提示的问题。
+2. 程序会验证中央白色弹窗与左右两个黑色按钮同时存在，再点击右侧“确认”。
+3. 未出现二次提示时不会盲点固定坐标，会继续按原流程等待返回大世界。
+4. 修复补充体力界面加载稍慢时未识别绿色结晶单质为0、没有及时切换黄色结晶溶剂的问题。
+5. 进入补充界面后会多帧确认资源数量；绿色为0或确认后仍停留在补充界面时立即改用黄色，仍绝不选择星声。""",
+    ),
     (
         "v1.4.1",
         """v1.4.1 更新内容
@@ -820,7 +829,8 @@ class TaskRunner:
                     self._sleep_interruptible(0.3)
                 else:
                     self._click_daily_template("exit_instance.png", "退出副本", timeout=20.0)
-                    self._sleep_interruptible(0.6)
+                    self._confirm_daily_exit_if_present()
+                    self._sleep_interruptible(0.3)
             self._collect_daily_activity_rewards()
             self._collect_daily_battlepass_rewards()
             self.log("    一键日常流程完成。")
@@ -836,6 +846,57 @@ class TaskRunner:
         with Image.open(target) as captured:
             width, height = captured.size
         return target, width, height
+
+    @staticmethod
+    def _daily_exit_confirmation_present(screenshot: Path) -> bool:
+        """Detect the white leave-confirmation panel and its two dark buttons."""
+        with Image.open(screenshot) as source:
+            image = np.asarray(source.convert("RGB"))
+        height, width = image.shape[:2]
+
+        def ratio(
+            box: tuple[float, float, float, float],
+            predicate,
+        ) -> float:
+            left, top, right, bottom = box
+            crop = image[
+                round(height * top):round(height * bottom),
+                round(width * left):round(width * right),
+            ]
+            if crop.size == 0:
+                return 0.0
+            return float(predicate(crop).mean())
+
+        bright_panel = ratio(
+            (0.22, 0.29, 0.78, 0.71),
+            lambda crop: crop.min(axis=2) > 205,
+        )
+        left_dark_button = ratio(
+            (0.24, 0.59, 0.43, 0.68),
+            lambda crop: crop.max(axis=2) < 90,
+        )
+        right_dark_button = ratio(
+            (0.56, 0.59, 0.76, 0.68),
+            lambda crop: crop.max(axis=2) < 90,
+        )
+        return bright_panel > 0.50 and left_dark_button > 0.28 and right_dark_button > 0.28
+
+    def _confirm_daily_exit_if_present(self, timeout: float = 3.0) -> bool:
+        screenshot = APP_DIR / "_runtime_screenshot.png"
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline and not self.stop_event.is_set():
+            self._capture_for_matching(screenshot)
+            if self._daily_exit_confirmation_present(screenshot):
+                with Image.open(screenshot) as captured:
+                    width, height = captured.size
+                self.log("    已识别“确认离开”二次提示，点击右侧确认。")
+                self.controller.tap(round(width * 0.657), round(height * 0.628))
+                self._sleep_interruptible(0.25)
+                return True
+            if self._overworld_hud_ready(screenshot):
+                return False
+            self._sleep_interruptible(0.10)
+        return False
 
     def _tap_ratio(self, x_ratio: float, y_ratio: float, pause: float = 1.0) -> None:
         _screenshot, width, height = self._capture_size()
@@ -1391,9 +1452,8 @@ class TaskRunner:
         # Left and middle cards are the only permitted resources. The star card is
         # at the right and is never selected, even as a fallback.
         screenshot = APP_DIR / "_runtime_screenshot.png"
-        self._capture_for_matching(screenshot)
         resources = [("结晶单质", 0.403), ("结晶溶剂", 0.505)]
-        if self._daily_monomer_empty(screenshot):
+        if self._daily_monomer_empty_after_settle(screenshot):
             self.log("    结晶单质数量为0，跳过绿色卡片，直接使用结晶溶剂。")
             resources = resources[1:]
         for label, x_ratio in resources:
@@ -1418,6 +1478,16 @@ class TaskRunner:
         self._tap_ratio(0.30, 0.745, 0.5)
         return False
 
+    def _daily_monomer_empty_after_settle(self, screenshot: Path, timeout: float = 0.7) -> bool:
+        """Wait briefly for the resource counts to finish appearing before deciding."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline and not self.stop_event.is_set():
+            self._capture_for_matching(screenshot)
+            if self._daily_monomer_empty(screenshot):
+                return True
+            self._sleep_interruptible(0.10)
+        return False
+
     @staticmethod
     def _daily_monomer_empty(screenshot: Path) -> bool:
         """Detect the red zero at the lower-right of the green resource card."""
@@ -1425,16 +1495,46 @@ class TaskRunner:
             image = np.asarray(source.convert("RGB"))
         height, width = image.shape[:2]
         crop = image[
-            round(height * 0.47):round(height * 0.56),
-            round(width * 0.405):round(width * 0.45),
+            round(height * 0.46):round(height * 0.58),
+            round(width * 0.400):round(width * 0.455),
         ]
         if crop.size == 0:
             return False
         red = crop[:, :, 0].astype(np.int16)
         green = crop[:, :, 1].astype(np.int16)
         blue = crop[:, :, 2].astype(np.int16)
-        unavailable_red = (red > 120) & (green < 105) & (blue < 105) & ((red - green) > 45)
-        return int(unavailable_red.sum()) >= 8
+        unavailable_red = (
+            (red > 100)
+            & (green < 125)
+            & (blue < 125)
+            & ((red - green) > 30)
+            & ((red - blue) > 20)
+        )
+        return int(unavailable_red.sum()) >= 4
+
+    @staticmethod
+    def _daily_refill_chooser_present(screenshot: Path) -> bool:
+        """Recognize the refill chooser geometrically when its title template shifts."""
+        with Image.open(screenshot) as source:
+            image = np.asarray(source.convert("RGB"))
+        height, width = image.shape[:2]
+
+        def crop(box: tuple[float, float, float, float]) -> np.ndarray:
+            left, top, right, bottom = box
+            return image[
+                round(height * top):round(height * bottom),
+                round(width * left):round(width * right),
+            ]
+
+        panel = crop((0.17, 0.16, 0.83, 0.80))
+        cards = crop((0.35, 0.34, 0.64, 0.59))
+        buttons = crop((0.20, 0.68, 0.80, 0.79))
+        if not panel.size or not cards.size or not buttons.size:
+            return False
+        bright_panel = float((panel.min(axis=2) > 205).mean())
+        dark_cards = float((cards.max(axis=2) < 180).mean())
+        dark_buttons = float((buttons.max(axis=2) < 100).mean())
+        return bright_panel > 0.42 and dark_cards > 0.20 and dark_buttons > 0.22
 
     def _wait_daily_refill_result(self, timeout: float = 3.5) -> str:
         """Wait until refill succeeds or the refill chooser is visibly still open."""
@@ -1463,6 +1563,8 @@ class TaskRunner:
                 scales=scales,
                 screenshot=screenshot,
             ):
+                return "still_short"
+            if attempt >= 2 and self._daily_refill_chooser_present(screenshot):
                 return "still_short"
             attempt += 1
             self._sleep_interruptible(0.08)
@@ -3250,12 +3352,10 @@ class App:
     def _show_update_notice(self) -> None:
         messagebox.showinfo(
             f"wwbs {APP_VERSION} 更新公告",
-            "1.4.1 修复版\n\n"
-            "• 修复战斗结束后镜头过低、找不到奖励光球的问题\n"
-            "• 奖励搜索先扫描当前高度，再按需逐级抬高视角\n"
-            "• 扫描结束会恢复初始高度，不会把正常镜头抬到天空\n"
-            "• 设置页新增可选的日常三号位回血，默认关闭\n"
-            "• 开启后会暂停一号位普攻，完成回血连段并切回一号位\n\n"
+            "1.4.2 修复版\n\n"
+            "• 修复退出副本后卡在“确认离开”二次提示的问题\n"
+            "• 仅在识别到完整确认弹窗时点击右侧“确认”\n"
+            "• 没有弹窗时不会盲点固定坐标\n\n"
             "正式版支持通过 GitHub Releases 检查和安装后续更新。",
             parent=self.root,
         )
@@ -4770,7 +4870,7 @@ def ensure_default_config() -> None:
 def main() -> None:
     ensure_default_config()
     try:
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ybpan34.wwbs.1.4.1")
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ybpan34.wwbs.1.4.2")
     except Exception:
         pass
     root = Tk()

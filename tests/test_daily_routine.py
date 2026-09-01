@@ -6,6 +6,7 @@ from unittest.mock import Mock
 import numpy as np
 from PIL import Image
 
+import app
 from app import DAILY_ZONE_NAMES, DAILY_ZONE_TEMPLATES, TaskRunner
 from desktop_pet import DesktopPet
 
@@ -145,6 +146,35 @@ class DailyRoutineTests(unittest.TestCase):
         controller.press_key.assert_not_called()
         self.assertEqual(taps[0], (0.744, 0.257))
 
+    def test_exit_confirmation_detector_requires_white_panel_and_two_dark_buttons(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dialog_path = Path(temp_dir) / "dialog.png"
+            world_path = Path(temp_dir) / "world.png"
+            dialog = np.zeros((1080, 1920, 3), dtype=np.uint8)
+            dialog[313:767, 422:1498] = 238
+            dialog[637:734, 461:826] = 25
+            dialog[637:734, 1075:1459] = 25
+            Image.fromarray(dialog).save(dialog_path)
+            Image.fromarray(np.zeros_like(dialog)).save(world_path)
+
+            self.assertTrue(TaskRunner._daily_exit_confirmation_present(dialog_path))
+            self.assertFalse(TaskRunner._daily_exit_confirmation_present(world_path))
+
+    def test_exit_confirmation_clicks_only_the_right_confirm_button(self):
+        controller = Mock()
+        runner = TaskRunner(controller, lambda _message: None, dry_run=False)
+        runner._capture_for_matching = Mock()
+        runner._daily_exit_confirmation_present = Mock(return_value=True)
+        runner._sleep_interruptible = Mock()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            screenshot = Path(temp_dir) / "_runtime_screenshot.png"
+            Image.new("RGB", (1920, 1080)).save(screenshot)
+            with unittest.mock.patch.object(app, "APP_DIR", Path(temp_dir)):
+                self.assertTrue(runner._confirm_daily_exit_if_present())
+
+        controller.tap.assert_called_once_with(round(1920 * 0.657), round(1080 * 0.628))
+
     def test_reward_orb_requires_dense_white_core(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             orb_path = Path(temp_dir) / "orb.png"
@@ -228,6 +258,29 @@ class DailyRoutineTests(unittest.TestCase):
         selected_cards = [x for x, y in taps if abs(y - 0.455) < 0.001]
         self.assertEqual(selected_cards, [0.403, 0.505])
         self.assertNotIn(0.587, selected_cards)
+
+    def test_refill_detects_small_red_zero_on_green_card(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            screenshot = Path(temp_dir) / "refill.png"
+            image = np.full((1080, 1920, 3), 235, dtype=np.uint8)
+            image[548:558, 829:837] = (180, 35, 45)
+            Image.fromarray(image).save(screenshot)
+
+            self.assertTrue(TaskRunner._daily_monomer_empty(screenshot))
+
+    def test_refill_chooser_geometry_is_a_template_independent_fallback(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            chooser_path = Path(temp_dir) / "chooser.png"
+            blank_path = Path(temp_dir) / "blank.png"
+            chooser = np.zeros((1080, 1920, 3), dtype=np.uint8)
+            chooser[173:864, 326:1594] = 238
+            chooser[367:637, 672:1229] = 110
+            chooser[734:853, 384:1536] = 25
+            Image.fromarray(chooser).save(chooser_path)
+            Image.fromarray(np.zeros_like(chooser)).save(blank_path)
+
+            self.assertTrue(TaskRunner._daily_refill_chooser_present(chooser_path))
+            self.assertFalse(TaskRunner._daily_refill_chooser_present(blank_path))
 
     def test_refill_falls_back_to_solvent_when_monomer_is_not_enough(self):
         runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)
