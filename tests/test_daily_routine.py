@@ -36,6 +36,14 @@ class DailyRoutineTests(unittest.TestCase):
         self.assertNotIn("启动（拿满奖励）", labels)
         self.assertNotIn("拿满星声（13轮）", labels)
 
+    def test_pet_windows_use_program_icon_and_stay_out_of_taskbar(self):
+        window = Mock()
+
+        DesktopPet._configure_auxiliary_window(window, app.APP_ICON)
+
+        window.iconbitmap.assert_called_once_with(str(app.APP_ICON))
+        window.wm_attributes.assert_called_once_with("-toolwindow", True)
+
     def test_terminal_destination_always_opens_with_escape_first(self):
         controller = Mock()
         controller.screenshot_to_client = lambda x, y: (x, y)
@@ -145,6 +153,57 @@ class DailyRoutineTests(unittest.TestCase):
         runner._open_terminal_destination.assert_not_called()
         controller.press_key.assert_not_called()
         self.assertEqual(taps[0], (0.744, 0.257))
+
+    def test_completed_weekly_travel_skips_dream_park(self):
+        runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)
+        runner._tap_ratio = Mock()
+        runner._capture_for_matching = Mock()
+        runner._wait_for_daily_template = Mock()
+        runner._weekly_travel_completed = Mock(return_value=True)
+        runner._run_default_weekly_from_daily = Mock()
+
+        runner._continue_daily_into_weekly_travel()
+
+        runner._run_default_weekly_from_daily.assert_not_called()
+        self.assertEqual(runner._tap_ratio.call_args_list[0].args[:2], (0.515, 0.671))
+        self.assertEqual(runner._tap_ratio.call_args_list[-1].args[:2], (0.957, 0.058))
+
+    def test_unfinished_weekly_travel_selects_first_skill_when_empty(self):
+        runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)
+        runner._tap_ratio = Mock()
+        runner._capture_for_matching = Mock()
+        runner._weekly_travel_completed = Mock(return_value=False)
+        runner._weekly_skill_equipped = Mock(return_value=False)
+        runner._wait_for_daily_template = Mock()
+        runner._wait_for_weekly_skill_dialog = Mock()
+        runner._run_default_weekly_from_daily = Mock()
+
+        runner._continue_daily_into_weekly_travel()
+
+        tapped = [call.args[:2] for call in runner._tap_ratio.call_args_list]
+        self.assertIn((0.333, 0.170), tapped)
+        self.assertIn((0.247, 0.505), tapped)
+        self.assertIn((0.496, 0.768), tapped)
+        self.assertIn((0.371, 0.505), tapped)
+        self.assertIn((0.826, 0.858), tapped)
+        runner._run_default_weekly_from_daily.assert_called_once_with()
+
+    def test_equipped_weekly_skill_is_kept(self):
+        runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)
+        runner._tap_ratio = Mock()
+        runner._capture_for_matching = Mock()
+        runner._weekly_travel_completed = Mock(return_value=False)
+        runner._weekly_skill_equipped = Mock(return_value=True)
+        runner._wait_for_daily_template = Mock()
+        runner._wait_for_weekly_skill_dialog = Mock()
+        runner._run_default_weekly_from_daily = Mock()
+
+        runner._continue_daily_into_weekly_travel()
+
+        tapped = [call.args[:2] for call in runner._tap_ratio.call_args_list]
+        self.assertNotIn((0.496, 0.768), tapped)
+        runner._wait_for_weekly_skill_dialog.assert_not_called()
+        runner._run_default_weekly_from_daily.assert_called_once_with()
 
     def test_exit_confirmation_detector_requires_white_panel_and_two_dark_buttons(self):
         with tempfile.TemporaryDirectory() as temp_dir:

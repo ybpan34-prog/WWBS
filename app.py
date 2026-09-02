@@ -41,7 +41,22 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 DEFAULT_GROUP_NAME = "幻梦游园"
 APP_ICON = APP_DIR / "wwbs.ico"
-APP_VERSION = "1.4.2"
+APP_VERSION = "1.4.3"
+RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
+RUN_NOTICES = {
+    "daily": (
+        "一键日常启动页面",
+        RUN_NOTICE_DIR / "daily-start.jpg",
+    ),
+    "weekly": (
+        "一键周常启动页面",
+        RUN_NOTICE_DIR / "weekly-start.jpg",
+    ),
+    "combat_4c": (
+        "4C刷取启动页面",
+        RUN_NOTICE_DIR / "combat-4c-start.jpg",
+    ),
+}
 THEME_CONFIG = APP_DIR / "theme-settings.json"
 PET_CONFIG = APP_DIR / "pet-settings.json"
 PET_DISPLAY_CONFIG = APP_DIR / "pet-display-settings.json"
@@ -64,6 +79,14 @@ UPDATE_NOTICE = """v1.3.5 更新内容
 2. 请将游戏窗口调整为 1920*1080p 或等比例缩放。
 3. 请先完成周本的新手教程，并将速度调整至 MAX。"""
 UPDATE_HISTORY = [
+    (
+        "v1.4.3",
+        """v1.4.3 更新内容
+- 一键日常完成领奖后会检查周度游历，未完成时自动进入幻梦游园并执行15轮周常。
+- 一键日常、一键周常和4C刷取按钮旁新增圆圈问号，可查看16:9启动页面示例。
+- 修复桌宠及底部任务栏图标显示异常。
+""",
+    ),
     (
         "v1.4.2",
         """v1.4.2 更新内容
@@ -794,7 +817,7 @@ class TaskRunner:
         if self.dry_run:
             self.log(
                 f"    干运行：将精确寻找“{self.daily_zone_name}”，完成两轮战斗与双倍领取，"
-                "随后领取活跃度与先约电台奖励。"
+                "随后领取活跃度与先约电台奖励；周度游历未完成时继续执行15轮幻梦游园。"
             )
             return
 
@@ -833,7 +856,8 @@ class TaskRunner:
                     self._sleep_interruptible(0.3)
             self._collect_daily_activity_rewards()
             self._collect_daily_battlepass_rewards()
-            self.log("    一键日常流程完成。")
+            self._continue_daily_into_weekly_travel()
+            self.log("    一键日常与自动周常流程完成。")
         finally:
             try:
                 self.controller.release_keys(("W", "A", "S", "D", "SPACE", "1", "2", "3", "4"))
@@ -1647,6 +1671,143 @@ class TaskRunner:
             self._dismiss_reward_overlay_safely()
         self._tap_ratio(0.957, 0.058, 0.8)
 
+    @staticmethod
+    def _weekly_travel_completed(screenshot: Path) -> bool:
+        """Detect the check mark on the inactive weekly-travel tab."""
+        with Image.open(screenshot) as source:
+            image = np.asarray(source.convert("RGB"))
+        height, width = image.shape[:2]
+        region = image[
+            round(height * 0.151):round(height * 0.187),
+            round(width * 0.385):round(width * 0.405),
+        ]
+        if region.size == 0:
+            return False
+        high = region.max(axis=2)
+        low = region.min(axis=2)
+        neutral_check = ((high - low) < 35) & (high > 110)
+        return float(neutral_check.mean()) > 0.15
+
+    @staticmethod
+    def _weekly_skill_equipped(screenshot: Path) -> bool:
+        """The equipped blessing has a solid orange name plate below the icon."""
+        with Image.open(screenshot) as source:
+            image = np.asarray(source.convert("RGB"))
+        height, width = image.shape[:2]
+        region = image[
+            # Inspect only the blessing-name plate. The empty slot may still
+            # contain an orange circular button above it, which must not count
+            # as an equipped skill.
+            round(height * 0.855):round(height * 0.90),
+            round(width * 0.425):round(width * 0.555),
+        ]
+        if region.size == 0:
+            return False
+        red = region[:, :, 0].astype(np.int16)
+        green = region[:, :, 1].astype(np.int16)
+        blue = region[:, :, 2].astype(np.int16)
+        orange_plate = (
+            (red > 180)
+            & (green > 90)
+            & (green < 210)
+            & (blue < 100)
+            & ((red - blue) > 90)
+        )
+        return float(orange_plate.mean()) > 0.15
+
+    @staticmethod
+    def _weekly_skill_dialog_present(screenshot: Path) -> bool:
+        """Confirm that the four-card blessing selector is fully visible."""
+        with Image.open(screenshot) as source:
+            image = np.asarray(source.convert("RGB")).astype(np.float32)
+        height, width = image.shape[:2]
+        title = image[
+            round(height * 0.20):round(height * 0.32),
+            round(width * 0.43):round(width * 0.82),
+        ]
+        body = image[
+            round(height * 0.30):round(height * 0.78),
+            round(width * 0.27):round(width * 0.97),
+        ]
+        if title.size == 0 or body.size == 0:
+            return False
+        green_title = (
+            (title[:, :, 1] > 100)
+            & (title[:, :, 1] > title[:, :, 0] * 1.03)
+            & (title[:, :, 1] > title[:, :, 2] * 1.12)
+        )
+        bright_body = body.max(axis=2) > 190
+        return float(green_title.mean()) > 0.30 and float(bright_body.mean()) > 0.65
+
+    def _wait_for_weekly_skill_dialog(self, timeout: float = 5.0) -> None:
+        screenshot = APP_DIR / "_runtime_screenshot.png"
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline and not self.stop_event.is_set():
+            self._capture_for_matching(screenshot)
+            if self._weekly_skill_dialog_present(screenshot):
+                return
+            self._sleep_interruptible(0.12)
+        raise RuntimeError("点击祝福技能槽后未出现四技能选择界面，已停止以避免误点。")
+
+    def _run_default_weekly_from_daily(self) -> None:
+        """Reuse the established menu template chain for the 15-round reward run."""
+        self.template_root = TEMPLATES_DIR
+        self.matcher.templates_dir = TEMPLATES_DIR
+        self.max_cycles = 15
+        start_step = Step(
+            action="tap_image",
+            label="点击幻梦游园开始游戏",
+            template="menu1.png",
+            threshold=0.82,
+            timeout=12.0,
+            offset_x=80,
+            seconds=0.15,
+        )
+        cycle_step = Step(
+            action="tap_image_cycle",
+            label="自动执行15轮幻梦游园",
+            templates=self._numbered_templates("menu", 2, 99),
+            loop=True,
+            threshold=0.82,
+            timeout=1.0,
+            seconds=0.15,
+        )
+        self._run_step(start_step)
+        self._run_image_cycle(cycle_step)
+
+    def _continue_daily_into_weekly_travel(self) -> None:
+        """From the terminal, enter unfinished weekly travel and start Dream Park."""
+        self.log("    回到终端后再次进入索拉指南，检查周度游历。")
+        self._tap_ratio(0.515, 0.671, 0.65)
+        screenshot = APP_DIR / "_runtime_screenshot.png"
+        self._wait_for_daily_template("activity_full.png", timeout=5.0, threshold=0.62)
+        self._capture_for_matching(screenshot)
+        if self._weekly_travel_completed(screenshot):
+            self.log("    周度游历已有勾，自动周常已完成，本次跳过幻梦游园。")
+            self._tap_ratio(0.957, 0.058, 0.35)
+            return
+
+        self.log("    周度游历未完成，进入周度游历 → 幻梦游园。")
+        self._tap_ratio(0.333, 0.170, 0.55)
+        self._tap_ratio(0.247, 0.505, 0.8)
+
+        self.template_root = TEMPLATES_DIR
+        self.matcher.templates_dir = TEMPLATES_DIR
+        self._wait_for_daily_template("menu1.png", timeout=12.0, threshold=0.78)
+        self._capture_for_matching(screenshot)
+        if not self._weekly_skill_equipped(screenshot):
+            self.log("    当前没有装备幻梦祝福，打开技能选择并固定选择第一个技能。")
+            self._tap_ratio(0.496, 0.768, 0.18)
+            self._wait_for_weekly_skill_dialog()
+            self._tap_ratio(0.371, 0.505, 0.18)
+            self._tap_ratio(0.826, 0.858, 0.55)
+            self._wait_for_daily_template("menu1.png", timeout=8.0, threshold=0.78)
+        else:
+            self.log("    已装备幻梦祝福，保留当前技能，不重复打开选择界面。")
+
+        self.log("    小漂泊者界面准备完成，接续周常拿满奖励（15轮）。")
+        self._run_default_weekly_from_daily()
+
     def _perform_4c_main_attack(self) -> None:
         """Keep a steady main-character attack rhythm matching the healer clicks."""
         self.controller.left_click()
@@ -2430,8 +2591,15 @@ class App:
         COLORS.clear()
         COLORS.update(THEME_DEFINITIONS.get(self.theme_id, {}).get("colors", SIMPLE_COLORS))
         self.root.title(f"wwbs {APP_VERSION}")
+        self._app_icon_photo = None
         if APP_ICON.exists():
             self.root.iconbitmap(str(APP_ICON))
+            try:
+                with Image.open(APP_ICON) as icon_image:
+                    self._app_icon_photo = ImageTk.PhotoImage(icon_image.convert("RGBA"))
+                self.root.iconphoto(True, self._app_icon_photo)
+            except Exception:
+                pass
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
         reference_screen = (2560, 1440)
@@ -2918,7 +3086,10 @@ class App:
                 parent_bg = child.master.cget("bg") if hasattr(child.master, "cget") else COLORS["panel"]
                 child.configure(bg=parent_bg, fg=COLORS["text"], activebackground=parent_bg, activeforeground=COLORS["text"], selectcolor=COLORS["panel"])
             elif klass == "Canvas":
-                if child not in (getattr(self, "preview_canvas", None), getattr(self, "theme_banner", None)):
+                if (
+                    child not in (getattr(self, "preview_canvas", None), getattr(self, "theme_banner", None))
+                    and not getattr(child, "_keep_canvas_style", False)
+                ):
                     child.configure(bg=COLORS["panel"], highlightthickness=0)
             self._polish_widgets(child)
 
@@ -2957,17 +3128,19 @@ class App:
         Label(left, text="一键操作", font=(FONT_FAMILY, 13, "bold")).pack(anchor="w")
         action_box = Frame(left, padx=14, pady=14, bg=COLORS["panel_alt"], highlightthickness=1, highlightbackground=COLORS["line_soft"])
         action_box.pack(fill=X, pady=(8, 10))
-        action_box.columnconfigure(0, weight=1, uniform="actions")
-        ttk.Button(action_box, text="检测游戏窗口", style="Primary.TButton", command=self._check_target).grid(row=0, column=0, sticky="ew", pady=(0, 10))
-        ttk.Button(action_box, text="周常拿满奖励", style="Primary.TButton", command=lambda: self._start_enabled_real(15)).grid(row=1, column=0, sticky="ew", pady=(0, 10))
-        ttk.Button(action_box, text="周常拿满星声", style="Primary.TButton", command=lambda: self._start_enabled_real(13)).grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        action_box.columnconfigure(0, weight=1)
+        action_box.columnconfigure(1, minsize=42)
+        ttk.Button(action_box, text="周常拿满奖励", style="Primary.TButton", command=lambda: self._start_enabled_real(15)).grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        self._run_notice_button(action_box, "weekly").grid(row=0, column=1, sticky="e", padx=(8, 0), pady=(0, 10))
+        ttk.Button(action_box, text="周常拿满星声", style="Primary.TButton", command=lambda: self._start_enabled_real(13)).grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        self._run_notice_button(action_box, "weekly").grid(row=1, column=1, sticky="e", padx=(8, 0), pady=(0, 10))
         Label(
             action_box,
             text="一键日常 · 滑动选取无音区",
             bg=COLORS["panel_alt"],
             fg=COLORS["muted"],
             anchor="w",
-        ).grid(row=3, column=0, sticky="ew", pady=(0, 4))
+        ).grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 4))
         daily_zone_picker = ttk.Combobox(
             action_box,
             textvariable=self.daily_zone,
@@ -2975,7 +3148,7 @@ class App:
             state="readonly",
             width=25,
         )
-        daily_zone_picker.grid(row=4, column=0, sticky="ew", pady=(0, 8))
+        daily_zone_picker.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         daily_zone_picker.bind("<<ComboboxSelected>>", self._save_daily_zone)
         daily_zone_picker.bind("<MouseWheel>", self._scroll_daily_zone)
         ttk.Button(
@@ -2983,10 +3156,13 @@ class App:
             text="一键日常（2轮双倍）",
             style="Primary.TButton",
             command=self._start_daily_routine,
-        ).grid(row=5, column=0, sticky="ew", pady=(0, 10))
-        ttk.Button(action_box, text="4C刷取（5次）", style="Primary.TButton", command=lambda: self._start_named_task_real("4C刷取", 5)).grid(row=6, column=0, sticky="ew", pady=(0, 10))
-        ttk.Button(action_box, text="4C刷取（10次）", style="Primary.TButton", command=lambda: self._start_named_task_real("4C刷取", 10)).grid(row=7, column=0, sticky="ew", pady=(0, 10))
-        Button(action_box, text=f"停止当前任务（{STOP_HOTKEY_LABEL}）", command=self._stop).grid(row=8, column=0, sticky="ew")
+        ).grid(row=4, column=0, sticky="ew", pady=(0, 10))
+        self._run_notice_button(action_box, "daily").grid(row=4, column=1, sticky="e", padx=(8, 0), pady=(0, 10))
+        ttk.Button(action_box, text="4C刷取（5次）", style="Primary.TButton", command=lambda: self._start_named_task_real("4C刷取", 5)).grid(row=5, column=0, sticky="ew", pady=(0, 10))
+        self._run_notice_button(action_box, "combat_4c").grid(row=5, column=1, sticky="e", padx=(8, 0), pady=(0, 10))
+        ttk.Button(action_box, text="4C刷取（10次）", style="Primary.TButton", command=lambda: self._start_named_task_real("4C刷取", 10)).grid(row=6, column=0, sticky="ew", pady=(0, 10))
+        self._run_notice_button(action_box, "combat_4c").grid(row=6, column=1, sticky="e", padx=(8, 0), pady=(0, 10))
+        Button(action_box, text=f"停止当前任务（{STOP_HOTKEY_LABEL}）", command=self._stop).grid(row=7, column=0, columnspan=2, sticky="ew")
 
         Label(left, text=self.pet_name, font=(FONT_FAMILY, 12, "bold")).pack(anchor="w", pady=(10, 0))
         pet_box = Frame(left, padx=14, pady=14, bg=COLORS["panel_alt"], highlightthickness=1, highlightbackground=COLORS["line_soft"])
@@ -3007,7 +3183,7 @@ class App:
         self.preview_canvas.create_text(
             210,
             120,
-            text="点击“检测游戏窗口”后显示画面",
+            text="任务运行时显示游戏画面",
             fill="#f5f5f7",
             font=(FONT_FAMILY, 10),
         )
@@ -3020,6 +3196,91 @@ class App:
         self.detail.bind("<MouseWheel>", self._scroll_detail_log, add="+")
         self.detail.bind("<Button-4>", lambda _event: self._scroll_detail_log_units(-3), add="+")
         self.detail.bind("<Button-5>", lambda _event: self._scroll_detail_log_units(3), add="+")
+
+    def _run_notice_button(self, parent: Frame, notice_key: str) -> Canvas:
+        button = Canvas(
+            parent,
+            width=30,
+            height=30,
+            bg=COLORS["panel_alt"],
+            highlightthickness=0,
+            cursor="hand2",
+            takefocus=True,
+        )
+        button._keep_canvas_style = True
+
+        def draw(hovered: bool = False) -> None:
+            button.delete("all")
+            color = COLORS["primary"] if hovered else COLORS["muted"]
+            button.create_oval(4, 4, 26, 26, outline=color, width=2)
+            button.create_text(15, 15, text="?", fill=color, font=(FONT_FAMILY, 10, "bold"))
+
+        draw()
+        button.bind("<Enter>", lambda _event: draw(True))
+        button.bind("<Leave>", lambda _event: draw(False))
+        button.bind("<Button-1>", lambda _event: self._show_run_notice(notice_key))
+        button.bind("<Return>", lambda _event: self._show_run_notice(notice_key))
+        button.bind("<space>", lambda _event: self._show_run_notice(notice_key))
+        return button
+
+    def _show_run_notice(self, notice_key: str) -> None:
+        notice = RUN_NOTICES.get(notice_key)
+        if notice is None:
+            return
+        title, image_path = notice
+        if not image_path.exists():
+            messagebox.showerror("示例图缺失", f"没有找到运行提示图片：\n{image_path}", parent=self.root)
+            return
+
+        window = Toplevel(self.root)
+        window.title(title)
+        window.transient(self.root)
+        window.resizable(False, False)
+        if APP_ICON.exists():
+            try:
+                window.iconbitmap(str(APP_ICON))
+            except Exception:
+                pass
+
+        screen_width = window.winfo_screenwidth()
+        screen_height = window.winfo_screenheight()
+        image_width = min(960, max(640, screen_width - 160))
+        image_height = round(image_width * 9 / 16)
+        maximum_height = max(360, screen_height - 260)
+        if image_height > maximum_height:
+            image_height = maximum_height
+            image_width = round(image_height * 16 / 9)
+
+        container = Frame(window, padx=22, pady=18, bg=COLORS["panel"])
+        container.pack(fill=BOTH, expand=True)
+        Label(
+            container,
+            text="请先将游戏调整至对应画面，再开始运行",
+            font=(FONT_FAMILY, 15, "bold"),
+            fg=COLORS["text"],
+            bg=COLORS["panel"],
+        ).pack(anchor="w", pady=(0, 12))
+        with Image.open(image_path) as source:
+            preview = source.convert("RGB").resize(
+                (image_width, image_height),
+                Image.Resampling.LANCZOS,
+            )
+        photo = ImageTk.PhotoImage(preview, master=window)
+        Label(
+            container,
+            image=photo,
+            bg=COLORS["preview"],
+            bd=1,
+            relief="solid",
+        ).pack()
+        window._notice_photo = photo
+        ttk.Button(container, text="知道了", command=window.destroy).pack(anchor="e", pady=(12, 0))
+        window.bind("<Escape>", lambda _event: window.destroy())
+        window.update_idletasks()
+        x = max(0, (screen_width - window.winfo_width()) // 2)
+        y = max(0, (screen_height - window.winfo_height()) // 2)
+        window.geometry(f"+{x}+{y}")
+        window.grab_set()
 
     def _scroll_detail_log(self, event) -> str:
         self.detail.yview_scroll(int(-1 * (event.delta / 120)), "units")
@@ -3352,7 +3613,10 @@ class App:
     def _show_update_notice(self) -> None:
         messagebox.showinfo(
             f"wwbs {APP_VERSION} 更新公告",
-            "1.4.2 修复版\n\n"
+            "1.4.3 正式版\n\n"
+            "- 日常完成后自动检查并衔接未完成的周度游历。\n"
+            "- 操作按钮旁新增启动页面问号提示与16:9示例图。\n"
+            "- 修复桌宠和任务栏图标显示异常。\n\n"
             "• 修复退出副本后卡在“确认离开”二次提示的问题\n"
             "• 仅在识别到完整确认弹窗时点击右侧“确认”\n"
             "• 没有弹窗时不会盲点固定坐标\n\n"
@@ -3388,6 +3652,7 @@ class App:
                 },
                 pet_name=self.pet_name,
                 app_version=APP_VERSION,
+                app_icon=APP_ICON,
                 idle_line_factory=self.pet_definition["idle_line"],
                 bubble_palette=self.pet_definition["bubble_palette"],
             )
@@ -4256,7 +4521,10 @@ Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
             name="一键日常",
             enabled=True,
             weekday="any",
-            description=f"自动挑战 {selected} 两轮并领取活跃度与先约电台奖励。",
+            description=(
+                f"自动挑战 {selected} 两轮并领取活跃度与先约电台奖励；"
+                "周度游历未完成时自动进入幻梦游园并执行15轮周常。"
+            ),
             template_group="daily",
             steps=[
                 Step(
@@ -4870,7 +5138,7 @@ def ensure_default_config() -> None:
 def main() -> None:
     ensure_default_config()
     try:
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ybpan34.wwbs.1.4.2")
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ybpan34.wwbs.1.4.3")
     except Exception:
         pass
     root = Tk()

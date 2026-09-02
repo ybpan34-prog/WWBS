@@ -9,6 +9,7 @@ a = Analysis(
         ('templates', 'templates'),
         ('weekly_tasks.json', '.'),
         ('wwbs.ico', '.'),
+        ('assets/run-notice', 'assets/run-notice'),
         ('pet-assets/pink-lace-chibi/frames', 'pet-assets/pink-lace-chibi/frames'),
         ('pet-assets/aemeath-chibi/frames-sharp', 'pet-assets/aemeath-chibi/frames-sharp'),
         ('optional-themes/daniya-theme.wwbstheme', 'optional-themes'),

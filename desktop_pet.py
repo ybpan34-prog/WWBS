@@ -40,6 +40,7 @@ class DesktopPet:
         commands: dict[str, Callable[[], None]] | None = None,
         pet_name: str = "达妮娅",
         app_version: str = "1.3.9 beta",
+        app_icon: Path | None = None,
         idle_line_factory: Callable[[], object] | None = None,
         bubble_palette: dict[str, str] | None = None,
     ):
@@ -61,6 +62,7 @@ class DesktopPet:
             **(bubble_palette or {}),
         }
         self.window = Toplevel(root)
+        self._configure_auxiliary_window(self.window, app_icon)
         self.window.title(f"{self.pet_name} · wwbs {app_version}")
         self.window.overrideredirect(True)
         self.window.attributes("-topmost", True)
@@ -110,6 +112,7 @@ class DesktopPet:
         self.menu.add_command(label=f"隐藏{self.pet_name}", command=self.hide)
 
         self.bubble_window = Toplevel(self.window)
+        self._configure_auxiliary_window(self.bubble_window, app_icon)
         self.bubble_window.overrideredirect(True)
         self.bubble_window.attributes("-topmost", True)
         self.bubble_window.configure(bg=self.transparent)
@@ -155,6 +158,19 @@ class DesktopPet:
         self._animate()
         self._schedule_roam(4200)
         self._schedule_chatter(random.randint(24000, 40000))
+
+    @staticmethod
+    def _configure_auxiliary_window(window, app_icon: Path | None) -> None:
+        """Keep pet windows out of the taskbar and inherit the wwbs icon."""
+        if app_icon is not None and Path(app_icon).exists():
+            try:
+                window.iconbitmap(str(app_icon))
+            except Exception:
+                pass
+        try:
+            window.wm_attributes("-toolwindow", True)
+        except Exception:
+            pass
 
     def _load_frames(self):
         loaded = {}
