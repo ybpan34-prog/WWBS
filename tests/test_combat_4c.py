@@ -13,12 +13,13 @@ class Combat4CTests(unittest.TestCase):
     def test_updated_rotation_and_reward_search_timing(self):
         self.assertEqual(app.TaskRunner.HEAL_ROTATION_INTERVAL, 9.0)
         self.assertEqual(app.TaskRunner.MAIN_Q_INTERVAL, 20.0)
-        self.assertEqual(app.TaskRunner.MAIN_ULTIMATE_INTERVAL, 20.0)
+        self.assertEqual(app.TaskRunner.ULTIMATE_READY_CHECK_INTERVAL, 5.0)
         self.assertEqual(app.TaskRunner.REWARD_SEARCH_TURN_PIXELS, 190 * 5)
         self.assertLess(app.TaskRunner.REWARD_INITIAL_CHECK_DELAY, 0.2)
         self.assertGreaterEqual(app.TaskRunner.REWARD_SEARCH_TIMEOUT, 90.0)
         self.assertEqual(app.TaskRunner.EMPTY_HEALTH_CONFIRMATIONS, 3)
-        self.assertEqual(app.TaskRunner.BOSS_HEADER_CHECK_INTERVAL, 2.0)
+        self.assertEqual(app.TaskRunner.BOSS_HEADER_CHECK_INTERVAL, 0.5)
+        self.assertEqual(app.TaskRunner.DAILY_BATTLE_END_CHECK_INTERVAL, 0.2)
 
     def test_dark_absorb_prompt_template_is_detectable(self):
         template = Path(app.TEMPLATES_DIR) / "4c" / "absorb_prompt_dark.png"
@@ -176,6 +177,20 @@ class Combat4CTests(unittest.TestCase):
         controller.press_key.assert_any_call("Q", 65)
         controller.press_key.assert_any_call("1", 65)
         self.assertEqual(controller.press_key.call_args_list.count(call("SPACE", 50)), 2)
+
+    def test_heal_rotation_stops_sending_keys_after_stop_request(self):
+        controller = Mock()
+        runner = app.TaskRunner(controller, lambda _message: None, dry_run=False)
+
+        def stop_during_slot_switch(_seconds):
+            runner.stop_event.set()
+
+        runner._sleep_interruptible = Mock(side_effect=stop_during_slot_switch)
+
+        self.assertFalse(runner._perform_4c_heal_rotation("E"))
+        controller.press_key.assert_called_once_with("3", 65)
+        controller.press_binding.assert_not_called()
+        controller.left_click.assert_not_called()
 
     def test_ultimate_binding_defaults_to_r_and_supports_mouse_buttons(self):
         runner = app.TaskRunner(Mock(), lambda _message: None, dry_run=False)

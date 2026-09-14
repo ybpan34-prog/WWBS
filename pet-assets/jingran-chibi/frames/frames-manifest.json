@@ -1,0 +1,125 @@
+{
+  "ok": true,
+  "chroma_key": {
+    "hex": "#00FF00",
+    "rgb": [
+      0,
+      255,
+      0
+    ],
+    "threshold": 96.0
+  },
+  "rows": [
+    {
+      "state": "idle",
+      "frames": [
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\idle\\00.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\idle\\01.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\idle\\02.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\idle\\03.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\idle\\04.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\idle\\05.png"
+      ],
+      "method": "components"
+    },
+    {
+      "state": "running-right",
+      "frames": [
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\running-right\\00.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\running-right\\01.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\running-right\\02.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\running-right\\03.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\running-right\\04.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\running-right\\05.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\running-right\\06.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\running-right\\07.png"
+      ],
+      "method": "components"
+    },
+    {
+      "state": "running-left",
+      "frames": [
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\running-left\\00.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\running-left\\01.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\running-left\\02.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\running-left\\03.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\running-left\\04.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\running-left\\05.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\running-left\\06.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\running-left\\07.png"
+      ],
+      "method": "components"
+    },
+    {
+      "state": "waving",
+      "frames": [
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\waving\\00.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\waving\\01.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\waving\\02.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\waving\\03.png"
+      ],
+      "method": "components"
+    },
+    {
+      "state": "jumping",
+      "frames": [
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\jumping\\00.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\jumping\\01.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\jumping\\02.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\jumping\\03.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\jumping\\04.png"
+      ],
+      "method": "components"
+    },
+    {
+      "state": "failed",
+      "frames": [
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\failed\\00.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\failed\\01.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\failed\\02.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\failed\\03.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\failed\\04.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\failed\\05.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\failed\\06.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\failed\\07.png"
+      ],
+      "method": "components"
+    },
+    {
+      "state": "waiting",
+      "frames": [
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\waiting\\00.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\waiting\\01.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\waiting\\02.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\waiting\\03.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\waiting\\04.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\waiting\\05.png"
+      ],
+      "method": "components"
+    },
+    {
+      "state": "running",
+      "frames": [
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\running\\00.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\running\\01.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\running\\02.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\running\\03.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\running\\04.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\running\\05.png"
+      ],
+      "method": "components"
+    },
+    {
+      "state": "review",
+      "frames": [
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\review\\00.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\review\\01.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\review\\02.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\review\\03.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\review\\04.png",
+        "C:\\Users\\34892\\Documents\\\u9e23\u6f6e\u81ea\u52a8\u5468\u5386\\pet-runs\\jingran\\frames\\review\\05.png"
+      ],
+      "method": "components"
+    }
+  ]
+}

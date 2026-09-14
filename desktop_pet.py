@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import random
 from pathlib import Path
 from tkinter import Canvas, Menu, Toplevel
@@ -21,14 +22,15 @@ class DesktopPet:
         "running": 120,
         "review": 165,
     }
-    ONE_SHOT_REPEATS = {"waving": 2, "jumping": 1, "failed": 1, "review": 1}
+    ONE_SHOT_REPEATS = {"waving": 2, "jumping": 1, "failed": 1, "review": 1, "waiting": 1}
+    CHATTER_ACTIONS = ("waving", "jumping", "review", "waiting")
     COMMAND_LABELS = (
         ("检测游戏窗口", "check_target"),
         ("周常拿满奖励", "run_rewards"),
         ("周常拿满星声", "run_astrite"),
         ("一键日常（2轮双倍）", "run_daily"),
-        ("4C刷取（5次）", "run_4c_5"),
         ("4C刷取（10次）", "run_4c_10"),
+        ("4C刷取（30次）", "run_4c_30"),
         ("停止当前任务", "stop_task"),
     )
 
@@ -43,6 +45,9 @@ class DesktopPet:
         app_icon: Path | None = None,
         idle_line_factory: Callable[[], object] | None = None,
         bubble_palette: dict[str, str] | None = None,
+        look_spritesheet: Path | None = None,
+        visible: bool = True,
+        on_visibility_changed: Callable[[bool], None] | None = None,
     ):
         self.root = root
         self.frames_dir = Path(frames_dir)
@@ -50,6 +55,9 @@ class DesktopPet:
         self.commands = commands or {}
         self.pet_name = pet_name
         self.idle_line_factory = idle_line_factory or (lambda: "漂泊者，要稍微休息一下吗？")
+        self.look_spritesheet = Path(look_spritesheet) if look_spritesheet else None
+        self.on_visibility_changed = on_visibility_changed
+        self.visible = bool(visible)
         self.bubble_palette = {
             "shadow": "#d9acc5",
             "body": "#fff8fc",
@@ -66,6 +74,8 @@ class DesktopPet:
         self.window.title(f"{self.pet_name} · wwbs {app_version}")
         self.window.overrideredirect(True)
         self.window.attributes("-topmost", True)
+        if not self.visible:
+            self.window.withdraw()
         self.transparent = "#010203"
         self.window.configure(bg=self.transparent)
         try:
@@ -74,6 +84,7 @@ class DesktopPet:
             pass
 
         self.frames = self._load_frames()
+        self.look_frames = self._load_look_frames()
         first = self.frames["idle"][0]
         self.width, self.height = first.width(), first.height()
         self.canvas = Canvas(
@@ -136,7 +147,6 @@ class DesktopPet:
         self.state = "idle"
         self.frame_index = 0
         self.state_cycles = 0
-        self.visible = True
         self.dragging = False
         self.roaming = True
         self.working = False
@@ -155,9 +165,12 @@ class DesktopPet:
         x = max(10, screen_w - self.width - 54)
         y = max(10, screen_h - self.height - 72)
         self.window.geometry(f"{self.width}x{self.height}+{x}+{y}")
-        self._animate()
-        self._schedule_roam(4200)
-        self._schedule_chatter(random.randint(24000, 40000))
+        if self.visible:
+            self._animate()
+            self._schedule_roam(4200)
+            self._schedule_chatter(random.randint(24000, 40000))
+        else:
+            self.window.withdraw()
 
     @staticmethod
     def _configure_auxiliary_window(window, app_icon: Path | None) -> None:
@@ -189,6 +202,53 @@ class DesktopPet:
             loaded[state] = state_frames
         return loaded
 
+    def _load_look_frames(self):
+        """Load the v2 atlas' 16 clockwise look directions (0 degrees is up)."""
+        if self.look_spritesheet is None or not self.look_spritesheet.exists():
+            return []
+        loaded = []
+        with Image.open(self.look_spritesheet) as source:
+            atlas = source.convert("RGBA")
+            if atlas.width % 8 or atlas.height % 11:
+                return []
+            cell_width = atlas.width // 8
+            cell_height = atlas.height // 11
+            for index in range(16):
+                row = 9 + index // 8
+                column = index % 8
+                image = atlas.crop(
+                    (
+                        column * cell_width,
+                        row * cell_height,
+                        (column + 1) * cell_width,
+                        (row + 1) * cell_height,
+                    )
+                )
+                target = (round(cell_width * self.scale), round(cell_height * self.scale))
+                if target != image.size:
+                    image = image.resize(target, Image.Resampling.LANCZOS)
+                loaded.append(ImageTk.PhotoImage(image, master=self.window))
+        return loaded
+
+    @staticmethod
+    def _look_direction_index(dx: float, dy: float, deadzone: float = 0.0) -> int | None:
+        """Map a pointer offset to 16 clockwise directions, starting at up."""
+        if math.hypot(dx, dy) <= deadzone:
+            return None
+        degrees = math.degrees(math.atan2(dx, -dy)) % 360.0
+        return int((degrees + 11.25) // 22.5) % 16
+
+    def _pointer_look_frame(self):
+        if not self.look_frames or self.state != "idle" or self.dragging or self.working:
+            return None
+        center_x = self.window.winfo_rootx() + self.width / 2
+        head_y = self.window.winfo_rooty() + self.height * 0.36
+        dx = self.window.winfo_pointerx() - center_x
+        dy = self.window.winfo_pointery() - head_y
+        deadzone = max(42.0, min(self.width, self.height) * 0.22)
+        direction = self._look_direction_index(dx, dy, deadzone)
+        return None if direction is None else self.look_frames[direction]
+
     def set_scale(self, scale: float) -> None:
         """Resize every animation frame while keeping the pet's feet in place."""
         new_scale = max(0.45, min(2.25, float(scale)))
@@ -200,6 +260,7 @@ class DesktopPet:
         old_bottom_y = self.window.winfo_y() + self.height
         self.scale = new_scale
         self.frames = self._load_frames()
+        self.look_frames = self._load_look_frames()
 
         sequence = self.frames.get(self.state, self.frames["idle"])
         first = sequence[0]
@@ -222,7 +283,11 @@ class DesktopPet:
         if not self.visible:
             return
         sequence = self.frames[self.state]
-        self.canvas.itemconfigure(self.image_item, image=sequence[self.frame_index])
+        look_frame = self._pointer_look_frame()
+        self.canvas.itemconfigure(
+            self.image_item,
+            image=look_frame if look_frame is not None else sequence[self.frame_index],
+        )
         self.frame_index += 1
         if self.frame_index >= len(sequence):
             self.frame_index = 0
@@ -236,7 +301,6 @@ class DesktopPet:
     def play(self, state: str):
         if state not in self.frames:
             return
-        self.show()
         if state == self.state:
             return
         self.state = state
@@ -244,7 +308,8 @@ class DesktopPet:
         self.state_cycles = 0
 
     def say(self, text: str, duration: int = 3200):
-        self.show()
+        if not self.visible:
+            return
         if self._bubble_job:
             try:
                 self.bubble_window.after_cancel(self._bubble_job)
@@ -375,7 +440,7 @@ class DesktopPet:
         if self.visible and self.state == "idle" and not self.dragging and self._bubble_job is None:
             generated = self.idle_line_factory()
             text = str(getattr(generated, "text", generated))
-            action = str(getattr(generated, "action", "idle"))
+            action = str(getattr(generated, "action", random.choice(self.CHATTER_ACTIONS)))
             if action in self.frames and action != "idle":
                 self.play(action)
             self.say(text, 4600)
@@ -488,6 +553,7 @@ class DesktopPet:
         if not self.working:
             self._schedule_roam(2500)
         self._schedule_chatter(random.randint(18000, 34000))
+        self._notify_visibility_changed()
 
     def hide(self):
         if not self.visible:
@@ -509,6 +575,12 @@ class DesktopPet:
                 pass
             self._animation_job = None
         self.window.withdraw()
+        self._notify_visibility_changed()
+
+    def _notify_visibility_changed(self) -> None:
+        if self.on_visibility_changed is None:
+            return
+        self.on_visibility_changed(self.visible)
 
     def toggle_visible(self):
         self.hide() if self.visible else self.show()

@@ -25,9 +25,11 @@ pyuserbase/
 1.3.6-beta/
 theme-settings.json
 pet-settings.json
+pet-display-settings.json
 daily-settings.json
 aemeath-language-state.json
 _diagnostic_preview.png
 1.3.7-beta/
 1.3.9-beta/
 _release-work/
+pet-runs/

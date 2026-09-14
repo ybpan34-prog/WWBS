@@ -36,7 +36,7 @@ class ThemePetBindingTests(unittest.TestCase):
             self.assertTrue(json.loads(theme_config.read_text(encoding="utf-8"))["explicit"])
             self.assertEqual(json.loads(pet_config.read_text(encoding="utf-8"))["pet"], "aemeath")
 
-    def test_pet_writes_matching_character_theme(self) -> None:
+    def test_pet_selection_keeps_current_theme(self) -> None:
         instance = self._app("simple", "daniya")
         with tempfile.TemporaryDirectory() as directory:
             theme_config = Path(directory) / "theme.json"
@@ -47,9 +47,22 @@ class ThemePetBindingTests(unittest.TestCase):
                 patch.object(app_module.messagebox, "askyesno", return_value=False),
             ):
                 instance._select_pet("aemeath")
-            self.assertEqual(json.loads(theme_config.read_text(encoding="utf-8"))["theme"], "aemeath")
-            self.assertTrue(json.loads(theme_config.read_text(encoding="utf-8"))["explicit"])
+            self.assertFalse(theme_config.exists())
             self.assertEqual(json.loads(pet_config.read_text(encoding="utf-8"))["pet"], "aemeath")
+
+    def test_jingran_theme_and_pet_are_bound(self) -> None:
+        instance = self._app("simple", "daniya")
+        with tempfile.TemporaryDirectory() as directory:
+            theme_config = Path(directory) / "theme.json"
+            pet_config = Path(directory) / "pet.json"
+            with (
+                patch.object(app_module, "THEME_CONFIG", theme_config),
+                patch.object(app_module, "PET_CONFIG", pet_config),
+                patch.object(app_module.messagebox, "askyesno", return_value=False),
+            ):
+                instance._select_theme("jingran")
+            self.assertEqual(json.loads(theme_config.read_text(encoding="utf-8"))["theme"], "jingran")
+            self.assertEqual(json.loads(pet_config.read_text(encoding="utf-8"))["pet"], "jingran")
 
     def test_simple_theme_keeps_current_pet(self) -> None:
         instance = self._app("aemeath", "aemeath")
@@ -72,6 +85,31 @@ class ThemePetBindingTests(unittest.TestCase):
             theme_config.write_text(json.dumps({"theme": "daniya"}), encoding="utf-8")
             with patch.object(app_module, "THEME_CONFIG", theme_config):
                 self.assertEqual(App._load_theme_preference(), "simple")
+
+    def test_old_explicit_character_binding_does_not_replace_simple_default(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            theme_config = Path(directory) / "theme.json"
+            theme_config.write_text(
+                json.dumps({"theme": "jingran", "explicit": True}),
+                encoding="utf-8",
+            )
+            with patch.object(app_module, "THEME_CONFIG", theme_config):
+                self.assertEqual(App._load_theme_preference(), "simple")
+
+    def test_theme_picker_choice_is_restored(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            theme_config = Path(directory) / "theme.json"
+            theme_config.write_text(
+                json.dumps(
+                    {"theme": "jingran", "explicit": True, "source": "theme-picker"}
+                ),
+                encoding="utf-8",
+            )
+            with (
+                patch.object(app_module, "THEME_CONFIG", theme_config),
+                patch.object(App, "_theme_pack_valid", return_value=True),
+            ):
+                self.assertEqual(App._load_theme_preference(), "jingran")
 
 
 if __name__ == "__main__":

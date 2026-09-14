@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import numpy as np
 from PIL import Image
@@ -28,11 +28,14 @@ class DailyRoutineTests(unittest.TestCase):
         self.assertIs(result, candidate)
         runner.matcher.find_fast.assert_called_once()
 
-    def test_pet_menu_exposes_daily_and_renamed_weekly_commands(self):
+    def test_pet_menu_exposes_daily_weekly_and_new_4c_cycle_commands(self):
         labels = dict(DesktopPet.COMMAND_LABELS)
         self.assertEqual(labels["周常拿满奖励"], "run_rewards")
         self.assertEqual(labels["周常拿满星声"], "run_astrite")
         self.assertEqual(labels["一键日常（2轮双倍）"], "run_daily")
+        self.assertEqual(labels["4C刷取（10次）"], "run_4c_10")
+        self.assertEqual(labels["4C刷取（30次）"], "run_4c_30")
+        self.assertNotIn("4C刷取（5次）", labels)
         self.assertNotIn("启动（拿满奖励）", labels)
         self.assertNotIn("拿满星声（13轮）", labels)
 
@@ -363,6 +366,8 @@ class DailyRoutineTests(unittest.TestCase):
         controller = Mock()
         runner = TaskRunner(controller, lambda _message: None, dry_run=False)
         runner._capture_for_matching = Mock()
+        runner._find_daily_reward_prompt = Mock(return_value=None)
+        runner._daily_reward_orb_location = Mock(return_value=(None, None, 0.0))
         runner._daily_battle_task_present = Mock(return_value=True)
 
         self.assertFalse(runner._collect_daily_reward(1))
@@ -393,6 +398,82 @@ class DailyRoutineTests(unittest.TestCase):
         )
 
         self.assertTrue(runner.daily_heal_enabled)
+
+    def test_daily_battle_end_confirmation_stops_on_consecutive_missing_frames(self):
+        runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)
+        runner._sleep_interruptible = Mock()
+        runner._capture_for_matching = Mock()
+        runner._daily_battle_task_present = Mock(return_value=False)
+
+        self.assertTrue(runner._confirm_daily_battle_finished(Path("screen.png")))
+        self.assertEqual(
+            runner._daily_battle_task_present.call_count,
+            runner.DAILY_TASK_MISSING_CONFIRMATIONS - 1,
+        )
+
+    def test_daily_battle_end_confirmation_cancels_when_marker_returns(self):
+        runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)
+        runner._sleep_interruptible = Mock()
+        runner._capture_for_matching = Mock()
+        runner._daily_battle_task_present = Mock(return_value=True)
+
+        self.assertFalse(runner._confirm_daily_battle_finished(Path("screen.png")))
+        runner._daily_battle_task_present.assert_called_once_with(Path("screen.png"))
+
+    def test_pending_battle_end_prevents_due_heal_rotation(self):
+        controller = Mock()
+        runner = TaskRunner(
+            controller,
+            lambda _message: None,
+            dry_run=False,
+            daily_heal_enabled=True,
+        )
+        runner.HEAL_ROTATION_INTERVAL = 0.5
+        runner._select_daily_slot_one_after_loading = Mock()
+        runner._capture_for_matching = Mock()
+        runner._daily_reward_stage_present = Mock(return_value=False)
+        runner._daily_battle_task_present = Mock(side_effect=(True, False))
+        runner._confirm_daily_battle_finished = Mock(return_value=True)
+        runner._perform_4c_heal_rotation = Mock()
+        runner._sleep_interruptible = Mock()
+        clock = iter(value / 10 for value in range(2, 30, 2))
+
+        with patch.object(app.time, "monotonic", side_effect=lambda: next(clock)):
+            runner._run_daily_battle(app.Step(action="daily_routine"), "E", "R", 1)
+
+        runner._confirm_daily_battle_finished.assert_called_once()
+        runner._perform_4c_heal_rotation.assert_not_called()
+
+    def test_reward_stage_detection_accepts_prompt_or_strong_orb(self):
+        runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)
+        runner._find_daily_reward_prompt = Mock(return_value=object())
+        runner._daily_reward_orb_location = Mock(return_value=(None, None, 0.0))
+
+        self.assertTrue(runner._daily_reward_stage_present(Path("screen.png")))
+        runner._daily_reward_orb_location.assert_not_called()
+
+        runner._find_daily_reward_prompt.return_value = None
+        runner._daily_reward_orb_location.return_value = (900, 360, 0.82)
+        self.assertTrue(runner._daily_reward_stage_present(Path("screen.png")))
+
+    def test_reward_search_prefers_visible_orb_over_lingering_task_text(self):
+        controller = Mock()
+        runner = TaskRunner(controller, lambda _message: None, dry_run=False)
+        runner._capture_for_matching = Mock()
+        runner._find_daily_reward_prompt = Mock(return_value=None)
+        runner._daily_reward_orb_location = Mock(return_value=(900, 360, 0.82))
+        runner._daily_battle_task_present = Mock(return_value=True)
+        runner._sleep_interruptible = Mock(side_effect=lambda _seconds: runner.stop_event.set())
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            screenshot = Path(temp_dir) / "_runtime_screenshot.png"
+            Image.new("RGB", (1920, 1080)).save(screenshot)
+            with patch.object(app, "APP_DIR", Path(temp_dir)):
+                with self.assertRaises(RuntimeError):
+                    runner._collect_daily_reward(1)
+
+        runner._daily_battle_task_present.assert_not_called()
+        controller.press_keys.assert_called_once_with(("W",), 500)
 
     def test_refill_never_selects_star_currency_card(self):
         runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)
