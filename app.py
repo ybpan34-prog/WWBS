@@ -19,7 +19,8 @@ import zipfile
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from tkinter import BOTH, END, LEFT, RIGHT, TOP, X, BooleanVar, Button, Canvas, Checkbutton, Entry, Frame, Label, Listbox, StringVar, Text, Tk, Toplevel, filedialog, messagebox, simpledialog, ttk
+from tkinter import BOTH, END, LEFT, RIGHT, TOP, X, BooleanVar, Canvas, Checkbutton, Entry, Frame, Label, Listbox, StringVar, Text, Tk, Toplevel, TclError, filedialog, messagebox, simpledialog, ttk
+from tkinter import font as tkfont
 
 from PIL import Image, ImageDraw, ImageTk
 import numpy as np
@@ -30,6 +31,8 @@ from desktop_pet import DesktopPet
 from chat_history import ChatHistory
 from update_manager import prepare_update, install_script, signal_update_ready
 from weekly_rewards import WeeklyLimitReached, WeeklyRewardsVision
+from combat_rotation import ACTION_SPECS, COMBAT_MODES, SLOT_NAMES, BattleMonitor, IdleAttackWorker, RotationClock, active_modules, default_store, load_store, new_module, save_store, validate_store
+from ui_controls import RoundedButton, ThinScrollbar
 from daniya_persona import (
     CHARACTER_PROMPT as daniya_character_prompt,
     DIALOGUE_PROMPT as daniya_dialogue_prompt,
@@ -81,7 +84,9 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 DEFAULT_GROUP_NAME = "幻梦游园"
 APP_ICON = APP_DIR / "wwbs.ico"
-APP_VERSION = "1.5.1"
+APP_VERSION = "1.5.2"
+COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
+                         if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
 RUN_NOTICES = {
     "daily": (
@@ -168,6 +173,51 @@ UPDATE_NOTICE = """v1.3.5 更新内容
 2. 请将游戏窗口调整为 1920*1080p 或等比例缩放。
 3. 请先完成周本的新手教程，并将速度调整至 MAX。"""
 UPDATE_HISTORY = [
+    ("v1.5.2", """v1.5.2 正式版 · 自定义战斗排轴与界面统一
+- 新增三列战斗排轴：每个角色独立设置驻场秒数、模块参数和顺序，支持拖动排序、跨列移动、预设新建与切换；4C与日常分别分配预设。
+- 普攻可选按次数、按秒数或空闲持续输出，恢复跳跃普攻。默认技能10秒、大招15秒，一号位每15次普攻穿插重击；三号位补齐可编辑回血连段。
+- 普攻与战斗截图独立执行，减少识别造成的待机；修复驻场时间点击与保存、添加模块误弹窗、拖动卡死及浮层不跟手。
+- 周常点击额外等待缩短到约0.06至0.10秒；目标丢失按本次、上一张、下一张、本次各2次重新识别，匹配成功才点击，仍未匹配则停止并反馈。
+- 修复日常结算后再次打开索拉指南，素材获取页被误认成周度游历并报错的问题，按正常结算收尾。
+- 模板、设置、概率、日志、聊天记录和输入窗口统一圆角控件、细滚动条与主题配色；按钮换行与整页滚动改善放大字体和窄窗口显示。
+- 保留已有自定义预设及模式分配；仅未修改的旧默认战斗轴自动补齐。
+完整更新说明与使用方法见安装包内 release-notes-v1.5.2.md。
+"""),
+    ("v1.5.2 beta9", """v1.5.2 beta9 更新内容
+- 周常点击后的额外等待缩短为约0.06至0.10秒，旧配置也自动应用。
+- 找不到目标时，重新截图依次识别：本次2次、上一张2次、下一张2次、本次再2次。
+- 只在新识别匹配成功后点击；匹配到下一张时从下一步接续，仍未匹配则停止并反馈具体模板。
+- 保留周常上限检测、最后一轮确认和任务停止响应。
+"""),
+    ("v1.5.2 beta8", """v1.5.2 beta8 更新内容
+- 战斗截图识别独立执行，不再阻塞跳跃普攻、技能、切人和驻场计时。
+- 默认三号位回血连段后继续空闲普攻，缩短重复切人等待；显式等待模块接管技能和声骸的收招时间，避免重复等待。
+- 战斗结束仍暂停攻击并复核，截图检查失败会停止任务并报告原因。
+- 未修改的旧默认轴自动更新，自定义模块、等待时间和模式分配保留。
+"""),
+    ("v1.5.2 beta7", """v1.5.2 beta7 更新内容
+- 修复驻场时间输入框被下拉菜单覆盖、关闭菜单后无法获得输入焦点的问题。
+- 下拉菜单优先缩短并向下展开，同时只保留一个菜单；切换页面会关闭菜单。
+- 默认战斗轴补回三号位回血流程：技能、两组跳跃普攻、声骸Q及动作等待，三号位默认驻场8秒。
+- 未修改的旧默认轴自动补齐回血模块，已自定义的战斗轴保留原设置。
+"""),
+    ("v1.5.2 beta3", """v1.5.2 beta3 更新内容
+- 修复排轴拖动时浮层停止跟随光标；模块列表支持滚轮，滚动条与卡片样式统一到开始页。
+- 移除固定“三号位回血”模块与开关；每个模块都可指定一、二、三号位，执行前自动切换。
+- 4C 与一键日常可分别选用预设；切换编辑中的预设不会改变模式分配。
+- 默认大招间隔改为15秒，默认持续普攻在15次普攻后穿插一次重击。
+- 兼容旧预设文件：保留自建预设与排序，移除旧回血模块，为旧模块补齐一号位。
+"""),
+    ("v1.5.2 beta2", """v1.5.2 beta2 更新内容
+- 新增“战斗排轴”：日常与4C共用可切换的战斗预设，可添加、移除和拖动圆角模块，并编辑普攻时长、重击次数、技能次数与触发间隔。
+- 默认预设延续原有战斗节奏；战斗结束判断、领奖和安全停止仍由原任务流程处理。
+- 调整顶部导航、任务卡、按钮、选择器和设置说明文字的布局，修复放大字体时显示不全。
+- “概率”页改为随主题配色的圆角分区布局，并支持窄窗口滚动查看。
+"""),
+    ("v1.5.2 beta1", """v1.5.2 beta1 更新内容
+- 修复一键日常结算后的素材获取页被误认成周度游历：改为识别选中标签的“周度游历”文字，避免点击错误入口并报告识别超时。
+- 日常结算后再次进入索拉指南，若显示素材获取页，按正常结算结束，不再尝试点击幻梦游园入口或报告超时。
+"""),
     ("v1.5.1", """v1.5.1 更新内容
 - 新增 SillyTavern 酒馆桥接扩展和四位桌宠角色卡，保留角色剧情与项目原有后续关系设定。
 - 桌宠 Agent 增加 DeepSeek API 与 OpenAI 兼容 API；填写密钥后获取服务模型，在下拉框直接选择。
@@ -417,8 +467,10 @@ WM_QUIT = 0x0012
 CLICK_EDGE_MARGIN_RATIO = 0.10
 CLICK_JITTER_RATIO = 0.25
 CLICK_DELAY_JITTER_SECONDS = 0.20
-CYCLE_MAX_MISSES = 5
-CYCLE_FALLBACK_MISS_COUNTS = (2, 4)
+CYCLE_PROBE_ATTEMPTS = 2
+CYCLE_PROBE_INTERVAL = 0.15
+WEEKLY_CLICK_INTERVAL = 0.08
+WEEKLY_CLICK_JITTER = 0.02
 DAILY_REWARD_ORB_MIN_CONFIDENCE = 0.65
 CYCLE_FINAL_MAX_RETRIES = 2
 DIAGNOSTIC_START_TEMPLATE = "menu1.png"
@@ -818,10 +870,11 @@ class AdbClient:
 class TaskRunner:
     ATTACK_CLICK_INTERVAL = 0.150
     MAIN_ATTACK_CLICK_INTERVAL = ATTACK_CLICK_INTERVAL
-    HEAVY_ATTACK_EVERY = 10
+    HEAVY_ATTACK_EVERY = 15
     HEAVY_ATTACK_HOLD_MS = 800
     MAIN_Q_INTERVAL = 20.0
-    COMBAT_ULTIMATE_INTERVAL = 10.0
+    COMBAT_ULTIMATE_INTERVAL = 15.0
+    ECHO_ACTION_SETTLE_DELAY = 1.0
     ULTIMATE_INDICATOR_REGION = (0.755, 0.74, 0.875, 0.95)
     ULTIMATE_RING_MIN_SATURATION = 0.27
     ULTIMATE_RING_MIN_COLOR_COVERAGE = 0.30
@@ -859,6 +912,9 @@ class TaskRunner:
         daily_zone_name: str = "",
         daily_heal_enabled: bool = False,
         notice=None,
+        rotation_modules: list[dict] | None = None,
+        rotation_presets: dict[str, list[dict]] | None = None,
+        rotation_times: dict[str, dict] | None = None,
     ):
         self.controller = controller
         self.log = log
@@ -870,6 +926,11 @@ class TaskRunner:
         self.daily_zone_name = daily_zone_name
         self.daily_heal_enabled = bool(daily_heal_enabled)
         self.notice = notice or (lambda _message: None)
+        self.rotation_modules = rotation_modules if rotation_modules is not None else active_modules(default_store())
+        self.rotation_presets = rotation_presets or {}
+        self.rotation_times = rotation_times or {}
+        self._rotation_slot = 1
+        self._rotation_continuous_started = False
         self.matcher = TemplateMatcher(TEMPLATES_DIR)
         self.template_root = TEMPLATES_DIR
         self.debug_matches = False
@@ -995,9 +1056,8 @@ class TaskRunner:
         if self.dry_run:
             self.log(
                 f"    干运行：计划执行 {cycle_count} 轮；每轮开打先按鼠标中键锁定敌人，"
-                f"再由独立攻击节奏以0.15秒间隔不间断普攻并接近敌人，每10秒按 {skill_key}，"
-                f"一号位每20秒按Q，每10秒尝试施放一次 {ultimate_key}；每9秒执行 "
-                "3→等待2秒→技能→空格→左键×3→等待1秒→空格→左键×3→Q→1。"
+                f"然后按4C预设依次执行 {len(self.rotation_presets.get('combat_4c', self.rotation_modules))} 个模块；"
+                f"技能键 {skill_key}，大招键 {ultimate_key}。"
             )
             return
 
@@ -1030,11 +1090,9 @@ class TaskRunner:
     def _run_4c_battle(self, step: Step, skill_key: str, ultimate_key: str, cycle_index: int) -> None:
         started = time.monotonic()
         deadline = started + max(30.0, step.timeout)
-        last_skill = started
-        last_main_q = started
-        last_ultimate = started
-        last_heal = started
-        last_approach = 0.0
+        modules = self.rotation_presets.get("combat_4c", self.rotation_modules)
+        self._rotation_slot = 1
+        self._rotation_continuous_started = False
         last_header_check = 0.0
         boss_header_seen = False
         screenshot = APP_DIR / "_runtime_screenshot.png"
@@ -1044,32 +1102,31 @@ class TaskRunner:
         self.controller.middle_click()
         self._sleep_interruptible(0.18)
         attack_enabled = threading.Event()
-        attack_finished = threading.Event()
         attack_lock = threading.Lock()
-        attack_enabled.set()
-        attack_worker = threading.Thread(
-            target=self._run_4c_continuous_attack,
-            args=(attack_enabled, attack_finished, attack_lock),
-            name="wwbs-4c-continuous-attack",
-            daemon=True,
-        )
-        attack_worker.start()
+        rotation = RotationClock(modules, time.monotonic(), self.MAIN_ATTACK_CLICK_INTERVAL,
+                                 self.rotation_times.get("combat_4c"), background_idle=True)
+        idle_worker = IdleAttackWorker(self.controller, self.stop_event, attack_lock,
+                                       attack_interval=self.MAIN_ATTACK_CLICK_INTERVAL,
+                                       heavy_hold_ms=self.HEAVY_ATTACK_HOLD_MS,
+                                       on_error=lambda exc: self.log(f"    空闲普攻失败：{exc}"))
+        self._rotation_idle_worker = idle_worker
+        monitor = None
         try:
+            inspect = lambda: self._inspect_4c_boss_header(screenshot, cycle_index, 0, log_result=False)
+            monitor = BattleMonitor(inspect, inspect(), self.stop_event)
             while time.monotonic() < deadline:
                 if self.stop_event.is_set():
                     return
                 now = time.monotonic()
-                if now - last_header_check >= self.BOSS_HEADER_CHECK_INTERVAL:
-                    header_present = self._inspect_4c_boss_header(
-                        screenshot,
-                        cycle_index,
-                        0,
-                        log_result=False,
-                    )
+                checked = monitor.poll()
+                if checked is not None:
+                    header_present = checked[0]
                     last_header_check = time.monotonic()
                     if header_present:
                         boss_header_seen = True
                     elif boss_header_seen:
+                        idle_worker.pause()
+                        monitor.pause()
                         attack_enabled.clear()
                         with attack_lock:
                             pass
@@ -1092,45 +1149,31 @@ class TaskRunner:
                                 f"    第{cycle_index}轮：已确认首领名字与整条血条彻底消失，进入吸收流程。"
                             )
                             return
+                        monitor.resume()
+                        last_header_check = time.monotonic()
                     elif now - started >= 15.0:
                         raise RuntimeError("没有检测到屏幕顶部的首领名字和血条，已停止4C刷取。请先进入战斗。")
-                    if not attack_enabled.is_set():
-                        attack_enabled.set()
-                if now - last_heal >= self.HEAL_ROTATION_INTERVAL:
-                    attack_enabled.clear()
-                    with attack_lock:
-                        pass
-                    self.log(
-                        "    每9秒切换三号位：等待2秒→技能→跳跃→普攻三次→"
-                        "等待1秒→再次跳跃→普攻三次→Q→切回一号位。"
-                    )
-                    if not self._perform_4c_heal_rotation(skill_key):
-                        return
-                    last_heal = time.monotonic()
-                    attack_enabled.set()
-                    continue
-                if now - last_ultimate >= self.COMBAT_ULTIMATE_INTERVAL:
-                    self.log(f"    一号位定时尝试施放大招：{ultimate_key}。")
-                    self._cast_timed_ultimate(ultimate_key, attack_enabled, attack_lock)
-                    last_ultimate = time.monotonic()
-                    continue
-                if now - last_skill >= 10.0:
-                    self.log(f"    一号位施放技能：{skill_key}。")
-                    self.controller.press_binding(skill_key, 65)
-                    last_skill = time.monotonic()
-                if now - last_main_q >= self.MAIN_Q_INTERVAL:
-                    self.log("    一号位额外施放 Q。")
-                    self.controller.press_key("Q", 65)
-                    last_main_q = time.monotonic()
-                if now - last_approach >= 0.75:
-                    self.controller.press_keys(("W",), 90)
-                    last_approach = time.monotonic()
+                elif now - last_header_check >= self.BOSS_HEADER_CHECK_INTERVAL:
+                    monitor.request()
+                action = rotation.next_action(time.monotonic())
+                if not self._run_rotation_action(action, rotation, skill_key, ultimate_key,
+                                                 attack_enabled, attack_lock):
+                    return
                 self._sleep_interruptible(0.025)
             raise RuntimeError("单轮4C战斗达到安全时限，已自动停止。")
         finally:
+            idle_worker.close()
+            self._rotation_idle_worker = None
             attack_enabled.clear()
-            attack_finished.set()
-            attack_worker.join(timeout=1.0)
+            try:
+                self.controller.release_keys()
+            finally:
+                if monitor is not None:
+                    monitor.close()
+            if monitor is not None and monitor.error is not None:
+                raise RuntimeError(f"战斗画面检查失败：{monitor.error}") from monitor.error
+            if idle_worker.error is not None:
+                raise RuntimeError(f"空闲普攻失败：{idle_worker.error}") from idle_worker.error
 
     def _inspect_4c_boss_header(
         self,
@@ -1160,6 +1203,7 @@ class TaskRunner:
         attack_enabled: threading.Event,
         attack_finished: threading.Event,
         attack_lock: threading.Lock,
+        heavy_every: int | None = None,
     ) -> None:
         """Attack on its own clock so screenshots and movement never form click bursts."""
         attack_count = 0
@@ -1171,16 +1215,79 @@ class TaskRunner:
             try:
                 with attack_lock:
                     if attack_enabled.is_set():
-                        attack_count += 1
-                        if attack_count % self.HEAVY_ATTACK_EVERY == 0:
+                        if attack_count >= (heavy_every or self.HEAVY_ATTACK_EVERY):
                             self.controller.hold_left_button(self.HEAVY_ATTACK_HOLD_MS)
+                            attack_count = 0
                         else:
                             self.controller.left_click()
+                            attack_count += 1
             except Exception as exc:
-                self.log(f"    一号位持续普攻失败：{exc}")
+                self.log(f"    持续普攻失败：{exc}")
                 self.stop_event.set()
                 return
             attack_finished.wait(self.MAIN_ATTACK_CLICK_INTERVAL)
+
+    def _select_rotation_slot(self, slot: int) -> bool:
+        if self.stop_event.is_set():
+            return False
+        if self._rotation_slot != slot:
+            self.controller.press_key(str(slot), 65)
+            self._rotation_slot = slot
+            self._sleep_interruptible(0.35)
+        return not self.stop_event.is_set()
+
+    def _run_rotation_action(self, action: dict | None, rotation: RotationClock,
+                             skill_key: str, ultimate_key: str,
+                             attack_enabled: threading.Event, attack_lock: threading.Lock,
+                             *, daily: bool = False, task_seen: bool = True,
+                             screenshot: Path | None = None) -> bool:
+        if action is None:
+            return not self.stop_event.is_set()
+        kind, item = action["kind"], action["module"]
+        idle_worker = getattr(self, "_rotation_idle_worker", None)
+        if kind == "idle_attack":
+            if idle_worker is not None and self._rotation_slot == item.get("slot", 1):
+                idle_worker.arm(item, rotation.visit_deadline)
+            return not self.stop_event.is_set()
+        if idle_worker is not None:
+            idle_worker.pause()
+        attack_enabled.clear()
+        if not self._select_rotation_slot(item.get("slot", 1)):
+            return False
+        if kind in {"select_slot", "wait"}:
+            return True
+        if time.monotonic() >= rotation.visit_deadline:
+            return True
+        if kind == "left_click":
+            self.controller.left_click()
+        elif kind == "hold_left":
+            remaining_ms = max(1, round((rotation.visit_deadline - time.monotonic()) * 1000))
+            self.controller.hold_left_button(min(self.HEAVY_ATTACK_HOLD_MS, remaining_ms))
+        elif kind == "jump":
+            self.controller.press_key("SPACE", 50)
+        elif kind in {"skill", "ultimate", "echo"}:
+            for index in range(int(item["value"])):
+                if self.stop_event.is_set():
+                    return False
+                if time.monotonic() >= rotation.visit_deadline:
+                    break
+                explicit_wait = index == int(item["value"]) - 1 and rotation.has_following_wait(time.monotonic())
+                if kind == "skill":
+                    self.controller.press_binding(skill_key, 65)
+                    if not explicit_wait:
+                        self._sleep_interruptible(min(0.20, max(0, rotation.visit_deadline - time.monotonic())))
+                elif kind == "ultimate":
+                    self._cast_timed_ultimate(ultimate_key, attack_enabled, attack_lock, resume_attacks=False,
+                                             settle_delay=0 if explicit_wait else min(0.8, max(0, rotation.visit_deadline - time.monotonic())))
+                else:
+                    self.controller.press_key("Q", 120)
+                    if not explicit_wait:
+                        self._sleep_interruptible(min(self.ECHO_ACTION_SETTLE_DELAY,
+                                                      max(0, rotation.visit_deadline - time.monotonic())))
+        elif kind == "approach":
+            duration = min(float(item["value"]), max(0, rotation.visit_deadline - time.monotonic()))
+            self.controller.press_keys(("W",), max(1, round(duration * 1000)))
+        return not self.stop_event.is_set()
 
     def _run_daily_routine(self, step: Step) -> None:
         """Run the two-round daily tacet-field flow with optional healing."""
@@ -1209,11 +1316,7 @@ class TaskRunner:
         skill_key = self.controller.normalize_input_binding(self.combat_skill_key)
         ultimate_key = self.controller.normalize_input_binding(self.combat_ultimate_key)
         self.log(f"    一键日常目标：{self.daily_zone_name}。")
-        self.log(
-            "    日常三号位回血已开启。"
-            if self.daily_heal_enabled
-            else "    日常三号位回血未开启，仅使用一号位战斗。"
-        )
+        self.log("    日常战斗将按已分配的预设切换角色并执行模块。")
         try:
             if not self._open_daily_tacet_field(template_name):
                 completed_message = "今日日常已经完成，不再挑战无音区。"
@@ -1537,17 +1640,25 @@ class TaskRunner:
 
     @staticmethod
     def _weekly_travel_page_present(screenshot: Path) -> bool:
-        """Detect the pale selected weekly-travel tab after activity auto-skips."""
+        """Require the selected tab's text, not a pale training-target card."""
+        return WeeklyRewardsVision(TEMPLATES_DIR / "weekly").weekly_page(screenshot)
+
+    @staticmethod
+    def _guide_material_page_present(screenshot: Path) -> bool:
+        """Identify the normal material page reached after guide rewards are done."""
         with Image.open(screenshot) as source:
-            image = np.asarray(source.convert("RGB"))
-        height, width = image.shape[:2]
-        weekly_tab = image[
-            round(height * 0.13):round(height * 0.19),
-            round(width * 0.255):round(width * 0.41),
-        ]
-        if weekly_tab.size == 0:
+            width, height = source.size
+        if abs(width / height - 16 / 9) > 0.04:
             return False
-        return float((weekly_tab.min(axis=2) > 170).mean()) > 0.18
+        try:
+            TemplateMatcher(TEMPLATES_DIR / "daily").find_fast(
+                screenshot, "guide_material_title.png", threshold=0.82, scale=width / 1920,
+                region=(round(width * 0.05), round(height * 0.03),
+                        round(width * 0.16), round(height * 0.11)),
+            )
+            return True
+        except (RuntimeError, FileNotFoundError):
+            return False
 
     def _daily_activity_still_pending(self, timeout: float = 6.0) -> bool:
         """Return false when Sola Guide skips activity because today's score is full."""
@@ -1739,11 +1850,9 @@ class TaskRunner:
     ) -> None:
         started = time.monotonic()
         deadline = started + max(180.0, step.timeout)
-        last_skill = started
-        last_q = started
-        last_ultimate = started
-        last_heal = started
-        last_approach = 0.0
+        modules = self.rotation_presets.get("daily", self.rotation_modules)
+        self._rotation_slot = 1
+        self._rotation_continuous_started = False
         last_task_check = 0.0
         task_seen = False
         screenshot = APP_DIR / "_runtime_screenshot.png"
@@ -1753,41 +1862,47 @@ class TaskRunner:
         self.controller.middle_click()
         self.log(
             f"    第{cycle_index}轮：中键锁定后，"
-            f"{'按设置定时切三号位回血' if self.daily_heal_enabled else '仅使用一号位持续战斗'}。"
+            f"按日常预设执行 {len(modules)} 个战斗模块。"
         )
 
         attack_enabled = threading.Event()
-        attack_finished = threading.Event()
         attack_lock = threading.Lock()
-        attack_enabled.set()
-        attack_worker = threading.Thread(
-            target=self._run_4c_continuous_attack,
-            args=(attack_enabled, attack_finished, attack_lock),
-            name="wwbs-daily-continuous-attack",
-            daemon=True,
-        )
-        attack_worker.start()
+        rotation = RotationClock(modules, time.monotonic(), self.MAIN_ATTACK_CLICK_INTERVAL,
+                                 self.rotation_times.get("daily"), background_idle=True)
+        idle_worker = IdleAttackWorker(self.controller, self.stop_event, attack_lock,
+                                       attack_interval=self.MAIN_ATTACK_CLICK_INTERVAL,
+                                       heavy_hold_ms=self.HEAVY_ATTACK_HOLD_MS,
+                                       on_error=lambda exc: self.log(f"    空闲普攻失败：{exc}"))
+        self._rotation_idle_worker = idle_worker
+        monitor = None
         try:
+            def inspect():
+                self._capture_for_matching(screenshot)
+                reward = self._daily_reward_stage_present(screenshot)
+                return reward, False if reward else self._daily_battle_task_present(screenshot)
+
+            monitor = BattleMonitor(inspect, inspect(), self.stop_event)
             while time.monotonic() < deadline:
                 if self.stop_event.is_set():
                     return
                 now = time.monotonic()
-                if now - last_task_check >= self.DAILY_BATTLE_END_CHECK_INTERVAL:
-                    self._capture_for_matching(screenshot)
-                    if self._daily_reward_stage_present(screenshot):
+                checked = monitor.poll()
+                if checked is not None:
+                    reward, present = checked[0]
+                    if reward:
+                        idle_worker.pause()
                         attack_enabled.clear()
                         with attack_lock:
                             pass
                         self.controller.release_keys()
                         self.log("    已识别到领取奖励提示，停止战斗并进入奖励搜索。")
                         return
-                    present = self._daily_battle_task_present(screenshot)
                     last_task_check = time.monotonic()
                     if present:
                         task_seen = True
-                        if not attack_enabled.is_set():
-                            attack_enabled.set()
                     elif task_seen:
+                        idle_worker.pause()
+                        monitor.pause()
                         attack_enabled.clear()
                         with attack_lock:
                             pass
@@ -1795,68 +1910,33 @@ class TaskRunner:
                         if self._confirm_daily_battle_finished(screenshot):
                             self.log("    左侧清理目标文字快速复核后仍消失，进入奖励获取阶段。")
                             return
-                        attack_enabled.set()
+                        monitor.resume()
                         last_task_check = time.monotonic()
                         continue
-                if (
-                    self.daily_heal_enabled
-                    and task_seen
-                    and now - last_heal >= self.HEAL_ROTATION_INTERVAL
-                ):
-                    attack_enabled.clear()
-                    with attack_lock:
-                        pass
-                    self.controller.release_keys()
-                    self._capture_for_matching(screenshot)
-                    if self._daily_reward_stage_present(screenshot):
-                        self.log("    回血前已识别到奖励阶段，跳过回血并停止战斗。")
-                        return
-                    if not self._daily_battle_task_present(screenshot):
-                        if self._confirm_daily_battle_finished(screenshot):
-                            self.log("    回血前确认战斗已经结束，跳过回血并进入奖励获取阶段。")
-                            return
-                        attack_enabled.set()
-                        last_task_check = time.monotonic()
-                        continue
-                    self.log(
-                        "    日常回血：切换三号位执行技能、跳跃与普攻连段，随后切回一号位。"
-                    )
-                    if not self._perform_4c_heal_rotation(skill_key):
-                        return
-                    last_heal = time.monotonic()
-                    self._capture_for_matching(screenshot)
-                    if self._daily_reward_stage_present(screenshot):
-                        self.log("    回血完成时已识别到奖励阶段，不再恢复持续攻击。")
-                        return
-                    if not self._daily_battle_task_present(screenshot):
-                        if self._confirm_daily_battle_finished(screenshot):
-                            self.log("    回血完成时确认战斗已经结束，停止攻击并进入奖励获取阶段。")
-                            return
-                    attack_enabled.set()
-                    last_task_check = time.monotonic()
-                    continue
-                if now - last_ultimate >= self.COMBAT_ULTIMATE_INTERVAL:
-                    self.log(f"    一号位定时尝试施放大招：{ultimate_key}。")
-                    self._cast_timed_ultimate(ultimate_key, attack_enabled, attack_lock)
-                    last_ultimate = time.monotonic()
-                    continue
-                if now - last_skill >= 10.0:
-                    self.controller.press_binding(skill_key, 65)
-                    last_skill = time.monotonic()
-                if now - last_q >= self.MAIN_Q_INTERVAL:
-                    self.controller.press_key("Q", 65)
-                    last_q = time.monotonic()
-                if now - last_approach >= 0.75:
-                    self.controller.press_keys(("W",), 90)
-                    last_approach = time.monotonic()
+                elif now - last_task_check >= self.DAILY_BATTLE_END_CHECK_INTERVAL:
+                    monitor.request()
+                action = rotation.next_action(time.monotonic())
+                if not self._run_rotation_action(action, rotation, skill_key, ultimate_key,
+                                                 attack_enabled, attack_lock, daily=True,
+                                                 task_seen=task_seen, screenshot=screenshot):
+                    return
                 self._sleep_interruptible(0.025)
             if not task_seen:
                 raise RuntimeError("没有识别到无音区清理目标文字，请确认已进入无音区挑战。")
             raise RuntimeError("无音区单轮战斗达到安全时限，已自动停止。")
         finally:
+            idle_worker.close()
+            self._rotation_idle_worker = None
             attack_enabled.clear()
-            attack_finished.set()
-            attack_worker.join(timeout=1.0)
+            try:
+                self.controller.release_keys()
+            finally:
+                if monitor is not None:
+                    monitor.close()
+            if monitor is not None and monitor.error is not None:
+                raise RuntimeError(f"战斗画面检查失败：{monitor.error}") from monitor.error
+            if idle_worker.error is not None:
+                raise RuntimeError(f"空闲普攻失败：{idle_worker.error}") from idle_worker.error
 
     @classmethod
     def _ultimate_indicator_ready(cls, screenshot: Path) -> bool:
@@ -2448,7 +2528,7 @@ class TaskRunner:
             threshold=0.82,
             timeout=12.0,
             offset_x=80,
-            seconds=0.15,
+            seconds=WEEKLY_CLICK_INTERVAL,
         )
         cycle_step = Step(
             action="tap_image_cycle",
@@ -2457,7 +2537,7 @@ class TaskRunner:
             loop=True,
             threshold=0.82,
             timeout=1.0,
-            seconds=0.15,
+            seconds=WEEKLY_CLICK_INTERVAL,
         )
         self._run_step(start_step)
         self._run_image_cycle(cycle_step)
@@ -2493,7 +2573,10 @@ class TaskRunner:
             self.log("    索拉指南已选中未完成的周度游历，直接进入幻梦游园。")
             self._start_weekly_travel_from_selected_page()
             return
-        self.log("    索拉指南未自动进入周度游历页，判定本周周常已经完成；本次跳过幻梦游园。")
+        if self._guide_material_page_present(screenshot):
+            self.log("    日常结算后二次进入索拉指南，已显示素材获取页；正常结算完成，跳过幻梦游园。")
+        else:
+            self.log("    索拉指南未自动进入周度游历页，判定本周周常已经完成；本次跳过幻梦游园。")
         self._tap_ratio(0.957, 0.058, 0.35)
 
     def _perform_4c_main_attack(self) -> None:
@@ -2506,6 +2589,7 @@ class TaskRunner:
         ultimate_key: str,
         attack_enabled: threading.Event,
         attack_lock: threading.Lock,
+        *, resume_attacks: bool = True, settle_delay: float = 0.8,
     ) -> None:
         """Give the ultimate input a quiet window without competing attack clicks."""
         attack_enabled.clear()
@@ -2515,9 +2599,9 @@ class TaskRunner:
             if self.stop_event.is_set():
                 return
             self.controller.press_binding(ultimate_key, 120)
-            self._sleep_interruptible(0.80)
+            self._sleep_interruptible(settle_delay)
         finally:
-            if not self.stop_event.is_set():
+            if resume_attacks and not self.stop_event.is_set():
                 attack_enabled.set()
 
     def _confirm_daily_battle_finished(self, screenshot: Path) -> bool:
@@ -2991,6 +3075,19 @@ class TaskRunner:
         templates = step.templates or self._numbered_templates("menu", 2, 99)
         if not templates:
             raise RuntimeError("循环模板列表为空。")
+        steps = []
+        for template_name in templates:
+            if not (self.template_root / template_name).exists():
+                if not step.skip_missing:
+                    raise FileNotFoundError(f"模板不存在: {template_name}")
+                continue
+            steps.append(Step(
+                action="tap_image", label=f"识别并点击 {template_name}", template=template_name,
+                threshold=step.threshold, timeout=step.timeout,
+                offset_x=self._template_offset(step, template_name, "x"),
+                offset_y=self._template_offset(step, template_name, "y"), seconds=step.seconds))
+        if not steps:
+            raise RuntimeError("没有可用的循环模板，请检查模板组。")
         previous_step = self.last_clicked_image_step
         round_index = 1
         while not self.stop_event.is_set():
@@ -2999,32 +3096,35 @@ class TaskRunner:
                 self.stop_event.set()
                 return
             self.log(f"    开始第 {round_index} 轮循环。")
-            for template_name in templates:
+            cursor = 0
+            while cursor < len(steps):
                 if self.stop_event.is_set():
                     self.log("收到停止信号，循环任务已中断。")
                     return
-                if not (self.template_root / template_name).exists():
-                    if not step.skip_missing:
-                        raise FileNotFoundError(f"模板不存在: {template_name}")
-                    continue
-                current = Step(
-                    action="tap_image",
-                    label=f"识别并点击 {template_name}",
-                    template=template_name,
-                    threshold=step.threshold,
-                    timeout=step.timeout,
-                    offset_x=self._template_offset(step, template_name, "x"),
-                    offset_y=self._template_offset(step, template_name, "y"),
-                    seconds=step.seconds,
-                )
-                x, y, score = self._wait_for_cycle_template(current, previous_step)
-                self.log(f"    找到 {template_name}: ({x}, {y}) 相似度 {score:.3f}")
+                current = steps[cursor]
+                next_step = steps[cursor + 1] if cursor + 1 < len(steps) else None
+                wraps = next_step is None and step.loop and (self.max_cycles is None or round_index < self.max_cycles)
+                if wraps and len(steps) > 1:
+                    next_step = steps[0]
+                matched, x, y, score = self._wait_for_cycle_template(current, previous_step, next_step)
+                if self.stop_event.is_set():
+                    return
+                self.log(f"    找到 {matched.template}: ({x}, {y}) 相似度 {score:.3f}")
                 if self.dry_run:
                     self.log("    干运行：已识别位置，但不点击。")
                 else:
-                    self._click_cycle_template(current, x, y)
-                previous_step = current
+                    self._click_cycle_template(matched, x, y)
+                previous_step = matched
                 self._sleep_click_interval(step.seconds)
+                if matched is next_step:
+                    if wraps:
+                        round_index += 1
+                        self.log(f"    已进入第 {round_index} 轮，从已匹配的首张模板接续。")
+                        cursor = 1
+                        continue
+                    cursor += 2
+                else:
+                    cursor += 1
             if not step.loop:
                 return
             if self.max_cycles is not None and round_index >= self.max_cycles:
@@ -3039,55 +3139,65 @@ class TaskRunner:
         self,
         step: Step,
         previous_step: Step | None = None,
-    ) -> tuple[int, int, float]:
-        misses = 0
-        while not self.stop_event.is_set():
+        next_step: Step | None = None,
+    ) -> tuple[Step, int, int, float]:
+        found = self._probe_cycle_template(step, "本次")
+        if found is not None:
+            return step, *found
+        if previous_step is not None:
+            found = self._probe_cycle_template(previous_step, "上一张")
+            if found is not None:
+                if self.dry_run:
+                    self.log("    干运行：上一张匹配成功，不点击。")
+                else:
+                    self.log(f"    上一张 {previous_step.template} 重新匹配成功，按新识别坐标点击后回到本次步骤。")
+                    self._click_cycle_template(previous_step, *found[:2], recovery=True)
+                    self._sleep_click_interval(previous_step.seconds)
+                found = self._probe_cycle_template(step, "本次（上一张匹配后）")
+                if found is not None:
+                    return step, *found
+        if next_step is not None:
+            found = self._probe_cycle_template(next_step, "下一张")
+            if found is not None:
+                self.log(f"    已显示下一张 {next_step.template}，跳过本次 {step.template}，从下一张接续。")
+                return next_step, *found
+        found = self._probe_cycle_template(step, "本次（最终复核）")
+        if found is not None:
+            return step, *found
+        previous_name = previous_step.template if previous_step else "无上一张"
+        next_name = next_step.template if next_step else "无下一张"
+        message = (f"周常模板流程无法继续：本次 {step.template}、上一张 {previous_name}、"
+                   f"下一张 {next_name} 已按每组2次识别并最终复核本次，仍未匹配。已停止，请检查当前游戏页面。")
+        self.stop_event.set()
+        self.log(message)
+        self.notice(message)
+        raise RuntimeError(message)
+
+    def _probe_cycle_template(self, step: Step, stage: str) -> tuple[int, int, float] | None:
+        for attempt in range(CYCLE_PROBE_ATTEMPTS):
+            if self.stop_event.is_set():
+                raise RuntimeError("循环任务已停止。")
             try:
-                return self._find_image(step)
+                found = self._find_image(step, single_attempt=True)
+                if self.stop_event.is_set():
+                    raise RuntimeError("循环任务已停止。")
+                return found
             except WeeklyLimitReached:
                 raise
+            except (FileNotFoundError, OSError):
+                raise
             except Exception as exc:
-                misses += 1
-                if (
-                    previous_step is not None
-                    and not self.dry_run
-                    and misses in CYCLE_FALLBACK_MISS_COUNTS
-                ):
-                    self._retry_previous_cycle_click(previous_step, step.template, misses)
-                if misses >= CYCLE_MAX_MISSES:
-                    self.stop_event.set()
-                    raise RuntimeError(
-                        f"累计 {CYCLE_MAX_MISSES} 次未找到 {step.template}，"
-                        f"回退验证后仍无法推进，已自动停止。最后错误: {exc}"
-                    )
-                self.log(f"    等待 {step.template} 出现（第 {misses}/{CYCLE_MAX_MISSES} 次）: {exc}")
-                self._sleep_interruptible(0.15)
-        raise RuntimeError("循环任务已停止。")
-
-    def _retry_previous_cycle_click(self, previous_step: Step, expected_template: str, misses: int) -> bool:
-        probe = replace(previous_step, timeout=min(max(previous_step.timeout, 0.5), 1.0))
-        self.log(
-            f"    回退验证：{expected_template} 已连续 {misses} 次未出现，"
-            f"检查上一张 {previous_step.template}。"
-        )
-        try:
-            x, y, score = self._find_image(probe)
-        except WeeklyLimitReached:
-            raise
-        except Exception as exc:
-            self.log(f"    回退验证：上一张已不在画面，继续等待 {expected_template}: {exc}")
-            return False
-
-        self.log(
-            f"    回退验证命中 {previous_step.template}: ({x}, {y}) "
-            f"相似度 {score:.3f}，执行补点。"
-        )
-        self._click_cycle_template(previous_step, x, y, recovery=True)
-        self._sleep_click_interval(previous_step.seconds)
-        return True
+                if self.stop_event.is_set():
+                    raise RuntimeError("循环任务已停止。") from exc
+                self.log(f"    {stage}识别 {step.template}（{attempt+1}/{CYCLE_PROBE_ATTEMPTS}）未匹配: {exc}")
+                if attempt + 1 < CYCLE_PROBE_ATTEMPTS:
+                    self._sleep_interruptible(CYCLE_PROBE_INTERVAL)
+        return None
 
     def _click_cycle_template(self, step: Step, x: int, y: int, recovery: bool = False) -> None:
-        action = "回退补点" if recovery else "正在点击识别坐标"
+        if self.stop_event.is_set():
+            return
+        action = "重新识别匹配后点击" if recovery else "正在点击识别坐标"
         self.log(f"    {action}: ({x}, {y})")
         result = self.controller.tap(x, y)
         if isinstance(result, dict):
@@ -3116,13 +3226,13 @@ class TaskRunner:
             if retry_index >= CYCLE_FINAL_MAX_RETRIES:
                 self.stop_event.set()
                 raise RuntimeError(
-                    f"最终模板 {final_step.template} 补点 {CYCLE_FINAL_MAX_RETRIES} 次后仍停留在画面，"
+                    f"最终模板 {final_step.template} 重新匹配并点击 {CYCLE_FINAL_MAX_RETRIES} 次后仍停留在画面，"
                     "任务已自动停止，请检查游戏状态。"
                 )
 
             self.log(
                 f"    最终轮回退命中 {final_step.template}: ({x}, {y}) "
-                f"相似度 {score:.3f}，执行第 {retry_index + 1}/{CYCLE_FINAL_MAX_RETRIES} 次补点。"
+                f"相似度 {score:.3f}，匹配成功后执行第 {retry_index + 1}/{CYCLE_FINAL_MAX_RETRIES} 次点击。"
             )
             self._click_cycle_template(final_step, x, y, recovery=True)
             self._sleep_click_interval(final_step.seconds)
@@ -3135,8 +3245,12 @@ class TaskRunner:
             time.sleep(min(0.1, deadline - time.time()))
 
     def _sleep_click_interval(self, base_seconds: float) -> None:
-        minimum = max(0.0, base_seconds - CLICK_DELAY_JITTER_SECONDS)
-        maximum = max(minimum, base_seconds + CLICK_DELAY_JITTER_SECONDS)
+        jitter = CLICK_DELAY_JITTER_SECONDS
+        if self._weekly_monitoring:
+            base_seconds = min(base_seconds, WEEKLY_CLICK_INTERVAL)
+            jitter = WEEKLY_CLICK_JITTER
+        minimum = max(0.0, base_seconds - jitter)
+        maximum = max(minimum, base_seconds + jitter)
         self._sleep_interruptible(random.uniform(minimum, maximum))
 
     def _numbered_templates(self, prefix: str, start: int, end: int) -> list[str]:
@@ -3158,12 +3272,12 @@ class TaskRunner:
             return int(value)
         return step.offset_x if axis == "x" else step.offset_y
 
-    def _find_image(self, step: Step) -> tuple[int, int, float]:
+    def _find_image(self, step: Step, *, single_attempt: bool = False) -> tuple[int, int, float]:
         if not step.template:
             raise ValueError("tap_image 步骤需要 template 字段")
         deadline = time.time() + step.timeout
         last_error: Exception | None = None
-        while time.time() <= deadline:
+        while single_attempt or time.time() <= deadline:
             if self.stop_event.is_set():
                 raise RuntimeError("已停止模板识别。")
             screenshot = APP_DIR / "_runtime_screenshot.png"
@@ -3186,6 +3300,8 @@ class TaskRunner:
                     return client_x, client_y, match.score
                 return image_x, image_y, match.score
             except Exception as exc:
+                if single_attempt:
+                    raise
                 last_error = exc
                 time.sleep(0.6)
         raise RuntimeError(str(last_error) if last_error else f"识别超时: {step.template}")
@@ -3305,13 +3421,15 @@ class TaskRunner:
 
 
 class TemplateCropper:
-    def __init__(self, parent: Tk, source_path: Path, templates_dir: Path, log):
+    def __init__(self, parent: Tk, source_path: Path, templates_dir: Path, log, ui=None):
+        self.ui = ui
         self.source_path = source_path
         self.templates_dir = templates_dir
         self.log = log
         self.window = Toplevel(parent)
         self.window.title("制作识别模板")
         self.window.geometry("1120x760")
+        self.window.configure(bg=COLORS["panel"])
         self.image = Image.open(source_path).convert("RGB")
         self.scale = min(1060 / self.image.width, 660 / self.image.height, 1.0)
         preview_size = (int(self.image.width * self.scale), int(self.image.height * self.scale))
@@ -3322,7 +3440,7 @@ class TemplateCropper:
         self.rect_id: int | None = None
         self.selection: tuple[int, int, int, int] | None = None
 
-        Label(self.window, text="在截图上拖框选择按钮或图标，建议包含文字/边框等明显特征。").pack(side=TOP, fill=X, padx=10, pady=6)
+        Label(self.window, text="在截图上拖框选择按钮或图标，建议包含文字/边框等明显特征。", bg=COLORS["panel"], fg=COLORS["text"]).pack(side=TOP, fill=X, padx=10, pady=6)
         self.canvas = Canvas(self.window, width=preview_size[0], height=preview_size[1], cursor="crosshair")
         self.canvas.pack(side=TOP, padx=10, pady=6)
         self.canvas.create_image(0, 0, anchor="nw", image=self.photo)
@@ -3330,10 +3448,10 @@ class TemplateCropper:
         self.canvas.bind("<B1-Motion>", self._drag)
         self.canvas.bind("<ButtonRelease-1>", self._finish)
 
-        buttons = Frame(self.window, padx=10, pady=8)
+        buttons = Frame(self.window, padx=10, pady=8, bg=COLORS["panel"])
         buttons.pack(side=TOP, fill=X)
-        Button(buttons, text="保存模板", command=self._save).pack(side=LEFT)
-        Button(buttons, text="关闭", command=self.window.destroy).pack(side=LEFT, padx=8)
+        RoundedButton(buttons, colors=COLORS, text="保存模板", primary=True, command=self._save).pack(side=LEFT)
+        RoundedButton(buttons, colors=COLORS, text="关闭", command=self.window.destroy).pack(side=LEFT, padx=8)
 
     def _start(self, event) -> None:
         self.start_x = event.x
@@ -3355,7 +3473,7 @@ class TemplateCropper:
         if not self.selection:
             messagebox.showinfo("提示", "请先拖框选择一个模板区域。", parent=self.window)
             return
-        name = simpledialog.askstring("模板文件名", "输入模板文件名，例如 menu.png", parent=self.window)
+        name = self.ui._ask_text("模板文件名", "输入模板文件名，例如 menu.png", parent=self.window) if self.ui else simpledialog.askstring("模板文件名", "输入模板文件名，例如 menu.png", parent=self.window)
         if not name:
             return
         if not name.lower().endswith(".png"):
@@ -3422,7 +3540,6 @@ class App:
         self.device_id = StringVar(value="")
         self.combat_skill_key = StringVar(value=self._load_combat_skill_key())
         self.combat_ultimate_key = StringVar(value=self._load_combat_ultimate_key())
-        self.daily_heal_enabled = BooleanVar(value=self._load_daily_heal_enabled())
         self.daily_zone = StringVar(value=self._load_daily_zone())
         self.auto_shutdown_enabled = BooleanVar(value=self._load_auto_shutdown_enabled())
         self.pet_size = StringVar(value=f"{self._load_pet_size_percent()}%")
@@ -3476,11 +3593,17 @@ class App:
         self.prob_character_target = StringVar(value="0")
         self.prob_weapon_target = StringVar(value="0")
         self.prob_result = StringVar(value="输入星声、角色水位、武器水位和目标数量后，点击计算。")
+        self.rotation_choice = StringVar()
         self._syncing_probability_inputs = False
         self.prob_astrite.trace_add("write", self._sync_pulls_from_astrite)
         self.prob_pulls.trace_add("write", self._sync_astrite_from_pulls)
         self.template_group = StringVar(value=DEFAULT_GROUP_NAME)
         self.log_queue: queue.Queue[str] = queue.Queue()
+        try:
+            self.rotation_store = load_store(COMBAT_PRESETS_CONFIG)
+        except (OSError, ValueError, TypeError) as exc:
+            self.rotation_store = default_store()
+            self.log_queue.put(f"战斗排轴配置读取失败，已使用默认轴：{exc}")
         self.tasks: list[WeeklyTask] = []
         self.stop_event = threading.Event()
         self._manual_stop_requested = False
@@ -3711,7 +3834,7 @@ class App:
         return True
 
     def _change_agent_provider(self, _event=None) -> None:
-        self.agent_model_picker.configure(values=())
+        self.agent_model_picker.set_choices(())
         self.cartethyia_agent_model.set("")
         endpoint = self.cartethyia_agent_endpoint.get().strip()
         if self.agent_provider.get() == "SillyTavern 酒馆":
@@ -3735,7 +3858,7 @@ class App:
         def finish(models, error):
             self._model_scan_busy = False
             self._discovered_models = {item.label: item for item in models}
-            self.agent_discovery_picker.configure(values=tuple(self._discovered_models))
+            self.agent_discovery_picker.set_choices(tuple(self._discovered_models))
             self.agent_discovered_choice.set(next(iter(self._discovered_models), ""))
             self.agent_discovery_status.set(error or (
                 f"发现 {len(models)} 个模型，从本机模型下拉框直接选择即可。" if models
@@ -3759,7 +3882,7 @@ class App:
         self.cartethyia_agent_endpoint.set(model.endpoint)
         self.cartethyia_agent_model.set(model.model)
         self.agent_api_key.set("")
-        self.agent_model_picker.configure(values=tuple(item.model for item in self._discovered_models.values()
+        self.agent_model_picker.set_choices(tuple(item.model for item in self._discovered_models.values()
                                                        if item.endpoint == model.endpoint))
         self.cartethyia_agent_status.set("已填入模型，请保存设置。" if model.available else
                                        "已填入模型；请先启动对应服务。LM Studio 请先载入模型，再获取服务模型列表选择。")
@@ -3773,7 +3896,7 @@ class App:
         def finish(names, error=None):
             if config != self._current_cartethyia_agent_config():
                 return
-            self.agent_model_picker.configure(values=names)
+            self.agent_model_picker.set_choices(names)
             if names and config.model not in names:
                 self.cartethyia_agent_model.set(names[0])
             self.cartethyia_agent_status.set(error or (f"发现 {len(names)} 个模型，请从模型名称下拉框选择。" if names else "服务未返回模型，请手动填写。"))
@@ -3813,16 +3936,16 @@ class App:
             self._log("聊天记录暂存于内存；文件写入失败，请检查程序目录权限。")
 
     def _build_pet_chat_history(self, parent, height: int = 9) -> None:
-        shell = Frame(parent)
-        shell.pack(fill=BOTH, expand=True, pady=(0, 10))
+        outer, shell = self._rounded_panel(parent, color=COLORS['panel'], outer_color=parent.cget('bg'))
+        outer.pack(fill=BOTH, expand=True, pady=(0, 10))
         history = Text(shell, height=height, width=44, wrap="word", relief="flat",
-                       font=(FONT_FAMILY, 10), padx=10, pady=8, bg="#f3f5f8")
-        scrollbar = ttk.Scrollbar(shell, command=history.yview)
+                       font=(FONT_FAMILY, 10), padx=10, pady=8, bg=COLORS["panel"], fg=COLORS["text"], bd=0, highlightthickness=0)
+        scrollbar = self._thin_scrollbar(shell, command=history.yview)
         history.configure(yscrollcommand=scrollbar.set)
         history.pack(side=LEFT, fill=BOTH, expand=True)
         scrollbar.pack(side=RIGHT, fill="y")
-        history.tag_configure("user", justify="right", foreground="#175d35", spacing3=12)
-        history.tag_configure("pet", justify="left", foreground="#243652", spacing3=12)
+        history.tag_configure("user", justify="right", foreground=COLORS["primary"], spacing3=12)
+        history.tag_configure("pet", justify="left", foreground=COLORS["text"], spacing3=12)
         records = self.chat_history.messages(self.pet_id)
         for item in records:
             history.insert(END, f"{item['speaker']}\n{item['text']}\n\n",
@@ -3836,7 +3959,9 @@ class App:
         window = Toplevel(self.root)
         window.title(f"{self.pet_name} · 聊天记录")
         window.geometry("520x560")
-        Label(window, text="记录保存在本机，按角色分别保留最近500条。", pady=8).pack(fill=X)
+        window.configure(bg=COLORS['panel'])
+        Label(window, text="记录保存在本机，按角色分别保留最近500条。", pady=8,
+              bg=COLORS['panel'], fg=COLORS['muted']).pack(fill=X)
         self._build_pet_chat_history(window, height=20)
 
     def _ask_cartethyia_chat_message(self) -> str | None:
@@ -3875,8 +4000,9 @@ class App:
         body = Frame(dialog, bg=theme["background"], padx=18, pady=14)
         body.pack(fill=BOTH, expand=True)
         self._build_pet_chat_history(body)
-        input_border = Frame(body, bg=theme["border"], padx=1, pady=1)
-        input_border.pack(fill=X)
+        input_shell, input_border = self._rounded_panel(body, padding=6,
+            color=theme['editor'], outer_color=theme['background'])
+        input_shell.pack(fill=X)
         editor = Text(
             input_border,
             width=44,
@@ -3919,7 +4045,7 @@ class App:
                 return None
             return submit(event)
 
-        Button(
+        self._ui_button(
             actions,
             text="取消",
             width=9,
@@ -3930,7 +4056,7 @@ class App:
             relief="flat",
             bd=0,
         ).pack(side=RIGHT)
-        Button(
+        self._ui_button(
             actions,
             text="发送",
             width=9,
@@ -4022,29 +4148,29 @@ class App:
                 window.iconbitmap(str(APP_ICON))
             except Exception:
                 pass
-        chat_background = "#ededed"
+        chat_background = COLORS["app_bg"]
         shell = Frame(window, bg=chat_background)
         shell.pack(fill=BOTH, expand=True)
-        header = Frame(shell, padx=16, pady=12, bg="#f7f7f7", highlightthickness=1, highlightbackground="#d7d7d7")
+        header = Frame(shell, padx=16, pady=12, bg=COLORS["panel"], highlightthickness=1, highlightbackground=COLORS["line_soft"])
         header.pack(fill=X)
         Label(
             header,
             text="卡提希娅 · 本地 Agent",
             font=(FONT_FAMILY, 13, "bold"),
-            bg="#f7f7f7",
+            bg=COLORS["panel"],
             fg=COLORS["text"],
         ).pack(anchor="w")
         Label(
             header,
             text="普通聊天由本地模型生成；明确的一键日常等命令只会调用安全白名单。",
-            bg="#f7f7f7",
+            bg=COLORS["panel"],
             fg=COLORS["muted"],
         ).pack(anchor="w", pady=(2, 0))
 
         history_shell = Frame(shell, bg=chat_background)
         history_shell.pack(fill=BOTH, expand=True)
         history_canvas = Canvas(history_shell, bg=chat_background, highlightthickness=0, bd=0)
-        history_scrollbar = ttk.Scrollbar(history_shell, orient="vertical", command=history_canvas.yview)
+        history_scrollbar = self._thin_scrollbar(history_shell, orient="vertical", command=history_canvas.yview)
         history_canvas.configure(yscrollcommand=history_scrollbar.set)
         history_canvas.pack(side=LEFT, fill=BOTH, expand=True)
         history_scrollbar.pack(side=RIGHT, fill="y")
@@ -4064,18 +4190,18 @@ class App:
         history_canvas.bind("<MouseWheel>", scroll_history)
         history.bind("<MouseWheel>", scroll_history)
 
-        input_row = Frame(shell, padx=12, pady=11, bg="#f7f7f7", highlightthickness=1, highlightbackground="#d7d7d7")
+        input_row = Frame(shell, padx=12, pady=11, bg=COLORS["panel"], highlightthickness=1, highlightbackground=COLORS["line_soft"])
         input_row.pack(fill=X)
-        entry = Entry(input_row, font=(FONT_FAMILY, 11), relief="flat", bd=0)
+        entry = self._rounded_entry(input_row, font=(FONT_FAMILY, 11), relief="flat", bd=0)
         entry.pack(side=LEFT, fill=X, expand=True, ipady=8, padx=(2, 10))
-        send = Button(
+        send = self._ui_button(
             input_row,
             text="发送",
             width=9,
             command=self._send_cartethyia_chat,
-            bg="#07c160",
+            bg=COLORS["primary"],
             fg="white",
-            activebackground="#06ad56",
+            activebackground=COLORS["primary_hover"],
             activeforeground="white",
             relief="flat",
             bd=0,
@@ -4111,8 +4237,8 @@ class App:
                 widget,
                 text=text,
                 font=(FONT_FAMILY, 9),
-                fg="#888888",
-                bg="#d9d9d9",
+                fg=COLORS["muted"],
+                bg=COLORS["panel_alt"],
                 padx=9,
                 pady=4,
                 wraplength=470,
@@ -4120,24 +4246,24 @@ class App:
             ).pack(pady=7)
         else:
             is_user = speaker == "你"
-            row = Frame(widget, bg="#ededed")
+            row = Frame(widget, bg=COLORS["app_bg"])
             row.pack(fill=X, pady=6)
             side = RIGHT if is_user else LEFT
-            message_column = Frame(row, bg="#ededed")
+            message_column = Frame(row, bg=COLORS["app_bg"])
             message_column.pack(side=side, anchor="e" if is_user else "w")
             Label(
                 message_column,
                 text=speaker,
                 font=(FONT_FAMILY, 8),
-                fg="#888888",
-                bg="#ededed",
+                fg=COLORS["muted"],
+                bg=COLORS["app_bg"],
             ).pack(anchor="e" if is_user else "w", padx=3, pady=(0, 2))
             bubble = Label(
                 message_column,
                 text=text,
                 font=(FONT_FAMILY, 10),
-                fg="#111111",
-                bg="#95ec69" if is_user else "#ffffff",
+                fg=COLORS["text"],
+                bg=COLORS["panel_alt"] if is_user else COLORS["panel"],
                 padx=12,
                 pady=8,
                 wraplength=390,
@@ -4234,8 +4360,6 @@ class App:
             "diagnose": self._diagnose_runtime,
             "set_auto_shutdown_on": lambda: self._set_auto_shutdown_enabled(True),
             "set_auto_shutdown_off": lambda: self._set_auto_shutdown_enabled(False),
-            "set_daily_heal_on": lambda: self._set_daily_heal_enabled(True),
-            "set_daily_heal_off": lambda: self._set_daily_heal_enabled(False),
             "set_pointer_look_on": lambda: self._set_pet_look_enabled(True),
             "set_pointer_look_off": lambda: self._set_pet_look_enabled(False),
             "set_auto_jump_on": lambda: self._set_pet_auto_jump_enabled(True),
@@ -4292,14 +4416,6 @@ class App:
             return App._combat_binding_display(normalized)
         except (OSError, ValueError, json.JSONDecodeError):
             return "R"
-
-    @staticmethod
-    def _load_daily_heal_enabled() -> bool:
-        try:
-            saved = json.loads(COMBAT_CONFIG.read_text(encoding="utf-8"))
-            return saved.get("daily_heal_enabled") is True
-        except (OSError, ValueError, json.JSONDecodeError):
-            return False
 
     @staticmethod
     def _load_auto_shutdown_enabled() -> bool:
@@ -4407,12 +4523,6 @@ class App:
         self.auto_shutdown_enabled.set(bool(enabled))
         self._apply_auto_shutdown_setting()
 
-    def _set_daily_heal_enabled(self, enabled: bool) -> None:
-        self.daily_heal_enabled.set(bool(enabled))
-        self._save_combat_settings(announce=False)
-        state = "开启" if enabled else "关闭"
-        self.status.set(f"日常三号位回血：{state}")
-
     @staticmethod
     def _load_daily_zone() -> str:
         try:
@@ -4467,29 +4577,25 @@ class App:
                 {
                     "skill_key": normalized_skill,
                     "ultimate_key": normalized_ultimate,
-                    "daily_heal_enabled": self.daily_heal_enabled.get(),
                 },
                 ensure_ascii=False,
                 indent=2,
             ),
             encoding="utf-8",
         )
-        heal_text = "开启" if self.daily_heal_enabled.get() else "关闭"
         self._log(
-            f"4C技能键位已保存为：{normalized_skill}；大招键位：{normalized_ultimate}；"
-            f"日常三号位回血：{heal_text}。"
+            f"战斗技能键位已保存为：{normalized_skill}；大招键位：{normalized_ultimate}。"
         )
         if announce:
             messagebox.showinfo(
                 "已保存",
-                f"4C技能键位：{normalized_skill}\n4C大招键位：{normalized_ultimate}"
-                f"\n日常三号位回血：{heal_text}",
+                f"战斗技能键位：{normalized_skill}\n战斗大招键位：{normalized_ultimate}",
                 parent=self.root,
             )
 
     def _autosave_combat_settings(self, _event=None) -> None:
         self._save_combat_settings(announce=False)
-        self.status.set("任务键位与回血设置已自动保存")
+        self.status.set("战斗键位已自动保存")
 
     def _theme_status_text(self) -> str:
         if self.theme_id in THEME_DEFINITIONS:
@@ -4535,15 +4641,20 @@ class App:
 
         self.start_tab = Frame(self.tabs, padx=20, pady=18, bg=COLORS["panel"])
         self.template_tab = Frame(self.tabs, padx=20, pady=18, bg=COLORS["panel"])
-        self.probability_tab = Frame(self.tabs, padx=20, pady=18, bg=COLORS["panel"])
+        rotation_shell = Frame(self.tabs, bg=COLORS["panel"])
+        self.rotation_tab, self.rotation_scroll_canvas = self._create_scrollable_tab(rotation_shell)
+        probability_shell = Frame(self.tabs, bg=COLORS["panel"])
+        self.probability_tab, self.probability_scroll_canvas = self._create_scrollable_tab(probability_shell)
         settings_shell = Frame(self.tabs, bg=COLORS["panel"])
         self.settings_tab, self.settings_scroll_canvas = self._create_scrollable_tab(settings_shell)
         self.log_tab = Frame(self.tabs, padx=20, pady=18, bg=COLORS["panel"])
-        self._tab_panels = (self.start_tab, self.template_tab, self.probability_tab,
-                            settings_shell, self.log_tab)
+        self._tab_panels = (self.start_tab, rotation_shell, self.template_tab,
+                            probability_shell, settings_shell, self.log_tab)
         self._nav_buttons = []
-        for index, title in enumerate(("快捷任务", "模板", "概率", "设置", "日志")):
-            button = Canvas(nav, width=94 if index == 0 else 72, height=42,
+        nav_font = tkfont.Font(root=self.root, family=FONT_FAMILY, size=11)
+        for index, title in enumerate(("快捷任务", "战斗排轴", "模板", "概率", "设置", "日志")):
+            button = Canvas(nav, width=max(84, nav_font.measure(title) + 34),
+                            height=max(48, nav_font.metrics("linespace") + 19),
                             bg=COLORS["app_bg"], highlightthickness=0,
                             cursor="hand2", takefocus=True)
             button._keep_canvas_style = True
@@ -4553,6 +4664,7 @@ class App:
             button.bind("<space>", lambda _event, position=index: self._select_top_tab(position))
             button.bind("<Enter>", lambda _event, position=index: self._draw_nav_button(position, True))
             button.bind("<Leave>", lambda _event, position=index: self._draw_nav_button(position))
+            button.bind("<Configure>", lambda _event, position=index: self._draw_nav_button(position))
             self._nav_buttons.append((button, title))
             self._draw_nav_button(index)
         for panel in self._tab_panels:
@@ -4561,18 +4673,56 @@ class App:
         self._select_top_tab(0)
 
         self._build_start_tab()
+        self._build_rotation_tab()
         self._build_template_tab()
         self._build_probability_tab()
         self._build_settings_tab()
         self._build_log_tab()
         self._polish_widgets(self.root)
 
-    def _create_scrollable_tab(self, parent: Frame) -> tuple[Frame, Canvas]:
+    def _create_scrollable_tab(self, parent: Frame, *, padding: int = 20,
+                               modern: bool = True) -> tuple[Frame, Canvas]:
         canvas = Canvas(parent, highlightthickness=0, bg=COLORS["panel"])
-        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
-        content = Frame(canvas, padx=20, pady=18, bg=COLORS["panel"])
+        if modern:
+            scrollbar = Canvas(parent, width=7, highlightthickness=0, bd=0,
+                               bg=COLORS["panel"], cursor="hand2")
+            scrollbar._keep_canvas_style = True
+            canvas._scroll_range = (0.0, 1.0)
+
+            def draw_scrollbar(_event=None) -> None:
+                scrollbar.delete("all")
+                first, last = canvas._scroll_range
+                height = scrollbar.winfo_height()
+                if height <= 1 or last - first >= 0.999:
+                    return
+                scrollbar.create_line(3, 0, 3, height, fill=COLORS["line_soft"], width=2)
+                top = max(2, int(first * height))
+                bottom = min(height - 2, max(top + 24, int(last * height)))
+                scrollbar.create_line(3, top, 3, bottom, fill=COLORS["line"], width=5, capstyle="round")
+
+            def update_scrollbar(first, last) -> None:
+                canvas._scroll_range = (float(first), float(last))
+                draw_scrollbar()
+
+            def drag_scrollbar(event) -> None:
+                first, last = canvas._scroll_range
+                visible = min(1.0, last - first)
+                height = max(1, scrollbar.winfo_height())
+                thumb = max(24, int(visible * height))
+                travel = max(1, height - thumb)
+                top = max(0, min(travel, event.y - thumb // 2))
+                canvas.yview_moveto(top / travel * (1.0 - visible))
+
+            scrollbar.bind("<Configure>", draw_scrollbar)
+            scrollbar.bind("<Button-1>", drag_scrollbar)
+            scrollbar.bind("<B1-Motion>", drag_scrollbar)
+            canvas.configure(yscrollcommand=update_scrollbar)
+        else:
+            scrollbar = self._thin_scrollbar(parent, orient="vertical", command=canvas.yview)
+            canvas.configure(yscrollcommand=scrollbar.set)
+        canvas._scrollbar = scrollbar
+        content = Frame(canvas, padx=padding, pady=18 if padding else 0, bg=COLORS["panel"])
         content_window = canvas.create_window((0, 0), window=content, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
         canvas.pack(side=LEFT, fill=BOTH, expand=True)
         scrollbar.pack(side=RIGHT, fill="y")
 
@@ -4656,8 +4806,8 @@ class App:
         backdrop = Canvas(shell, bg=outer_color, highlightthickness=0, bd=0)
         backdrop.place(relx=0, rely=0, relwidth=1, relheight=1)
         backdrop._keep_canvas_style = True
-        content = Frame(shell, bg=color, padx=padding, pady=padding)
-        content.pack(fill=BOTH, expand=True, padx=2, pady=2)
+        content = Frame(shell, bg=color, padx=max(0, padding-6), pady=max(0, padding-6))
+        content.pack(fill=BOTH, expand=True, padx=8, pady=8)
 
         def redraw(event) -> None:
             backdrop.delete("all")
@@ -4669,14 +4819,138 @@ class App:
         shell.bind("<Configure>", redraw)
         return shell, content
 
+    def _close_rounded_picker(self) -> None:
+        picker = getattr(self, "_active_rounded_picker", None)
+        close = getattr(picker, "_popup_close", None)
+        if close:
+            close()
+
+    def _ui_button(self, parent, *, text, command, width=None, **options):
+        primary = options.pop('style', '') == 'Primary.TButton' or options.get('fg') in ('white', '#ffffff')
+        colors = dict(COLORS)
+        if primary and options.get('bg'):
+            colors['primary'] = options['bg']
+            colors['primary_hover'] = options.get('activebackground', options['bg'])
+        return RoundedButton(parent, text=text, command=command, colors=colors,
+                             width=width*9+24 if width else 100, primary=primary,
+                             state=options.get('state', 'normal'), font_family=FONT_FAMILY)
+
+    def _thin_scrollbar(self, parent, **options):
+        return ThinScrollbar(parent, colors=COLORS, **options)
+
+    def _rounded_entry(self, parent, **options):
+        font = options.pop('font', (FONT_FAMILY, 10))
+        measure = tkfont.Font(root=self.root, font=font)
+        fill = options.pop('bg', COLORS['panel'])
+        width = options.pop('width', 20)
+        for key in ('relief', 'bd', 'highlightthickness', 'highlightbackground', 'highlightcolor'):
+            options.pop(key, None)
+        height = max(30, measure.metrics('linespace')+10)
+        shell = Canvas(parent, width=measure.measure('0')*width+20, height=height,
+                       bg=parent.cget('bg'), highlightthickness=0, bd=0)
+        shell._keep_canvas_style = True
+        shell._is_rounded_entry = True
+        entry = Entry(shell, font=font, bg=fill, relief='flat', bd=0, highlightthickness=0,
+                      insertbackground=options.pop('insertbackground', COLORS['text']),
+                      fg=options.pop('fg', COLORS['text']), readonlybackground=fill, **options)
+        entry._rounded_shell = shell
+        entry.place(x=10, y=5, relwidth=1, width=-20, relheight=1, height=-10)
+
+        def draw(_event=None):
+            shell.delete('shape')
+            w, h = max(20, shell.winfo_width()), max(height, shell.winfo_height())
+            self._paint_rounded_card(shell, 0, 0, w, h, 8,
+                                     COLORS['primary'] if self.root.focus_get() is entry else COLORS['line'])
+            self._paint_rounded_card(shell, 1, 1, w-1, h-1, 7, fill)
+
+        shell.bind('<Configure>', draw)
+        entry.bind('<FocusIn>', draw, add='+')
+        entry.bind('<FocusOut>', draw, add='+')
+        for method in ('pack', 'pack_configure', 'pack_forget', 'grid', 'grid_configure', 'grid_remove', 'place'):
+            setattr(entry, method, getattr(shell, method))
+        return entry
+
+    def _card_body(self, parent):
+        shell, body = self._rounded_panel(parent, padding=16, color=COLORS['panel_alt'])
+        body.pack = shell.pack
+        return body
+
+    def _wrap_button_row(self, parent):
+        """Keep action labels readable when the window or font size changes."""
+        buttons = [child for child in parent.winfo_children()
+                   if getattr(child, '_is_rounded_button', False)]
+        for button in buttons:
+            button.pack_forget()
+        previous = {'columns': 0}
+        def layout(event=None):
+            width = event.width if event else parent.winfo_width()
+            cell = max((button.winfo_reqwidth() for button in buttons), default=100)+10
+            columns = max(1, min(len(buttons), int(width/cell)))
+            if columns == previous['columns']:
+                return
+            for column in range(max(columns, previous['columns'])):
+                parent.columnconfigure(column, weight=0, minsize=0)
+            for index, button in enumerate(buttons):
+                button.grid(row=index//columns, column=index%columns, sticky='w', padx=(0, 10), pady=4)
+            previous['columns'] = columns
+        parent.bind('<Configure>', layout, add='+')
+        layout()
+
+    @staticmethod
+    def _reserve_row_controls(parent, stretch):
+        """Allocate action widths before giving remaining space to a picker."""
+        children = parent.winfo_children()
+        for child in children:
+            child.pack_forget()
+        for column, child in enumerate(children):
+            child.grid(row=0, column=column, sticky='ew', padx=(0, 8))
+            parent.columnconfigure(column, weight=1 if child is stretch else 0)
+
+    def _ask_text(self, title, prompt, *, initialvalue='', parent=None):
+        owner = parent or self.root
+        dialog = Toplevel(owner)
+        dialog.title(title)
+        dialog.transient(owner)
+        dialog.configure(bg=COLORS['app_bg'])
+        dialog.resizable(False, False)
+        shell, body = self._rounded_panel(dialog, padding=18, outer_color=COLORS['app_bg'])
+        shell.pack(fill=BOTH, expand=True, padx=14, pady=14)
+        Label(body, text=prompt, bg=COLORS['panel_alt'], fg=COLORS['text'],
+              font=(FONT_FAMILY, 11), wraplength=440, justify=LEFT).pack(anchor='w', pady=(0, 12))
+        value = StringVar(value=initialvalue)
+        entry = self._rounded_entry(body, textvariable=value, width=34)
+        entry.pack(fill=X)
+        result = {'value': None}
+        def accept():
+            result['value'] = value.get()
+            dialog.destroy()
+        actions = Frame(body, bg=COLORS['panel_alt'])
+        actions.pack(fill=X, pady=(14, 0))
+        self._rounded_button(actions, '取消', dialog.destroy, width=84).pack(side=RIGHT)
+        self._rounded_button(actions, '确定', accept, width=84, primary=True).pack(side=RIGHT, padx=(0, 8))
+        dialog.bind('<Return>', lambda _: accept())
+        dialog.bind('<Escape>', lambda _: dialog.destroy())
+        dialog.update_idletasks()
+        entry.focus_force()
+        entry.select_range(0, END)
+        dialog.grab_set()
+        self.root.wait_window(dialog)
+        return result['value']
+
     def _rounded_picker(self, parent, variable: StringVar, values, on_change,
                         *, height: int = 31, editable: bool = False) -> Canvas:
         """A rounded selector with a compact scrollable popup and wheel selection."""
+        height = max(height, tkfont.Font(root=self.root, family=FONT_FAMILY,
+                                         size=13, weight="bold").metrics("linespace") + 8)
         choices = list(values)
         picker = Canvas(parent, height=height, bg=parent.cget("bg"),
                         highlightthickness=0, bd=0, cursor="hand2", takefocus=True)
         picker._keep_canvas_style = True
         picker._is_rounded_picker = True
+        def set_choices(values):
+            self._close_rounded_picker()
+            choices[:] = list(values)
+        picker.set_choices = set_choices
 
         def draw(_event=None) -> None:
             picker.delete("all")
@@ -4690,6 +4964,8 @@ class App:
                                font=(FONT_FAMILY, 13, "bold"))
 
         def wheel(event) -> str:
+            if not choices:
+                return 'break'
             try:
                 index = choices.index(variable.get())
             except ValueError:
@@ -4706,23 +4982,33 @@ class App:
             if previous is not None and previous.winfo_exists():
                 picker._popup_close()
                 return "break"
+            self._close_rounded_picker()
             window = Toplevel(picker)
             window.overrideredirect(True)
             window.transient(self.root)
             picker._popup_window = window
+            self._active_rounded_picker = picker
             width = max(180, picker.winfo_width())
             visible = min(8, len(choices))
-            row_height = 32
-            entry_height = 40 if editable else 0
-            total_height = visible * row_height + 8 + entry_height
+            row_height = max(32, tkfont.Font(root=self.root, family=FONT_FAMILY,
+                                             size=10).metrics("linespace") + 12)
+            entry_height = max(40, row_height + 8) if editable else 0
             screen_left = picker.winfo_vrootx()
             screen_top = picker.winfo_vrooty()
             screen_right = screen_left + picker.winfo_vrootwidth()
             screen_bottom = screen_top + picker.winfo_vrootheight()
             x = max(screen_left + 8, min(picker.winfo_rootx(), screen_right - width - 8))
             below = picker.winfo_rooty() + height + 2
-            above = picker.winfo_rooty() - total_height - 2
-            y = above if below + total_height > screen_bottom - 8 and above >= screen_top + 8 else below
+            # A shorter list below the picker keeps controls above it clickable.
+            below_rows = (screen_bottom - 8 - below - 8 - entry_height) // row_height
+            if below_rows >= 1:
+                visible = min(visible, below_rows)
+                y = below
+            else:
+                above_rows = (picker.winfo_rooty() - screen_top - 18 - entry_height) // row_height
+                visible = min(visible, max(1, above_rows))
+                y = picker.winfo_rooty() - (visible * row_height + 8 + entry_height) - 2
+            total_height = visible * row_height + 8 + entry_height
             y = max(screen_top + 8, min(y, screen_bottom - total_height - 8))
             window.geometry(f"{width}x{total_height}+{x}+{y}")
             outside_binding = None
@@ -4736,6 +5022,8 @@ class App:
                     window.destroy()
                 picker._popup_window = None
                 picker._popup_close = None
+                if getattr(self, "_active_rounded_picker", None) is picker:
+                    self._active_rounded_picker = None
 
             def close_if_outside(event) -> None:
                 if not (x <= event.x_root < x + width and y <= event.y_root < y + total_height):
@@ -4843,13 +5131,48 @@ class App:
         picker.bind("<Button-1>", popup)
         picker.bind("<Return>", popup)
         picker.bind("<space>", popup)
-        variable.trace_add("write", lambda *_args: picker.after_idle(draw) if picker.winfo_exists() else None)
+        redraw_job = None
+
+        def schedule_draw(*_args):
+            nonlocal redraw_job
+            if not picker.winfo_exists():
+                return
+            if redraw_job:
+                picker.after_cancel(redraw_job)
+
+            def refresh():
+                nonlocal redraw_job
+                redraw_job = None
+                if picker.winfo_exists():
+                    draw()
+
+            redraw_job = picker.after_idle(refresh)
+
+        trace_id = variable.trace_add("write", schedule_draw)
+
+        def dispose(event):
+            nonlocal redraw_job
+            if event.widget is not picker:
+                return
+            if redraw_job:
+                picker.after_cancel(redraw_job)
+                redraw_job = None
+            variable.trace_remove("write", trace_id)
+            close = getattr(picker, "_popup_close", None)
+            if close:
+                close()
+
+        picker.bind("<Destroy>", dispose, add="+")
         draw()
         return picker
 
     def _rounded_button(self, parent, label: str, command, *, width: int = 130,
                         primary: bool = False) -> Canvas:
-        button = Canvas(parent, width=width, height=37, bg=parent.cget("bg"),
+        measure_font = tkfont.Font(root=self.root, family=FONT_FAMILY, size=10,
+                                   weight="bold" if primary else "normal")
+        width = max(width, measure_font.measure(label) + 32)
+        height = max(42, measure_font.metrics("linespace") + 18)
+        button = Canvas(parent, width=width, height=height, bg=parent.cget("bg"),
                         highlightthickness=0, bd=0, cursor="hand2", takefocus=True)
         button._keep_canvas_style = True
 
@@ -4861,10 +5184,10 @@ class App:
                 fill = COLORS["panel"] if state == "default" else COLORS["panel_alt"]
             if state == "pressed":
                 fill = COLORS["line_soft"] if not primary else COLORS["primary"]
-            self._paint_rounded_card(button, 0, 0, actual_width, 37, 9,
+            self._paint_rounded_card(button, 0, 0, actual_width, height, 9,
                                      COLORS["primary"] if primary else COLORS["line"])
-            self._paint_rounded_card(button, 1, 1, actual_width - 1, 36, 8, fill)
-            button.create_text(actual_width // 2, 18, text=label,
+            self._paint_rounded_card(button, 1, 1, actual_width - 1, height - 1, 8, fill)
+            button.create_text(actual_width // 2, height // 2, text=label,
                                fill="#ffffff" if primary else COLORS["text"],
                                font=(FONT_FAMILY, 10, "bold" if primary else "normal"))
 
@@ -4949,7 +5272,10 @@ class App:
 
     def _make_start_action_card(self, parent: Frame, key: str, title: str, detail: str,
                                 command, notice_key: str, with_zone: bool = False):
-        height = 114 if with_zone else 70
+        title_line = tkfont.Font(root=self.root, family=FONT_FAMILY, size=11,
+                                 weight="bold").metrics("linespace")
+        detail_line = tkfont.Font(root=self.root, family=FONT_FAMILY, size=9).metrics("linespace")
+        height = max(86, 22 + title_line + detail_line + 14) + (44 if with_zone else 0)
         card = Canvas(parent, height=height, width=360, bg=COLORS["panel"],
                       highlightthickness=0, cursor="hand2", takefocus=True)
         card._keep_canvas_style = True
@@ -5172,13 +5498,16 @@ class App:
         button.configure(bg=background)
         button.delete("all")
         width = int(button.cget("width"))
-        button.create_text(width // 2, 19, text=title,
+        nav_height = max(int(button.cget("height")), button.winfo_height())
+        button.create_text(width // 2, nav_height // 2 - 2, text=title,
                            fill=COLORS["primary"] if selected else COLORS["text"],
                            font=(FONT_FAMILY, 11, "bold" if selected else "normal"))
         if selected:
-            button.create_line(8, 40, width - 8, 40, fill=COLORS["primary"], width=2)
+            button.create_line(8, nav_height - 3, width - 8, nav_height - 3,
+                               fill=COLORS["primary"], width=2)
 
     def _select_top_tab(self, index: int) -> None:
+        self._close_rounded_picker()
         self._selected_top_tab = index
         self._tab_panels[index].tkraise()
         for position in range(len(self._nav_buttons)):
@@ -5193,7 +5522,13 @@ class App:
                     child.configure(bg=COLORS["panel"])
             elif klass == "Label":
                 parent_bg = child.master.cget("bg") if hasattr(child.master, "cget") else COLORS["panel"]
-                child.configure(bg=parent_bg, fg=child.cget("fg") if child.cget("fg") not in ("SystemButtonText", "black") else COLORS["text"])
+                foreground = child.cget('fg')
+                child.configure(bg=parent_bg, fg=COLORS['muted'] if foreground == '#5f6b7a'
+                                else COLORS['text'] if foreground in ('SystemButtonText', 'black') else foreground)
+                if child.cget('wraplength'):
+                    child.pack_configure(fill=X) if child.winfo_manager() == 'pack' else None
+                    child.bind('<Configure>', lambda event, label=child:
+                               label.configure(wraplength=max(100, event.width-8)), add='+')
             elif klass == "Button":
                 child.configure(
                     bg=COLORS["panel"],
@@ -5209,6 +5544,8 @@ class App:
                     cursor="hand2",
                 )
             elif klass == "Entry":
+                if getattr(child, '_rounded_shell', None) is not None:
+                    continue
                 child.configure(
                     bg=COLORS["panel"],
                     fg=COLORS["text"],
@@ -5227,8 +5564,7 @@ class App:
                     selectforeground="#ffffff",
                     relief="flat",
                     bd=0,
-                    highlightthickness=1,
-                    highlightbackground=COLORS["line_soft"],
+                    highlightthickness=0,
                     activestyle="none",
                 )
             elif klass == "Text":
@@ -5238,8 +5574,7 @@ class App:
                     insertbackground=COLORS["text"],
                     relief="flat",
                     bd=0,
-                    highlightthickness=1,
-                    highlightbackground=COLORS["line_soft"],
+                    highlightthickness=0,
                     padx=10,
                     pady=8,
                 )
@@ -5247,6 +5582,8 @@ class App:
                 parent_bg = child.master.cget("bg") if hasattr(child.master, "cget") else COLORS["panel"]
                 child.configure(bg=parent_bg, fg=COLORS["text"], activebackground=parent_bg, activeforeground=COLORS["text"], selectcolor=COLORS["panel"])
             elif klass == "Canvas":
+                if getattr(child, '_is_rounded_button', False) or getattr(child, '_is_rounded_entry', False):
+                    child.configure(bg=child.master.cget('bg'))
                 if (
                     child not in (getattr(self, "preview_canvas", None), getattr(self, "theme_banner", None))
                     and not getattr(child, "_keep_canvas_style", False)
@@ -5319,9 +5656,9 @@ class App:
         pet_shell, pet_box = self._rounded_panel(left, padding=12)
         pet_shell.pack(fill=X, pady=(8, 4))
         pet_box.configure(padx=14)
+        self._rounded_button(pet_box, "显示 / 隐藏", self._toggle_desktop_pet, width=110).pack(side=RIGHT)
         Label(pet_box, text=self.pet_name, font=(FONT_FAMILY, 11, "bold"),
               bg=COLORS["panel_alt"]).pack(side=LEFT)
-        self._rounded_button(pet_box, "显示 / 隐藏", self._toggle_desktop_pet, width=110).pack(side=RIGHT)
         Label(
             left,
             text=f"提示：右键{self.pet_name}可直接执行一键操作",
@@ -5355,11 +5692,9 @@ class App:
             ("R", "E", "Q", "T", "鼠标侧键1", "鼠标侧键2"),
             self._autosave_combat_settings, editable=True)
         ultimate_key_picker.pack(fill=X, pady=(3, 0))
-        Checkbutton(
-            quick_settings, text="日常启用三号位回血", variable=self.daily_heal_enabled,
-            command=self._autosave_combat_settings, bg=COLORS["panel_alt"],
-            activebackground=COLORS["panel_alt"],
-        ).pack(anchor="w", pady=(1, 5))
+        Label(quick_settings, text="角色位和战斗动作请在“战斗排轴”页设置。",
+              fg=COLORS["muted"], bg=COLORS["panel_alt"], wraplength=420,
+              justify=LEFT).pack(anchor="w", pady=(1, 5))
         Checkbutton(
             quick_settings, text="任务正常完成后自动关机", variable=self.auto_shutdown_enabled,
             command=self._apply_auto_shutdown_setting, bg=COLORS["panel_alt"],
@@ -5476,7 +5811,7 @@ class App:
             relief="solid",
         ).pack()
         window._notice_photo = photo
-        ttk.Button(container, text="知道了", command=window.destroy).pack(anchor="e", pady=(12, 0))
+        self._ui_button(container, text="知道了", command=window.destroy).pack(anchor="e", pady=(12, 0))
         window.bind("<Escape>", lambda _event: window.destroy())
         window.update_idletasks()
         x = max(0, (screen_width - window.winfo_width()) // 2)
@@ -5492,33 +5827,599 @@ class App:
         self.detail.yview_scroll(units, "units")
         return "break"
 
+    def _rotation_current_preset(self) -> dict:
+        return next(preset for preset in self.rotation_store["presets"]
+                    if preset["id"] == self._rotation_editing_id)
+
+    def _rotation_preset_names(self) -> list[str]:
+        return [preset["name"] for preset in self.rotation_store["presets"]]
+
+    def _rotation_schedule_time(self, slot: int) -> None:
+        if self._rotation_refreshing_times:
+            return
+        previous = self._rotation_time_jobs.pop(slot, None)
+        if previous:
+            self.root.after_cancel(previous)
+        preset_id = self._rotation_editing_id
+        self._rotation_time_jobs[slot] = self.root.after(
+            500, lambda: self._rotation_commit_time(slot, preset_id))
+
+    def _rotation_commit_time(self, slot: int, preset_id: str | None = None) -> bool:
+        if preset_id and preset_id != self._rotation_editing_id:
+            return False
+        pending = self._rotation_time_jobs.pop(slot, None)
+        if pending:
+            self.root.after_cancel(pending)
+        if self._rotation_refreshing_times:
+            return False
+        text = self._rotation_time_fields[slot].get().strip()
+        try:
+            # Empty strings and a lone decimal point are valid editing drafts.
+            proposal = json.loads(json.dumps(self.rotation_store, ensure_ascii=False))
+            preset = next(p for p in proposal["presets"] if p["id"] == self._rotation_editing_id)
+            preset["slot_times"][str(slot)] = float(text)
+            checked = validate_store(proposal)
+            save_store(COMBAT_PRESETS_CONFIG, checked)
+        except (ValueError, OSError) as exc:
+            message = "请输入 0.2～120 秒，正在输入的内容已保留。" if isinstance(exc, ValueError) else str(exc)
+            self.rotation_status.set(f"{SLOT_NAMES[slot]}驻场时间未保存：{message}")
+            return False
+        self.rotation_store = checked
+        self.rotation_status.set(f"{SLOT_NAMES[slot]}驻场 {float(text):g} 秒，已自动保存。")
+        return True
+
+    def _rotation_cancel_time_jobs(self, event) -> None:
+        if event.widget is not self.rotation_tab:
+            return
+        for job in self._rotation_time_jobs.values():
+            self.root.after_cancel(job)
+        self._rotation_time_jobs.clear()
+
+    def _rotation_save(self) -> bool:
+        try:
+            proposal = json.loads(json.dumps(self.rotation_store, ensure_ascii=False))
+            preset = next(item for item in proposal["presets"]
+                          if item["id"] == self._rotation_editing_id)
+            preset["slot_times"] = {str(slot): float(variable.get())
+                                    for slot, variable in self._rotation_time_fields.items()}
+            checked = validate_store(proposal)
+            save_store(COMBAT_PRESETS_CONFIG, checked)
+        except (ValueError, OSError, StopIteration) as exc:
+            messagebox.showerror("战斗排轴未保存", str(exc), parent=self.root)
+            return False
+        self.rotation_store = checked
+        self.rotation_status.set("已保存；各模式使用下方分配的预设。")
+        return True
+
+    def _rotation_switch(self) -> None:
+        selected = self.rotation_choice.get()
+        current = self._rotation_current_preset()
+        if selected == current["name"]:
+            return
+        if not self._rotation_save():
+            self.rotation_choice.set(current["name"])
+            return
+        preset = next((p for p in self.rotation_store["presets"] if p["name"] == selected), None)
+        if preset is None:
+            return
+        self.rotation_store["active"] = preset["id"]
+        save_store(COMBAT_PRESETS_CONFIG, self.rotation_store)
+        self._rotation_editing_id = preset["id"]
+        self._rotation_rebuild_cards()
+
+    def _rotation_new(self) -> None:
+        if not self._rotation_save():
+            return
+        if len(self.rotation_store["presets"]) >= 30:
+            messagebox.showinfo("预设数量已满", "最多可以保存 30 个战斗预设。", parent=self.root)
+            return
+        name = self._ask_text("新建战斗排轴", "输入新预设名称：", parent=self.root)
+        if not name:
+            return
+        name = name.strip()
+        if not name or len(name) > 40 or name in self._rotation_preset_names():
+            messagebox.showerror("名称不可用", "请输入不超过40字的独立名称。", parent=self.root)
+            return
+        previous_store = json.loads(json.dumps(self.rotation_store, ensure_ascii=False))
+        modules = json.loads(json.dumps(self._rotation_current_preset()["modules"]))
+        for item in modules:
+            item["id"] = secrets.token_hex(6)
+        preset = {"id": secrets.token_hex(6), "name": name, "modules": modules,
+                  "slot_times": dict(self._rotation_current_preset()["slot_times"])}
+        self.rotation_store["presets"].append(preset)
+        self.rotation_store["active"] = preset["id"]
+        self._rotation_editing_id = preset["id"]
+        if not self._rotation_save_new_structure():
+            self.rotation_store = previous_store
+            self._rotation_editing_id = previous_store["active"]
+            return
+        self.rotation_choice.set(name)
+        self._rotation_refresh_picker()
+        self._rotation_rebuild_cards()
+
+    def _rotation_save_new_structure(self) -> bool:
+        try:
+            self.rotation_store = validate_store(self.rotation_store)
+            save_store(COMBAT_PRESETS_CONFIG, self.rotation_store)
+        except (ValueError, OSError) as exc:
+            messagebox.showerror("保存失败", str(exc), parent=self.root)
+            return False
+        return True
+
+    def _rotation_rename(self) -> None:
+        if not self._rotation_save():
+            return
+        preset = self._rotation_current_preset()
+        name = self._ask_text("重命名战斗排轴", "输入预设名称：",
+                                      initialvalue=preset["name"], parent=self.root)
+        if not name:
+            return
+        name = name.strip()
+        if not name or len(name) > 40 or name in (p["name"] for p in self.rotation_store["presets"] if p is not preset):
+            messagebox.showerror("名称不可用", "请输入不超过40字的独立名称。", parent=self.root)
+            return
+        preset["name"] = name
+        self._rotation_save_new_structure()
+        self.rotation_choice.set(name)
+        self._rotation_refresh_picker()
+
+    def _rotation_delete(self) -> None:
+        if len(self.rotation_store["presets"]) <= 1:
+            messagebox.showinfo("保留预设", "至少需要保留一个战斗预设。", parent=self.root)
+            return
+        removed_id = self._rotation_editing_id
+        self.rotation_store["presets"] = [p for p in self.rotation_store["presets"]
+                                          if p["id"] != removed_id]
+        preset = self.rotation_store["presets"][0]
+        self._rotation_editing_id = preset["id"]
+        self.rotation_store["active"] = preset["id"]
+        for mode, assigned in self.rotation_store["modes"].items():
+            if assigned == removed_id:
+                self.rotation_store["modes"][mode] = preset["id"]
+        if self._rotation_save_new_structure():
+            self.rotation_choice.set(preset["name"])
+            self._rotation_refresh_picker()
+            self._rotation_rebuild_cards()
+
+    def _rotation_refresh_picker(self) -> None:
+        # Rebuild the themed picker when the available preset names change.
+        self.rotation_picker.destroy()
+        self.rotation_picker = self._rounded_picker(self.rotation_picker_parent,
+                                                   self.rotation_choice,
+                                                   self._rotation_preset_names(),
+                                                   self._rotation_switch)
+        self.rotation_picker.pack(side=LEFT, fill=X, expand=True, padx=(0, 8))
+        self._rotation_refresh_modes()
+
+    def _rotation_refresh_modes(self) -> None:
+        if not hasattr(self, "rotation_modes_parent"):
+            return
+        for child in self.rotation_modes_parent.winfo_children():
+            child.destroy()
+        self.rotation_mode_choices = {}
+        for column, (mode, title) in enumerate(COMBAT_MODES.items()):
+            box = Frame(self.rotation_modes_parent, bg=COLORS["panel_alt"])
+            box.grid(row=0, column=column, sticky="ew", padx=(0, 8) if column == 0 else (8, 0))
+            self.rotation_modes_parent.columnconfigure(column, weight=1, uniform="rotation_modes")
+            Label(box, text=title + "使用的预设", bg=COLORS["panel_alt"],
+                  fg=COLORS["text"]).pack(anchor="w", pady=(0, 4))
+            selected = next(p["name"] for p in self.rotation_store["presets"]
+                            if p["id"] == self.rotation_store["modes"][mode])
+            variable = StringVar(value=selected)
+            self.rotation_mode_choices[mode] = variable
+            self._rounded_picker(box, variable, self._rotation_preset_names(),
+                                 lambda selected_mode=mode: self._rotation_assign_mode(selected_mode)).pack(fill=X)
+
+    def _rotation_assign_mode(self, mode: str) -> None:
+        if not self._rotation_save():
+            self._rotation_refresh_modes()
+            return
+        preset = next(p for p in self.rotation_store["presets"]
+                      if p["name"] == self.rotation_mode_choices[mode].get())
+        previous = self.rotation_store["modes"][mode]
+        self.rotation_store["modes"][mode] = preset["id"]
+        if not self._rotation_save_new_structure():
+            self.rotation_store["modes"][mode] = previous
+            self._rotation_refresh_modes()
+            return
+        self.rotation_status.set(f"{COMBAT_MODES[mode]}已选用：{preset['name']}。")
+
+    def _rotation_add(self, slot: int = 1) -> None:
+        if not self._rotation_save():
+            return
+        kind = next(key for key, spec in ACTION_SPECS.items()
+                    if spec[0] == self._rotation_add_choices[slot].get())
+        modules = self._rotation_current_preset()["modules"]
+        if len(modules) >= 100:
+            messagebox.showinfo("模块数量已满", "每个预设最多添加 100 个模块。", parent=self.root)
+            return
+        if kind == "idle_attack" and any(m["kind"] == kind and m["slot"] == slot for m in modules):
+            messagebox.showinfo("空闲普攻已存在", "每列只需一个空闲普攻模块。", parent=self.root)
+            return
+        modules.append(new_module(kind, slot))
+        self._rotation_save_new_structure()
+        self._rotation_rebuild_cards()
+
+    def _rotation_remove(self, module_id: str) -> None:
+        if not self._rotation_save():
+            return
+        preset = self._rotation_current_preset()
+        if len(preset["modules"]) <= 1:
+            messagebox.showinfo("保留模块", "一个预设至少需要一个模块。", parent=self.root)
+            return
+        preset["modules"] = [m for m in preset["modules"] if m["id"] != module_id]
+        self._rotation_save_new_structure()
+        self._rotation_rebuild_cards()
+
+    def _rotation_edit(self, module_id: str) -> None:
+        if not self._rotation_save():
+            return
+        item = next(m for m in self._rotation_current_preset()["modules"] if m["id"] == module_id)
+        dialog = Toplevel(self.root)
+        dialog.title("修改模块 · " + ACTION_SPECS[item["kind"]][0])
+        dialog.transient(self.root)
+        dialog.configure(bg=COLORS["panel"])
+        body = Frame(dialog, bg=COLORS["panel"], padx=20, pady=16)
+        body.pack(fill=BOTH, expand=True)
+        value = StringVar(value=str(item["value"]))
+        interval = StringVar(value=str(item["interval"]))
+        slot = StringVar(value=SLOT_NAMES[item["slot"]])
+        kind = item["kind"]
+        caption = {"idle_attack": "每多少下普攻穿插一次重击", "attack_count": "普攻次数",
+                   "jump_attack": "跳跃后普攻次数", "attack_seconds": "普攻秒数",
+                   "heavy_count": "重击次数", "wait": "等待秒数", "approach": "向前移动秒数"}.get(kind, "执行次数")
+        Label(body, text=ACTION_SPECS[kind][1], fg=COLORS["muted"], bg=COLORS["panel"],
+              wraplength=380, justify=LEFT).pack(anchor="w", pady=(0, 12))
+        Label(body, text="角色位", bg=COLORS["panel"], fg=COLORS["text"]).pack(anchor="w")
+        self._rounded_picker(body, slot, list(SLOT_NAMES.values()), lambda: None).pack(fill=X, pady=(4, 10))
+        for title, variable in [(caption, value)] + ([("间隔（秒）；未到时间则下次驻场再检查", interval)]
+                                                    if kind in {"skill", "ultimate", "echo", "approach"} else []):
+            Label(body, text=title, bg=COLORS["panel"], fg=COLORS["text"],
+                  wraplength=380, justify=LEFT).pack(anchor="w")
+            self._rounded_entry(body, textvariable=variable, font=(FONT_FAMILY, 11), bg=COLORS["panel_alt"],
+                  fg=COLORS["text"], insertbackground=COLORS["text"], relief="flat",
+                  highlightthickness=1, highlightbackground=COLORS["line_soft"]).pack(fill=X, ipady=7, pady=(4, 12))
+
+        def apply():
+            try:
+                for number in SLOT_NAMES:
+                    self._rotation_commit_time(number)
+                proposal = json.loads(json.dumps(self.rotation_store, ensure_ascii=False))
+                target = next((m for p in proposal["presets"] for m in p["modules"] if m["id"] == module_id), None)
+                if target is None:
+                    raise ValueError("该模块已经被移除，请关闭后重新选择。")
+                target.update(value=float(value.get()), interval=float(interval.get()),
+                              slot=next(n for n, name in SLOT_NAMES.items() if name == slot.get()))
+                checked = validate_store(proposal)
+                save_store(COMBAT_PRESETS_CONFIG, checked)
+            except (ValueError, OSError) as exc:
+                messagebox.showerror("参数不可用", str(exc), parent=dialog)
+                return
+            self.rotation_store = checked
+            dialog.destroy()
+            self._rotation_rebuild_cards()
+            self.rotation_status.set("模块已保存。")
+
+        footer = Frame(body, bg=COLORS["panel"])
+        footer.pack(fill=X)
+        self._rounded_button(footer, "移除", lambda: (dialog.destroy(), self._rotation_remove(module_id)), width=80).pack(side=LEFT)
+        self._rounded_button(footer, "保存", apply, width=80, primary=True).pack(side=RIGHT)
+        self._rounded_button(footer, "取消", dialog.destroy, width=80).pack(side=RIGHT, padx=8)
+        dialog.update_idletasks()
+        width, height = max(440, dialog.winfo_reqwidth()), max(300, dialog.winfo_reqheight())
+        dialog.minsize(width, height)
+        dialog.geometry(f"{width}x{height}+{self.root.winfo_rootx()+60}+{self.root.winfo_rooty()+60}")
+        dialog.bind("<Escape>", lambda _event: dialog.destroy())
+
+    def _rotation_rebuild_cards(self) -> None:
+        for column in self._rotation_columns.values():
+            for child in column["list"].winfo_children():
+                child.destroy()
+        self._rotation_cards = {}
+        preset = self._rotation_current_preset()
+        if getattr(self, "_rotation_time_preset_id", None) != preset["id"]:
+            self._rotation_refreshing_times = True
+            try:
+                for slot, variable in self._rotation_time_fields.items():
+                    variable.set(str(preset.get("slot_times", {}).get(str(slot), 5)))
+                self._rotation_time_preset_id = preset["id"]
+            finally:
+                self._rotation_refreshing_times = False
+        for item in preset["modules"]:
+            self._rotation_make_card(item)
+
+    def _rotation_drop(self, module_id, slot, index):
+        if not self._rotation_save():
+            return
+        modules = self._rotation_current_preset()["modules"]
+        item = next(m for m in modules if m["id"] == module_id)
+        if item["kind"] == "idle_attack" and any(m["id"] != module_id and m["slot"] == slot
+                                                  and m["kind"] == "idle_attack" for m in modules):
+            self.rotation_status.set("该列已有空闲普攻，拖动未保存。")
+            return
+        modules.remove(item)
+        item["slot"] = slot
+        targets = [m for m in modules if m["slot"] == slot]
+        if index < len(targets):
+            modules.insert(modules.index(targets[index]), item)
+        else:
+            modules.append(item)
+        self._rotation_save_new_structure()
+        self._rotation_rebuild_cards()
+
+    def _rotation_make_card(self, item: dict) -> None:
+        slot, module_id = item["slot"], item["id"]
+        column = self._rotation_columns[slot]
+        card = Canvas(column["list"], height=90, bg=COLORS["panel"], bd=0, highlightthickness=0)
+        card._keep_canvas_style = True
+        card._drag_ghost = None
+        card.pack(fill=X, pady=(0, 8))
+        self._rotation_cards[module_id] = card
+        title_font = tkfont.Font(root=self.root, family=FONT_FAMILY, size=11, weight="bold")
+        detail_font = tkfont.Font(root=self.root, family=FONT_FAMILY, size=9)
+        title = ACTION_SPECS[item["kind"]][0]
+        kind, value = item["kind"], item["value"]
+        detail = {"idle_attack": f"空闲普攻；每 {value:g} 下重击一次", "attack_count": f"普攻 {value:g} 次",
+                  "jump_attack": f"跳跃后普攻 {value:g} 次", "heavy_count": f"长按重击 {value:g} 次",
+                  "attack_seconds": f"普攻 {value:g} 秒", "wait": f"等待 {value:g} 秒",
+                  "approach": f"前进 {value:g} 秒"}.get(kind, f"{value:g} 次 · 间隔 {item['interval']:g} 秒")
+
+        def paint(target, width, height, hover=False, placeholder=False):
+            target.delete("all")
+            self._paint_rounded_card(target, 1, 1, width-2, height-2, 14,
+                                     COLORS["primary"] if hover else COLORS["line_soft"])
+            self._paint_rounded_card(target, 2, 2, width-3, height-3, 13, COLORS["panel_alt"])
+            if placeholder:
+                target.create_text(width/2, height/2, text="拖动中", fill=COLORS["muted"])
+                return
+            for y in (25, 31, 37):
+                target.create_oval(17, y, 20, y+3, fill=COLORS["muted"], outline="")
+            target.create_text(36, 16, text=title, anchor="nw", width=max(60, width-64),
+                               font=title_font, fill=COLORS["text"], tags="title")
+            title_bottom = target.bbox("title")[3]
+            target.create_text(36, title_bottom+4, text=detail, anchor="nw", width=max(60, width-58),
+                               font=detail_font, fill=COLORS["muted"], tags="detail")
+            target.create_text(width-17, 31, text="›", font=(FONT_FAMILY, 20), fill=COLORS["text"])
+
+        def draw(hover=False):
+            width = max(180, card.winfo_width())
+            height = int(card.cget("height"))
+            paint(card, width, height, hover, getattr(card, "_drag_started", False))
+            if not getattr(card, "_drag_started", False):
+                needed = max(84, card.bbox("detail")[3]+16)
+                if needed != height:
+                    card.configure(height=needed)
+                    paint(card, width, needed, hover)
+
+        def press(event):
+            card._press_pending = True
+            card._edit_armed = 30 <= event.x < card.winfo_width() and 0 <= event.y < card.winfo_height()
+            card._drag_handle = event.x < 30
+            card._drag_started = False
+            card._drag_origin = (event.x_root, event.y_root)
+            card._drag_offset = (event.x, event.y)
+            card._drop_target = None
+
+        def motion(event):
+            if not getattr(card, "_press_pending", False):
+                return
+            distance = max(abs(event.x_root-card._drag_origin[0]), abs(event.y_root-card._drag_origin[1]))
+            if distance >= 5:
+                card._edit_armed = False
+            if not getattr(card, "_drag_handle", False):
+                return
+            if not card._drag_started and distance < 5:
+                return
+            if not card._drag_started:
+                ghost = Toplevel(self.root)
+                ghost.withdraw()
+                ghost.overrideredirect(True)
+                ghost.attributes("-topmost", True)
+                ghost.attributes("-alpha", 0.93)
+                try:
+                    ghost.attributes("-disabled", True)
+                except TclError:
+                    pass
+                width, height = card.winfo_width(), card.winfo_height()
+                preview = Canvas(ghost, width=width, height=height, bg=COLORS["panel"], highlightthickness=0)
+                preview.pack()
+                paint(preview, width, height, True)
+                card._drag_ghost = ghost
+                card._drag_started = True
+                card._drop_marker = Frame(self.rotation_tab, bg=COLORS["primary"], height=3)
+                card._drag_bindings = [(seq, self.root.bind(seq, callback, add="+")) for seq, callback in
+                                       (("<B1-Motion>", motion), ("<ButtonRelease-1>", release), ("<Escape>", release))]
+                draw()
+            ox, oy = card._drag_offset
+            card._drag_ghost.geometry(f"+{event.x_root-ox}+{event.y_root-oy}")
+            card._drag_ghost.deiconify()
+            target_slot = min(self._rotation_columns, key=lambda n: abs(event.x_root -
+                               (self._rotation_columns[n]["canvas"].winfo_rootx()+self._rotation_columns[n]["canvas"].winfo_width()/2)))
+            target = self._rotation_columns[target_slot]
+            canvas = target["canvas"]
+            top = canvas.winfo_rooty()
+            if event.y_root < top+25:
+                canvas.yview_scroll(-1, "units")
+            elif event.y_root > top+canvas.winfo_height()-25:
+                canvas.yview_scroll(1, "units")
+            candidates = [m for m in self._rotation_current_preset()["modules"]
+                          if m["slot"] == target_slot and m["id"] != module_id]
+            index = len(candidates)
+            marker_y = top
+            for i, other in enumerate(candidates):
+                other_card = self._rotation_cards[other["id"]]
+                marker_y = other_card.winfo_rooty()+other_card.winfo_height()+4
+                if event.y_root < other_card.winfo_rooty()+other_card.winfo_height()/2:
+                    index, marker_y = i, other_card.winfo_rooty()-4
+                    break
+            card._drop_target = (target_slot, index)
+            marker_y = min(max(marker_y, top), top+canvas.winfo_height()-3)
+            card._drop_marker.place(x=canvas.winfo_rootx()-self.rotation_tab.winfo_rootx(),
+                                    y=marker_y-self.rotation_tab.winfo_rooty(), width=canvas.winfo_width())
+            return "break"
+
+        def release(event):
+            dragged = getattr(card, "_drag_started", False)
+            # Dropdowns close on mouse-down. Their trailing mouse-up can land
+            # on a newly exposed card, which must not be treated as a click.
+            edit_click = getattr(card, "_press_pending", False) and getattr(card, "_edit_armed", False)
+            card._press_pending = False
+            card._edit_armed = False
+            target = getattr(card, "_drop_target", None)
+            if card._drag_ghost:
+                card._drag_ghost.destroy()
+                card._drag_ghost = None
+            if hasattr(card, "_drop_marker"):
+                card._drop_marker.destroy()
+            for seq, binding in getattr(card, "_drag_bindings", []):
+                self.root.unbind(seq, binding)
+            card._drag_bindings = []
+            card._drag_started = False
+            card._drag_handle = False
+            draw()
+            if dragged and target and getattr(event, "keysym", "") != "Escape":
+                self._rotation_drop(module_id, *target)
+            elif (edit_click and not dragged and getattr(event, "keysym", "") != "Escape"
+                  and 30 <= event.x < card.winfo_width() and 0 <= event.y < card.winfo_height()):
+                self._rotation_edit(module_id)
+            return "break"
+
+        card.bind("<Configure>", lambda _event: draw())
+        card.bind("<Enter>", lambda _event: draw(True))
+        card.bind("<Leave>", lambda _event: draw())
+        card.bind("<Motion>", lambda event: card.configure(cursor="hand2" if event.x < 30 else "arrow"))
+        card.bind("<ButtonPress-1>", press)
+        card.bind("<B1-Motion>", motion)
+        card.bind("<ButtonRelease-1>", release)
+        card.bind("<MouseWheel>", lambda event: (column["canvas"].yview_scroll(-3 if event.delta > 0 else 3, "units"), "break")[-1])
+        draw()
+
+    def _build_rotation_tab(self) -> None:
+        Label(self.rotation_tab, text="战斗排轴", font=(FONT_FAMILY, 15, "bold"),
+              bg=COLORS["panel"], fg=COLORS["text"]).pack(anchor="w")
+        help_text = Label(self.rotation_tab, text="空列跳过；驻场到时切人。技能冷却下轮再检查。持续输出请添加“空闲时持续普攻”；等待模块期间暂停。",
+                          bg=COLORS["panel"], fg=COLORS["muted"], wraplength=700, justify=LEFT, anchor="w")
+        help_text.pack(anchor="w", fill=X, pady=(4, 10))
+        help_text.bind("<Configure>", lambda e: help_text.configure(wraplength=max(180, e.width-4)))
+        self._rotation_editing_id = self.rotation_store["active"]
+        self.rotation_choice.set(self._rotation_current_preset()["name"])
+        self.rotation_status = StringVar(value="拖动三点排序或移到其他列，滚轮浏览；点击卡片修改参数。驻场时间修改后自动保存。")
+        toolbar = Frame(self.rotation_tab, bg=COLORS["panel"])
+        toolbar.pack(fill=X, pady=(0, 8))
+        self.rotation_picker_parent = Frame(toolbar, bg=COLORS["panel"])
+        self.rotation_picker_parent.pack(side=LEFT, fill=X, expand=True)
+        self.rotation_picker = self._rounded_picker(self.rotation_picker_parent, self.rotation_choice,
+                                                   self._rotation_preset_names(), self._rotation_switch)
+        self.rotation_picker.pack(side=LEFT, fill=X, expand=True, padx=(0, 8))
+        for name, callback in (("新建", self._rotation_new), ("重命名", self._rotation_rename),
+                               ("删除", self._rotation_delete), ("保存", self._rotation_save)):
+            self._rounded_button(toolbar, name, callback, width=68, primary=name == "保存").pack(side=LEFT, padx=(0, 6))
+        self._reserve_row_controls(toolbar, self.rotation_picker_parent)
+        modes_shell, modes_body = self._rounded_panel(self.rotation_tab, padding=10)
+        modes_shell.pack(fill=X, pady=(0, 8))
+        self.rotation_modes_parent = Frame(modes_body, bg=COLORS["panel_alt"])
+        self.rotation_modes_parent.pack(fill=X)
+        self._rotation_refresh_modes()
+        status = Label(self.rotation_tab, textvariable=self.rotation_status, bg=COLORS["panel"], fg=COLORS["muted"],
+                       justify=LEFT, wraplength=700, anchor="w")
+        status.pack(anchor="w", fill=X, pady=(0, 8))
+        status.bind("<Configure>", lambda e: status.configure(wraplength=max(180, e.width-4)))
+        columns = Frame(self.rotation_tab, bg=COLORS["panel"])
+        columns.pack(fill=BOTH, expand=True)
+        columns.rowconfigure(0, weight=1)
+        self._rotation_columns = {}
+        self._rotation_time_fields = {}
+        self._rotation_time_entries = {}
+        self._rotation_time_jobs = {}
+        self._rotation_refreshing_times = False
+        self._rotation_time_preset_id = None
+        self.rotation_tab.bind("<Destroy>", self._rotation_cancel_time_jobs, add="+")
+        self._rotation_add_choices = {}
+        for slot, title in SLOT_NAMES.items():
+            outer = Frame(columns, bg=COLORS["panel"])
+            outer.grid(row=0, column=slot-1, sticky="nsew", padx=(0, 8) if slot < 3 else 0)
+            columns.columnconfigure(slot-1, weight=1, uniform="rotation_column")
+            Label(outer, text=title, font=(FONT_FAMILY, 12, "bold"), bg=COLORS["panel"], fg=COLORS["text"]).pack(anchor="w")
+            timing = Frame(outer, bg=COLORS["panel"])
+            timing.pack(fill=X, pady=(5, 8))
+            Label(timing, text="驻场秒数", bg=COLORS["panel"], fg=COLORS["muted"]).pack(side=LEFT, padx=(0, 6))
+            variable = StringVar(value="5")
+            self._rotation_time_fields[slot] = variable
+            entry = self._rounded_entry(timing, textvariable=variable, width=5, font=(FONT_FAMILY, 10), relief="flat",
+                          bg=COLORS["panel_alt"], fg=COLORS["text"], insertbackground=COLORS["text"],
+                          highlightthickness=1, highlightbackground=COLORS["line_soft"])
+            entry.pack(side=LEFT, fill=X, expand=True, ipady=5)
+            self._rotation_time_entries[slot] = entry
+            def focus_time(event):
+                self._close_rounded_picker()
+                # Closing a native popup can leave Windows with no active window.
+                # This is a direct click on the field, so restore its keyboard focus.
+                event.widget.focus_force()
+
+            def select_time(event):
+                event.widget.selection_range(0, END)
+                event.widget.icursor(END)
+                return "break"
+
+            entry.bind("<Button-1>", focus_time)
+            entry.bind("<Control-a>", select_time)
+            variable.trace_add("write", lambda *_args, n=slot: self._rotation_schedule_time(n))
+            entry.bind("<Return>", lambda _e, n=slot: self._rotation_commit_time(n))
+            entry.bind("<FocusOut>", lambda _e, n=slot: self._rotation_commit_time(n))
+            addition = Frame(outer, bg=COLORS["panel"])
+            addition.pack(fill=X, pady=(0, 8))
+            choice = StringVar(value=ACTION_SPECS["attack_count"][0])
+            self._rotation_add_choices[slot] = choice
+            self._rounded_button(addition, "＋", lambda n=slot: self._rotation_add(n), width=38, primary=True).pack(side=RIGHT, padx=(6, 0))
+            self._rounded_picker(addition, choice, [spec[0] for spec in ACTION_SPECS.values()], lambda: None).pack(fill=X, expand=True)
+            list_shell = Frame(outer, bg=COLORS["panel"])
+            list_shell.pack(fill=BOTH, expand=True)
+            content, canvas = self._create_scrollable_tab(list_shell, padding=0, modern=True)
+            self._rotation_columns[slot] = {"list": content, "canvas": canvas, "scrollbar": canvas._scrollbar}
+            self._bind_mousewheel_tree(list_shell, canvas)
+        columns.rowconfigure(0, weight=1)
+        self._rotation_rebuild_cards()
+        if hasattr(self, 'rotation_scroll_canvas'):
+            self._bind_mousewheel_tree(self.rotation_tab, self.rotation_scroll_canvas)
+
     def _build_template_tab(self) -> None:
         Label(self.template_tab, text="制作识别模板", font=("Microsoft YaHei UI", 13, "bold")).pack(anchor="w")
-        Label(
+        template_help = Label(
             self.template_tab,
             text="让游戏停在目标界面，点击“制作新模板”，在截图上框住按钮或图标。保存后任务就可以自动找图点击。",
             fg="#5f6b7a",
-        ).pack(anchor="w", pady=(2, 10))
+            justify=LEFT,
+        )
+        template_help.pack(anchor="w", fill=X, pady=(2, 10))
+        template_help.bind("<Configure>", lambda event: template_help.configure(wraplength=max(160, event.width - 8)))
 
         top = Frame(self.template_tab)
         top.pack(fill=X, pady=(0, 10))
-        ttk.Button(top, text="制作新模板", style="Primary.TButton", command=self._make_template).pack(side=LEFT)
-        Button(top, text="刷新模板列表", command=self._refresh_templates).pack(side=LEFT, padx=8)
-        Button(top, text="删除当前模板组", command=self._delete_selected_template).pack(side=LEFT)
-        Button(top, text="测试选中任务识别", command=self._preview_selected).pack(side=LEFT, padx=8)
+        self._ui_button(top, text="制作新模板", style="Primary.TButton", command=self._make_template).pack(side=LEFT)
+        self._ui_button(top, text="刷新模板列表", command=self._refresh_templates).pack(side=LEFT, padx=8)
+        self._ui_button(top, text="删除当前模板组", command=self._delete_selected_template).pack(side=LEFT)
+        self._ui_button(top, text="测试选中任务识别", command=self._preview_selected).pack(side=LEFT, padx=8)
+
+        self._wrap_button_row(top)
 
         group_row = Frame(self.template_tab)
         group_row.pack(fill=X, pady=(0, 8))
         Label(group_row, text="当前模板组", width=12, anchor="w").pack(side=LEFT)
-        self.template_group_combo = ttk.Combobox(group_row, textvariable=self.template_group, state="readonly", width=24)
-        self.template_group_combo.pack(side=LEFT, padx=(0, 8))
-        self.template_group_combo.bind("<<ComboboxSelected>>", self._on_template_group_selected)
-        Button(group_row, text="新建模板组", command=self._create_template_group).pack(side=LEFT, padx=(0, 8))
-        Button(group_row, text="绑定到选中任务", command=self._assign_selected_task_group).pack(side=LEFT)
+        self.template_group_combo = self._rounded_picker(group_row, self.template_group, [], self._on_template_group_selected)
+        self.template_group_combo.pack(side=LEFT, fill=X, expand=True, padx=(0, 8))
+        self._ui_button(group_row, text="新建模板组", command=self._create_template_group).pack(side=LEFT, padx=(0, 8))
+        self._ui_button(group_row, text="绑定到选中任务", command=self._assign_selected_task_group).pack(side=LEFT)
+        self._reserve_row_controls(group_row, self.template_group_combo)
 
         Label(self.template_tab, text="当前已有模板", font=("Microsoft YaHei UI", 11, "bold")).pack(anchor="w")
-        self.template_list = Listbox(self.template_tab, height=14, font=(FONT_FAMILY, 10))
-        self.template_list.pack(fill=BOTH, expand=True, pady=6)
+        list_shell, list_body = self._rounded_panel(self.template_tab, color=COLORS['panel'])
+        list_shell.pack(fill=BOTH, expand=True, pady=6)
+        self.template_list = Listbox(list_body, height=14, font=(FONT_FAMILY, 10),
+                                     relief='flat', bd=0, highlightthickness=0)
+        list_scrollbar = self._thin_scrollbar(list_body, command=self.template_list.yview)
+        self.template_list.configure(yscrollcommand=list_scrollbar.set)
+        self.template_list.pack(side=LEFT, fill=BOTH, expand=True)
+        list_scrollbar.pack(side=RIGHT, fill='y')
 
         Label(
             self.template_tab,
@@ -5527,128 +6428,129 @@ class App:
         ).pack(anchor="w", pady=(6, 0))
 
     def _build_probability_tab(self) -> None:
-        Label(self.probability_tab, text="抽取概率计算", font=("Microsoft YaHei UI", 13, "bold")).pack(anchor="w")
-        Label(
-            self.probability_tab,
-            text="按 160 星声 = 1 抽计算。角色池会计算 50% 和大保底；武器池默认出 5 星就是 UP。",
-            fg="#5f6b7a",
-        ).pack(anchor="w", pady=(2, 14))
+        Label(self.probability_tab, text="抽取概率计算", font=(FONT_FAMILY, 15, "bold"),
+              bg=COLORS["panel"], fg=COLORS["text"]).pack(anchor="w")
+        intro = Label(self.probability_tab,
+                      text="填写资源、水位和目标；星声与抽数自动换算。角色池计入 50% 与大保底，武器池 5 星视为 UP。",
+                      fg=COLORS["muted"], bg=COLORS["panel"], justify=LEFT)
+        intro.pack(anchor="w", fill=X, pady=(4, 10))
+        intro.bind("<Configure>", lambda event: intro.configure(wraplength=max(180, event.width - 8)))
 
-        form = Frame(self.probability_tab, bg=COLORS["panel"])
-        form.pack(anchor="w", fill=X)
+        def section(title: str):
+            shell, body = self._rounded_panel(self.probability_tab, padding=16)
+            shell.pack(fill=X, pady=(0, 10))
+            Label(body, text=title, font=(FONT_FAMILY, 12, "bold"),
+                  bg=COLORS["panel_alt"], fg=COLORS["text"]).pack(anchor="w", pady=(0, 9))
+            fields = Frame(body, bg=COLORS["panel_alt"])
+            fields.pack(fill=X)
+            fields.columnconfigure(0, weight=1)
+            fields.columnconfigure(1, weight=1)
+            return body, fields
 
-        rows = [
-            ("星声数量", self.prob_astrite, "当前可用于抽取的星声数量"),
-            ("抽数", self.prob_pulls, "与星声数量二选一输入，按 160 星声 = 1 抽换算"),
-            ("角色水位", self.prob_character_pity, "角色池距离上一次 5 星后已经抽了多少发，0 到 79"),
-            ("武器水位", self.prob_weapon_pity, "武器池距离上一次 5 星后已经抽了多少发，0 到 79"),
-            ("想要获得角色数", self.prob_character_target, "想要拿到几个 UP 角色"),
-            ("想要获得武器数", self.prob_weapon_target, "想要拿到几个 UP 武器"),
-        ]
-        for row_index, (label, value, hint) in enumerate(rows):
-            row = Frame(form, bg=COLORS["panel"])
-            row.grid(row=row_index, column=0, sticky="ew", pady=6)
-            Label(row, text=label, width=18, anchor="w").pack(side=LEFT)
-            Entry(row, textvariable=value, width=18).pack(side=LEFT, padx=(0, 10))
-            Label(row, text=hint, fg="#697386").pack(side=LEFT)
+        def field(parent, title: str, variable: StringVar, hint: str, row: int, column: int):
+            box = Frame(parent, bg=COLORS["panel_alt"])
+            box.grid(row=row, column=column, sticky="nsew", padx=(0, 16), pady=(0, 10))
+            Label(box, text=title, bg=COLORS["panel_alt"], fg=COLORS["text"],
+                  font=(FONT_FAMILY, 10, "bold")).pack(anchor="w")
+            self._rounded_entry(box, textvariable=variable, font=(FONT_FAMILY, 11),
+                  bg=COLORS["panel"], fg=COLORS["text"], relief="flat", bd=1).pack(fill=X, pady=(5, 3))
+            hint_label = Label(box, text=hint, bg=COLORS["panel_alt"], fg=COLORS["muted"],
+                               justify=LEFT)
+            hint_label.pack(anchor="w", fill=X)
+            box.bind("<Configure>", lambda event, label=hint_label:
+                     label.configure(wraplength=max(100, event.width - 8)))
 
-        guarantee_row = Frame(form, bg=COLORS["panel"])
-        guarantee_row.grid(row=len(rows), column=0, sticky="ew", pady=6)
-        Label(guarantee_row, text="角色大保底", width=18, anchor="w").pack(side=LEFT)
-        Checkbutton(
-            guarantee_row,
-            text="现在拥有大保底",
-            variable=self.prob_character_guaranteed,
-            bg=COLORS["panel"],
-            activebackground=COLORS["panel"],
-        ).pack(side=LEFT, padx=(0, 10))
-        Label(guarantee_row, text="勾选后，下一次角色池 5 星必定为 UP", fg="#697386").pack(side=LEFT)
+        _body, fields = section("抽取资源")
+        field(fields, "星声数量", self.prob_astrite, "按 160 星声折算为 1 抽", 0, 0)
+        field(fields, "抽数", self.prob_pulls, "可直接填写；与星声数量自动同步", 0, 1)
 
-        ttk.Button(form, text="计算概率", style="Primary.TButton", command=self._calculate_probability).grid(row=len(rows) + 1, column=0, sticky="w", pady=(16, 12))
+        character_body, fields = section("角色池")
+        field(fields, "角色水位", self.prob_character_pity, "距离上次 5 星已抽的次数，0–79", 0, 0)
+        field(fields, "目标角色数", self.prob_character_target, "希望获得的 UP 角色数", 0, 1)
+        Checkbutton(character_body, text="现在拥有角色大保底", variable=self.prob_character_guaranteed,
+                    bg=COLORS["panel_alt"], fg=COLORS["text"], selectcolor=COLORS["panel"],
+                    activebackground=COLORS["panel_alt"]).pack(anchor="w")
 
-        result_box = Frame(self.probability_tab, padx=18, pady=16, bg=COLORS["panel_alt"], highlightthickness=1, highlightbackground=COLORS["line_soft"])
-        result_box.pack(fill=X, pady=(4, 14))
-        Label(result_box, text="计算结果", font=(FONT_FAMILY, 11, "bold"), bg=COLORS["panel_alt"]).pack(anchor="w")
-        Label(result_box, textvariable=self.prob_result, justify=LEFT, anchor="w", bg=COLORS["panel_alt"], wraplength=920).pack(anchor="w", fill=X, pady=(8, 0))
+        _body, fields = section("武器池")
+        field(fields, "武器水位", self.prob_weapon_pity, "距离上次 5 星已抽的次数，0–79", 0, 0)
+        field(fields, "目标武器数", self.prob_weapon_target, "希望获得的 UP 武器数", 0, 1)
 
-        Label(
-            self.probability_tab,
-            text="说明：角色目标使用角色水位，武器目标使用武器水位。若同时填写角色和武器目标，默认先完成角色目标，再用剩余抽数计算武器目标。",
-            fg="#5f6b7a",
-            wraplength=960,
-            justify=LEFT,
-        ).pack(anchor="w", pady=(2, 0))
+        self._rounded_button(self.probability_tab, "计算概率", self._calculate_probability,
+                             primary=True).pack(anchor="w", pady=(2, 12))
+        result_shell, result = self._rounded_panel(self.probability_tab, padding=18)
+        result_shell.pack(fill=X, pady=(0, 12))
+        Label(result, text="计算结果", font=(FONT_FAMILY, 12, "bold"),
+              bg=COLORS["panel_alt"], fg=COLORS["text"]).pack(anchor="w")
+        result_label = Label(result, textvariable=self.prob_result, justify=LEFT, anchor="w",
+                             bg=COLORS["panel_alt"], fg=COLORS["text"])
+        result_label.pack(anchor="w", fill=X, pady=(8, 0))
+        result.bind("<Configure>", lambda event:
+                    result_label.configure(wraplength=max(180, event.width - 10)))
+        note = Label(self.probability_tab,
+                     text="同时设置角色与武器目标时，先计算角色目标，再用剩余抽数计算武器目标。",
+                     fg=COLORS["muted"], bg=COLORS["panel"], justify=LEFT)
+        note.pack(anchor="w", fill=X)
+        note.bind("<Configure>", lambda event: note.configure(wraplength=max(180, event.width - 8)))
 
     def _build_settings_tab(self) -> None:
         Label(self.settings_tab, text="高级设置", font=("Microsoft YaHei UI", 13, "bold")).pack(anchor="w")
         Label(self.settings_tab, text="普通使用 PC 客户端模式即可。只有使用模拟器时才需要切换到 ADB。", fg="#5f6b7a").pack(anchor="w", pady=(2, 12))
 
-        theme_box = Frame(
-            self.settings_tab,
-            padx=16,
-            pady=14,
-            bg=COLORS["panel_alt"],
-            highlightthickness=1,
-            highlightbackground=COLORS["line_soft"],
-        )
+        theme_box = self._card_body(self.settings_tab)
         theme_box.pack(fill=X, pady=(0, 14))
         Label(theme_box, text="程序主题", font=(FONT_FAMILY, 11, "bold"), bg=COLORS["panel_alt"]).pack(anchor="w")
         Label(theme_box, textvariable=self.theme_status, fg=COLORS["muted"], bg=COLORS["panel_alt"]).pack(anchor="w", pady=(3, 10))
         theme_actions = Frame(theme_box, bg=COLORS["panel_alt"])
         theme_actions.pack(fill=X)
-        Button(theme_actions, text="使用原版简约主题", command=lambda: self._select_theme("simple")).pack(side=LEFT)
-        Button(theme_actions, text="使用达妮娅主题", command=lambda: self._select_theme("daniya")).pack(side=LEFT, padx=(10, 0))
-        Button(theme_actions, text="使用爱弥斯主题", command=lambda: self._select_theme("aemeath")).pack(side=LEFT, padx=(10, 0))
-        Button(theme_actions, text="使用景燃主题", command=lambda: self._select_theme("jingran")).pack(side=LEFT, padx=(10, 0))
-        Button(theme_actions, text="使用卡提希娅主题", command=lambda: self._select_theme("cartethyia")).pack(side=LEFT, padx=(10, 0))
-        Label(
+        self._ui_button(theme_actions, text="使用原版简约主题", command=lambda: self._select_theme("simple")).pack(side=LEFT)
+        self._ui_button(theme_actions, text="使用达妮娅主题", command=lambda: self._select_theme("daniya")).pack(side=LEFT, padx=(10, 0))
+        self._ui_button(theme_actions, text="使用爱弥斯主题", command=lambda: self._select_theme("aemeath")).pack(side=LEFT, padx=(10, 0))
+        self._ui_button(theme_actions, text="使用景燃主题", command=lambda: self._select_theme("jingran")).pack(side=LEFT, padx=(10, 0))
+        self._ui_button(theme_actions, text="使用卡提希娅主题", command=lambda: self._select_theme("cartethyia")).pack(side=LEFT, padx=(10, 0))
+        self._wrap_button_row(theme_actions)
+        theme_hint = Label(
             theme_box,
             text="选择角色主题时会切换到同名桌宠；之后仍可单独改选桌宠。切换主题后会自动重启程序。",
             fg=COLORS["muted"],
             bg=COLORS["panel_alt"],
-        ).pack(anchor="w", pady=(10, 0))
-
-        pet_select_box = Frame(
-            self.settings_tab,
-            padx=16,
-            pady=14,
-            bg=COLORS["panel_alt"],
-            highlightthickness=1,
-            highlightbackground=COLORS["line_soft"],
+            justify=LEFT,
         )
+        theme_hint.pack(anchor="w", fill=X, pady=(10, 0))
+        theme_hint.bind("<Configure>", lambda event: theme_hint.configure(wraplength=max(160, event.width - 8)))
+
+        pet_select_box = self._card_body(self.settings_tab)
         pet_select_box.pack(fill=X, pady=(0, 14))
         Label(pet_select_box, text="桌宠角色", font=(FONT_FAMILY, 11, "bold"), bg=COLORS["panel_alt"]).pack(anchor="w")
         Label(pet_select_box, textvariable=self.pet_status, fg=COLORS["muted"], bg=COLORS["panel_alt"]).pack(anchor="w", pady=(3, 10))
         pet_actions = Frame(pet_select_box, bg=COLORS["panel_alt"])
         pet_actions.pack(fill=X)
-        Button(pet_actions, text="使用达妮娅", command=lambda: self._select_pet("daniya")).pack(side=LEFT)
-        Button(pet_actions, text="使用爱弥斯", command=lambda: self._select_pet("aemeath")).pack(side=LEFT, padx=(10, 0))
-        Button(pet_actions, text="使用景燃", command=lambda: self._select_pet("jingran")).pack(side=LEFT, padx=(10, 0))
-        Button(pet_actions, text="使用卡提希娅", command=lambda: self._select_pet("cartethyia")).pack(side=LEFT, padx=(10, 0))
-        Label(
+        self._ui_button(pet_actions, text="使用达妮娅", command=lambda: self._select_pet("daniya")).pack(side=LEFT)
+        self._ui_button(pet_actions, text="使用爱弥斯", command=lambda: self._select_pet("aemeath")).pack(side=LEFT, padx=(10, 0))
+        self._ui_button(pet_actions, text="使用景燃", command=lambda: self._select_pet("jingran")).pack(side=LEFT, padx=(10, 0))
+        self._ui_button(pet_actions, text="使用卡提希娅", command=lambda: self._select_pet("cartethyia")).pack(side=LEFT, padx=(10, 0))
+        self._wrap_button_row(pet_actions)
+        pet_hint = Label(
             pet_select_box,
             text="选择桌宠不会改变程序主题；四款桌宠使用相同功能、右键菜单和排版。",
             fg=COLORS["muted"],
             bg=COLORS["panel_alt"],
-        ).pack(anchor="w", pady=(10, 0))
+            justify=LEFT,
+        )
+        pet_hint.pack(anchor="w", fill=X, pady=(10, 0))
+        pet_hint.bind("<Configure>", lambda event: pet_hint.configure(wraplength=max(160, event.width - 8)))
         pet_size_row = Frame(pet_select_box, bg=COLORS["panel_alt"])
         pet_size_row.pack(fill=X, pady=(12, 0))
         Label(pet_size_row, text="桌宠大小", width=12, anchor="w", bg=COLORS["panel_alt"]).pack(side=LEFT)
-        pet_size_picker = ttk.Combobox(
-            pet_size_row,
-            textvariable=self.pet_size,
-            values=("70%", "85%", "100%", "115%", "130%", "150%"),
-            state="readonly",
-            width=10,
-        )
+        pet_size_picker = self._rounded_picker(pet_size_row, self.pet_size,
+                                               ("70%", "85%", "100%", "115%", "130%", "150%"), self._apply_pet_size)
+        pet_size_picker.configure(width=150)
         pet_size_picker.pack(side=LEFT, padx=(0, 10))
-        pet_size_picker.bind("<<ComboboxSelected>>", self._apply_pet_size)
         Label(
-            pet_size_row,
+            pet_select_box,
             text="选择后立即生效，下次启动会保持当前大小",
             fg=COLORS["muted"],
             bg=COLORS["panel_alt"],
-        ).pack(side=LEFT)
+        ).pack(anchor="w", pady=(4, 0))
         pet_behavior_row = Frame(pet_select_box, bg=COLORS["panel_alt"])
         pet_behavior_row.pack(fill=X, pady=(10, 0))
         behavior_state = "normal" if self.pet_supports_look_controls else "disabled"
@@ -5669,20 +6571,13 @@ class App:
             bg=COLORS["panel_alt"],
         ).pack(side=LEFT, padx=(16, 0))
         Label(
-            pet_behavior_row,
+            pet_select_box,
             text="仅景燃与卡提希娅可用，设置自动保存",
             fg=COLORS["muted"],
             bg=COLORS["panel_alt"],
-        ).pack(side=LEFT, padx=(16, 0))
+        ).pack(anchor="w", pady=(4, 0))
 
-        agent_box = Frame(
-            self.settings_tab,
-            padx=16,
-            pady=14,
-            bg=COLORS["panel_alt"],
-            highlightthickness=1,
-            highlightbackground=COLORS["line_soft"],
-        )
+        agent_box = self._card_body(self.settings_tab)
         agent_box.pack(fill=X, pady=(0, 14))
         Label(
             agent_box,
@@ -5703,44 +6598,45 @@ class App:
         provider_row = Frame(agent_box, bg=COLORS["panel_alt"])
         provider_row.pack(fill=X, pady=3)
         Label(provider_row, text="接入方式", width=12, anchor="w", bg=COLORS["panel_alt"]).pack(side=LEFT)
-        provider_picker = ttk.Combobox(provider_row, textvariable=self.agent_provider,
-                                      values=("Ollama 本地", "DeepSeek API", "OpenAI 兼容 API", "SillyTavern 酒馆"), state="readonly", width=25)
-        provider_picker.pack(side=LEFT)
-        provider_picker.bind("<<ComboboxSelected>>", self._change_agent_provider)
+        provider_picker = self._rounded_picker(provider_row, self.agent_provider,
+            ("Ollama 本地", "DeepSeek API", "OpenAI 兼容 API", "SillyTavern 酒馆"), self._change_agent_provider)
+        provider_picker.pack(side=LEFT, fill=X, expand=True)
         endpoint_row = Frame(agent_box, bg=COLORS["panel_alt"])
         endpoint_row.pack(fill=X, pady=3)
         Label(endpoint_row, text="服务地址", width=12, anchor="w", bg=COLORS["panel_alt"]).pack(side=LEFT)
-        Entry(endpoint_row, textvariable=self.cartethyia_agent_endpoint, width=42).pack(side=LEFT, padx=(0, 10))
-        Label(endpoint_row, text="API 填服务商 Base URL（通常以 /v1 结尾）", fg=COLORS["muted"], bg=COLORS["panel_alt"]).pack(side=LEFT)
+        self._rounded_entry(endpoint_row, textvariable=self.cartethyia_agent_endpoint, width=42).pack(side=LEFT, fill=X, expand=True)
+        Label(agent_box, text="API 填服务商 Base URL（通常以 /v1 结尾）", fg=COLORS["muted"], bg=COLORS["panel_alt"]).pack(anchor="w")
         key_row = Frame(agent_box, bg=COLORS["panel_alt"])
         key_row.pack(fill=X, pady=3)
         Label(key_row, text="API Key", width=12, anchor="w", bg=COLORS["panel_alt"]).pack(side=LEFT)
-        Entry(key_row, textvariable=self.agent_api_key, show="*", width=42).pack(side=LEFT, padx=(0, 10))
-        Label(key_row, text="可留空；仅本次运行有效，重启后需重新填写", fg=COLORS["muted"], bg=COLORS["panel_alt"]).pack(side=LEFT)
+        self._rounded_entry(key_row, textvariable=self.agent_api_key, show="*", width=42).pack(side=LEFT, fill=X, expand=True)
+        Label(agent_box, text="可留空；仅本次运行有效，重启后需重新填写", fg=COLORS["muted"], bg=COLORS["panel_alt"]).pack(anchor="w")
         bridge_row = Frame(agent_box, bg=COLORS["panel_alt"])
         bridge_row.pack(fill=X, pady=3)
         Label(bridge_row, text="酒馆桥接密钥", width=12, anchor="w", bg=COLORS["panel_alt"]).pack(side=LEFT)
-        Entry(bridge_row, textvariable=self.agent_bridge_token, width=42, state="readonly").pack(side=LEFT, padx=(0, 10))
-        Label(bridge_row, text=f"复制到酒馆 wwbs 扩展；本机端口 {SILLYTAVERN_BRIDGE_PORT}", fg=COLORS["muted"], bg=COLORS["panel_alt"]).pack(side=LEFT)
+        self._rounded_entry(bridge_row, textvariable=self.agent_bridge_token, width=42, state="readonly").pack(side=LEFT, fill=X, expand=True)
+        Label(agent_box, text=f"复制到酒馆 wwbs 扩展；本机端口 {SILLYTAVERN_BRIDGE_PORT}", fg=COLORS["muted"], bg=COLORS["panel_alt"]).pack(anchor="w")
         model_row = Frame(agent_box, bg=COLORS["panel_alt"])
         model_row.pack(fill=X, pady=3)
         Label(model_row, text="模型名称", width=12, anchor="w", bg=COLORS["panel_alt"]).pack(side=LEFT)
-        self.agent_model_picker = ttk.Combobox(model_row, textvariable=self.cartethyia_agent_model, width=39)
-        self.agent_model_picker.pack(side=LEFT, padx=(0, 10))
-        Button(model_row, text="获取服务模型", command=self._fetch_agent_models).pack(side=LEFT)
+        self.agent_model_picker = self._rounded_picker(model_row, self.cartethyia_agent_model, [], lambda: None, editable=True)
+        self.agent_model_picker.pack(side=LEFT, fill=X, expand=True, padx=(0, 10))
+        self._ui_button(model_row, text="获取服务模型", command=self._fetch_agent_models).pack(side=LEFT)
+        self._reserve_row_controls(model_row, self.agent_model_picker)
         discovery_row = Frame(agent_box, bg=COLORS["panel_alt"])
         discovery_row.pack(fill=X, pady=3)
         Label(discovery_row, text="本机模型", width=12, anchor="w", bg=COLORS["panel_alt"]).pack(side=LEFT)
-        self.agent_discovery_picker = ttk.Combobox(discovery_row, textvariable=self.agent_discovered_choice, state="readonly", width=39)
-        self.agent_discovery_picker.pack(side=LEFT, padx=(0, 10))
-        self.agent_discovery_picker.bind("<<ComboboxSelected>>", self._use_discovered_model)
-        Button(discovery_row, text="重新检测", command=self._scan_local_models).pack(side=LEFT)
+        self.agent_discovery_picker = self._rounded_picker(discovery_row, self.agent_discovered_choice, [], self._use_discovered_model)
+        self.agent_discovery_picker.pack(side=LEFT, fill=X, expand=True, padx=(0, 10))
+        self._ui_button(discovery_row, text="重新检测", command=self._scan_local_models).pack(side=LEFT)
+        self._reserve_row_controls(discovery_row, self.agent_discovery_picker)
         self.agent_discovery_status = StringVar(value="等待检测本机模型")
         Label(agent_box, textvariable=self.agent_discovery_status, bg=COLORS["panel_alt"], fg=COLORS["muted"], wraplength=900).pack(anchor="w")
         agent_actions = Frame(agent_box, bg=COLORS["panel_alt"])
         agent_actions.pack(fill=X, pady=(9, 3))
-        Button(agent_actions, text="保存 Agent 设置", command=self._save_cartethyia_agent_settings).pack(side=LEFT)
-        Button(agent_actions, text="测试连接", command=self._test_cartethyia_agent).pack(side=LEFT, padx=(10, 0))
+        self._ui_button(agent_actions, text="保存 Agent 设置", command=self._save_cartethyia_agent_settings).pack(side=LEFT)
+        self._ui_button(agent_actions, text="测试连接", command=self._test_cartethyia_agent).pack(side=LEFT, padx=(10, 0))
+        self._wrap_button_row(agent_actions)
         Label(
             agent_box,
             textvariable=self.cartethyia_agent_status,
@@ -5765,15 +6661,18 @@ class App:
         client_row = Frame(self.settings_tab)
         client_row.pack(fill=X, pady=5)
         Label(client_row, text="窗口标题", width=12, anchor="w").pack(side=LEFT)
-        Entry(client_row, textvariable=self.window_title, width=24).pack(side=LEFT, padx=6)
-        Label(client_row, text="“自动”同时识别国服与国际服 Steam 端", fg="#697386").pack(side=LEFT, padx=6)
-        Label(client_row, text="标题包含这些字就会被识别", fg="#697386").pack(side=LEFT)
+        self._rounded_entry(client_row, textvariable=self.window_title, width=24).pack(side=LEFT, padx=6)
+        Label(self.settings_tab, text="“自动”同时识别国服与国际服 Steam 端；标题包含这些字就会被识别。",
+              fg=COLORS["muted"], bg=COLORS["panel"], justify=LEFT,
+              wraplength=520).pack(anchor="w", fill=X)
 
         size_row = Frame(self.settings_tab)
         size_row.pack(fill=X, pady=5)
         Label(size_row, text="模板基准", width=12, anchor="w").pack(side=LEFT)
-        Entry(size_row, textvariable=self.expected_resolution, width=24).pack(side=LEFT, padx=6)
-        Label(size_row, text="模板按这个分辨率制作，窗口可等比例缩小，例如 1536x864", fg="#697386").pack(side=LEFT)
+        self._rounded_entry(size_row, textvariable=self.expected_resolution, width=24).pack(side=LEFT, padx=6)
+        Label(self.settings_tab, text="模板按这个分辨率制作，窗口可等比例缩小，例如 1536x864",
+              fg=COLORS["muted"], bg=COLORS["panel"], justify=LEFT,
+              wraplength=520).pack(anchor="w", fill=X)
 
         self._update_mode_label()
         self._bind_mousewheel_tree(self.settings_tab, self.settings_scroll_canvas)
@@ -5901,9 +6800,9 @@ class App:
 
     def _build_log_tab(self) -> None:
         Label(self.log_tab, text="运行日志", font=("Microsoft YaHei UI", 13, "bold")).pack(anchor="w")
-        log_body = Frame(self.log_tab, bg=COLORS["panel"])
-        log_body.pack(fill=BOTH, expand=True, pady=8)
-        log_scrollbar = ttk.Scrollbar(log_body, orient="vertical")
+        log_shell, log_body = self._rounded_panel(self.log_tab, color=COLORS['panel'])
+        log_shell.pack(fill=BOTH, expand=True, pady=8)
+        log_scrollbar = self._thin_scrollbar(log_body, orient="vertical")
         self.log_text = Text(
             log_body,
             wrap="word",
@@ -5915,7 +6814,7 @@ class App:
         log_scrollbar.configure(command=self.log_text.yview)
         self.log_text.pack(side=LEFT, fill=BOTH, expand=True)
         log_scrollbar.pack(side=RIGHT, fill="y")
-        Button(self.log_tab, text="清空日志", command=lambda: self.log_text.delete("1.0", END)).pack(anchor="e")
+        self._ui_button(self.log_tab, text="清空日志", command=lambda: self.log_text.delete("1.0", END)).pack(anchor="e")
 
     def _show_update_notice(self) -> None:
         messagebox.showinfo(
@@ -6172,7 +7071,7 @@ class App:
                     elif self._task_with_action(diagnostic_tasks, "daily_routine") is not None:
                         required = [
                             "activity_full.png", "battle_task_text.png", "reward_prompt.png",
-                            "guide_battle_tab.png", "guide_tacet_section.png",
+                            "guide_battle_tab.png", "guide_tacet_section.png", "guide_material_title.png",
                         ]
                         missing = [name for name in required if not (TEMPLATES_DIR / "daily" / name).exists()]
                         if not (TEMPLATES_DIR / DIAGNOSTIC_START_TEMPLATE).exists():
@@ -6408,17 +7307,17 @@ class App:
             bg=COLORS["panel"],
         ).pack(anchor="w", pady=(4, 20))
 
-        Button(
+        self._ui_button(
             container,
             text="打开 B 站视频",
             command=lambda: self._open_external_link(ABOUT_BILIBILI_URL),
         ).pack(fill=X, pady=(0, 10))
-        Button(
+        self._ui_button(
             container,
             text="打开 GitHub",
             command=lambda: self._open_external_link(ABOUT_GITHUB_URL),
         ).pack(fill=X)
-        Button(container, text="关闭", command=window.destroy).pack(anchor="e", pady=(20, 0))
+        self._ui_button(container, text="关闭", command=window.destroy).pack(anchor="e", pady=(20, 0))
 
     def _open_external_link(self, url: str) -> None:
         try:
@@ -6438,9 +7337,9 @@ class App:
         container.pack(fill=BOTH, expand=True)
         Label(container, text="更新公告记录", font=(FONT_FAMILY, 14, "bold")).pack(anchor="w", pady=(0, 10))
 
-        text_frame = Frame(container)
-        text_frame.pack(fill=BOTH, expand=True)
-        scrollbar = ttk.Scrollbar(text_frame, orient="vertical")
+        text_shell, text_frame = self._rounded_panel(container, color=COLORS['panel'])
+        text_shell.pack(fill=BOTH, expand=True)
+        scrollbar = self._thin_scrollbar(text_frame, orient="vertical")
         history_text = Text(text_frame, wrap="word", font=(FONT_FAMILY, 10), yscrollcommand=scrollbar.set)
         scrollbar.config(command=history_text.yview)
         scrollbar.pack(side=RIGHT, fill="y")
@@ -6448,7 +7347,7 @@ class App:
         for version, notice in UPDATE_HISTORY:
             history_text.insert(END, f"{version}\n{notice}\n\n")
         history_text.configure(state="disabled")
-        Button(container, text="关闭", command=window.destroy).pack(anchor="e", pady=(10, 0))
+        self._ui_button(container, text="关闭", command=window.destroy).pack(anchor="e", pady=(10, 0))
 
     @staticmethod
     def _version_tuple(value: str) -> tuple[int, ...]:
@@ -6979,6 +7878,10 @@ class App:
             return
         if not self._ensure_admin_for_real_run():
             return
+        if hasattr(self, "rotation_store") and not self._rotation_save():
+            return
+        if hasattr(self, "rotation_store"):
+            self._rotation_run_store = validate_store(self.rotation_store)
         self._last_started_tasks = list(tasks)
         self._last_task_started_at = time.monotonic()
         self._manual_stop_requested = False
@@ -7000,6 +7903,7 @@ class App:
             controller = self._make_controller()
             if hasattr(controller, "connect"):
                 self._log(controller.connect())
+            rotation_snapshot = getattr(self, "_rotation_run_store", self.rotation_store)
             runner = TaskRunner(
                 controller,
                 self._log,
@@ -7009,11 +7913,15 @@ class App:
                 self.combat_skill_key.get(),
                 self.combat_ultimate_key.get(),
                 self.daily_zone.get(),
-                self.daily_heal_enabled.get(),
+                False,
                 notice=lambda message: self.root.after(
                     0,
                     lambda text=message: messagebox.showinfo("提示", text, parent=self.root),
                 ),
+                rotation_presets={mode: active_modules(rotation_snapshot, mode) for mode in COMBAT_MODES},
+                rotation_times={mode: next(p["slot_times"] for p in rotation_snapshot["presets"]
+                                           if p["id"] == rotation_snapshot["modes"][mode])
+                                for mode in COMBAT_MODES},
             )
             for task in tasks:
                 runner.run_task(task)
@@ -7166,7 +8074,7 @@ class App:
                     self._log(f"模板来源截图方式: {capture_method}")
                 group_dir = self._template_group_dir(self.template_group.get())
                 group_dir.mkdir(parents=True, exist_ok=True)
-                self.root.after(0, lambda: TemplateCropper(self.root, target, group_dir, self._after_template_saved))
+                self.root.after(0, lambda: TemplateCropper(self.root, target, group_dir, self._after_template_saved, ui=self))
             except Exception as exc:
                 self._log(f"制作模板失败: {exc}")
 
@@ -7197,7 +8105,7 @@ class App:
             current_group = groups[0] if groups else DEFAULT_GROUP_KEY
         self.template_group.set(self._template_group_name(current_group))
         if hasattr(self, "template_group_combo"):
-            self.template_group_combo["values"] = [self._template_group_name(group) for group in groups]
+            self.template_group_combo.set_choices([self._template_group_name(group) for group in groups])
         group_dir = self._template_group_dir(self.template_group.get())
         templates = sorted(path.name for path in group_dir.glob("*.png")) if group_dir.exists() else []
         self.template_status.set(f"模板组 {self._template_group_name(current_group)} · {len(templates)} 张图片")
@@ -7282,7 +8190,7 @@ class App:
         return TEMPLATES_DIR if group_key == DEFAULT_GROUP_KEY else TEMPLATES_DIR / group_key
 
     def _create_template_group(self) -> None:
-        name = simpledialog.askstring("新建模板组", "输入模板组名称，例如 周本任务2", parent=self.root)
+        name = self._ask_text("新建模板组", "输入模板组名称，例如 周本任务2", parent=self.root)
         if not name:
             return
         safe_name = re.sub(r"[^\w\u4e00-\u9fff-]+", "_", name.strip()).strip("._")

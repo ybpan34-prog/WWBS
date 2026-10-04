@@ -20,6 +20,12 @@ def main() -> None:
             image.crop((278, 750, 467, 792)).convert("RGB").save(
                 output / "guide_tacet_section.png"
             )
+        elif image.size in ((1920, 1118), (1920, 1119)):
+            # Supplied material-page reference includes a 38px game title bar.
+            client = image.crop((0, 38, 1920, 1118))
+            client.crop((108, 52, 222, 88)).convert("RGB").save(
+                output / "guide_material_title.png"
+            )
         else:
             raise ValueError("Expected a 1179x630 or 1920x1080 Sola Guide screenshot")
 

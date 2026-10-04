@@ -34,6 +34,7 @@ _diagnostic_preview.png
 _release-work/
 app-settings.json
 cartethyia-agent-settings.json
+combat-presets.json
 pet-chat-history.json
 pet-chat-history.tmp
 .wwbs-update-backup-*/

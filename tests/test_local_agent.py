@@ -66,8 +66,6 @@ class LocalAgentTests(unittest.TestCase):
 
     def test_explicit_chat_commands_can_change_safe_settings(self) -> None:
         cases = {
-            "开启三号位回血": "set_daily_heal_on",
-            "关闭三号位回血": "set_daily_heal_off",
             "任务结束后自动关机": "set_auto_shutdown_on",
             "不要自动关机": "set_auto_shutdown_off",
             "开启盯鼠标": "set_pointer_look_on",
@@ -78,6 +76,11 @@ class LocalAgentTests(unittest.TestCase):
                 reply = direct_command(message, "卡提希娅")
                 self.assertIsNotNone(reply)
                 self.assertEqual(reply.tool, tool)
+
+    def test_old_heal_command_directs_user_to_role_modules(self):
+        reply = direct_command("开启三号位回血", "卡提希娅")
+        self.assertIsNone(reply.tool)
+        self.assertIn("战斗排轴", reply.text)
 
     def test_unsupported_pet_does_not_change_look_settings(self) -> None:
         reply = direct_command("开启盯鼠标", "达妮娅")

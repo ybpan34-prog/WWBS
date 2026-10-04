@@ -88,7 +88,6 @@ class WeeklyRewardsTests(unittest.TestCase):
     def test_cap_sentinel_is_not_retried_as_missing_template(self):
         runner = app.TaskRunner(Mock(), Mock(), dry_run=False)
         runner._find_image = Mock(side_effect=WeeklyLimitReached)
-        runner._retry_previous_cycle_click = Mock()
         with self.assertRaises(WeeklyLimitReached):
             runner._wait_for_cycle_template(app.Step(action="tap_image", template="menu.png"))
         runner._find_image.assert_called_once()
