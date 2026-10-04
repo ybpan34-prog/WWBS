@@ -31,7 +31,7 @@ class UltimateIndicatorTests(unittest.TestCase):
         self.assertFalse(self._classify("not-ready-4-special.png"))
 
     def test_combat_uses_timed_ultimate_interval(self):
-        self.assertEqual(TaskRunner.COMBAT_ULTIMATE_INTERVAL, 10.0)
+        self.assertEqual(TaskRunner.COMBAT_ULTIMATE_INTERVAL, 15.0)
 
     def test_full_screenshot_uses_configured_lower_right_region(self):
         frame = np.zeros((1080, 1920, 3), dtype=np.uint8)

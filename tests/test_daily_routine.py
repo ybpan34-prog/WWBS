@@ -12,6 +12,87 @@ from desktop_pet import DesktopPet
 
 
 class DailyRoutineTests(unittest.TestCase):
+    @staticmethod
+    def material_guide_image():
+        image = Image.new("RGB", (1920, 1080), (30, 40, 50))
+        with Image.open(Path(__file__).parent / "fixtures/daily-material-header.png") as header:
+            image.paste(header, (0, 0))
+        return image
+
+    def test_material_training_card_is_not_a_weekly_tab_at_window_scales(self):
+        for scale in (0.5, 0.75, 1.0):
+            with self.subTest(scale=scale), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "guide.png"
+                self.material_guide_image().resize(
+                    (round(1920 * scale), round(1080 * scale)), Image.Resampling.LANCZOS
+                ).save(path)
+                self.assertFalse(TaskRunner._weekly_travel_page_present(path))
+                self.assertTrue(TaskRunner._guide_material_page_present(path))
+
+    def test_weekly_page_requires_the_real_selected_tab_label(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "guide.png"
+            image = Image.new("RGB", (1920, 1080), (30, 40, 50))
+            with Image.open(app.TEMPLATES_DIR / "weekly/weekly_tab.png") as tab:
+                image.paste(tab, (585, 125))
+            image.save(path)
+            self.assertTrue(TaskRunner._weekly_travel_page_present(path))
+            self.assertFalse(TaskRunner._guide_material_page_present(path))
+
+    def test_completed_daily_second_guide_entry_finishes_normally(self):
+        controller = Mock()
+        controller.normalize_input_binding.side_effect = lambda value: value
+        log, notice = Mock(), Mock()
+        runner = TaskRunner(controller, log, dry_run=False, notice=notice)
+        runner.daily_zone_name = DAILY_ZONE_NAMES[0]
+        runner._tap_ratio = Mock()
+        runner._run_daily_battle = Mock()
+        runner._start_weekly_travel_from_selected_page = Mock()
+        with tempfile.TemporaryDirectory() as tmp, patch.object(app, "APP_DIR", Path(tmp)):
+            self.material_guide_image().save(Path(tmp) / "_runtime_screenshot.png")
+            runner._capture_for_matching = Mock()
+            runner._continue_daily_into_weekly_travel()
+        self.assertEqual([c.args[:2] for c in runner._tap_ratio.call_args_list],
+                         [(0.515, 0.671), (0.957, 0.058)])
+        runner._run_daily_battle.assert_not_called()
+        runner._start_weekly_travel_from_selected_page.assert_not_called()
+        log.assert_any_call("    日常结算后二次进入索拉指南，已显示素材获取页；正常结算完成，跳过幻梦游园。")
+        self.assertFalse(runner.stop_event.is_set())
+
+    def test_unknown_page_after_activity_check_is_still_an_error(self):
+        runner = TaskRunner(Mock(), Mock(), dry_run=False)
+        runner._open_terminal_destination = Mock()
+        runner._daily_activity_still_pending = Mock(return_value=False)
+        runner._weekly_travel_page_present = Mock(return_value=False)
+        runner._guide_material_page_present = Mock(return_value=False)
+        runner._tap_ratio = Mock()
+        with self.assertRaisesRegex(RuntimeError, "未显示活跃度或周度游历"):
+            runner._open_daily_tacet_field("zone.png")
+
+    def test_two_round_daily_settlement_does_not_start_weekly_on_material_page(self):
+        controller = Mock()
+        controller.normalize_input_binding.side_effect = lambda value: value
+        log = Mock()
+        runner = TaskRunner(controller, log, dry_run=False)
+        runner.daily_zone_name = DAILY_ZONE_NAMES[0]
+        for name in ("_run_daily_battle", "_wait_for_daily_success", "_click_daily_template",
+                     "_confirm_daily_exit_if_present", "_sleep_interruptible",
+                     "_collect_daily_activity_rewards", "_collect_daily_battlepass_rewards",
+                     "_capture_for_matching", "_tap_ratio", "_start_weekly_travel_from_selected_page"):
+            setattr(runner, name, Mock())
+        runner._open_daily_tacet_field = Mock(return_value=True)
+        runner._collect_daily_reward = Mock(return_value=True)
+        runner._click_optional_daily_template = Mock(return_value=False)
+        with tempfile.TemporaryDirectory() as tmp, patch.object(app, "APP_DIR", Path(tmp)):
+            self.material_guide_image().save(Path(tmp) / "_runtime_screenshot.png")
+            runner._run_daily_routine(app.Step(action="daily_routine"))
+        self.assertEqual(runner._run_daily_battle.call_count, 2)
+        runner._collect_daily_activity_rewards.assert_called_once()
+        runner._collect_daily_battlepass_rewards.assert_called_once()
+        runner._start_weekly_travel_from_selected_page.assert_not_called()
+        log.assert_any_call("    一键日常与自动周常流程完成。")
+        log.assert_any_call("    日常结算后二次进入索拉指南，已显示素材获取页；正常结算完成，跳过幻梦游园。")
+
     def test_daily_template_scale_search_stops_after_first_good_match(self):
         runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)
         candidate = Mock(score=0.91)
@@ -196,6 +277,7 @@ class DailyRoutineTests(unittest.TestCase):
         runner._wait_for_daily_template = Mock()
         runner._weekly_travel_page_present = Mock(return_value=False)
         runner._run_default_weekly_from_daily = Mock()
+        runner._guide_material_page_present = Mock(return_value=False)
 
         runner._continue_daily_into_weekly_travel()
 
@@ -211,6 +293,7 @@ class DailyRoutineTests(unittest.TestCase):
         runner._weekly_travel_page_present = Mock(return_value=False)
         runner._wait_for_daily_template = Mock()
         runner._start_weekly_travel_from_selected_page = Mock()
+        runner._guide_material_page_present = Mock(return_value=False)
 
         runner._continue_daily_into_weekly_travel()
 
@@ -529,7 +612,7 @@ class DailyRoutineTests(unittest.TestCase):
             dry_run=False,
             daily_heal_enabled=True,
         )
-        runner.DAILY_BATTLE_END_CHECK_INTERVAL = 0.2
+        runner.DAILY_BATTLE_END_CHECK_INTERVAL = 0.01
         runner.HEAL_ROTATION_INTERVAL = 0.5
         runner._select_daily_slot_one_after_loading = Mock()
         runner._capture_for_matching = Mock()
@@ -537,14 +620,12 @@ class DailyRoutineTests(unittest.TestCase):
         runner._daily_battle_task_present = Mock(side_effect=(True, False))
         runner._confirm_daily_battle_finished = Mock(return_value=True)
         runner._perform_4c_heal_rotation = Mock()
-        runner._sleep_interruptible = Mock()
-        clock = iter(value / 10 for value in range(2, 30, 2))
-
-        with patch.object(app.time, "monotonic", side_effect=lambda: next(clock)):
-            runner._run_daily_battle(app.Step(action="daily_routine"), "E", "R", 1)
+        runner._sleep_interruptible = lambda duration: app.time.sleep(min(duration, .002))
+        runner._run_daily_battle(app.Step(action="daily_routine"), "E", "R", 1)
 
         runner._confirm_daily_battle_finished.assert_called_once()
         runner._perform_4c_heal_rotation.assert_not_called()
+        self.assertFalse(any(call.args[0] == '3' for call in controller.press_key.call_args_list))
 
     def test_reward_stage_detection_rejects_white_orb_during_combat(self):
         runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)

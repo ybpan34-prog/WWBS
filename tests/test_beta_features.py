@@ -81,7 +81,7 @@ class ApiTests(unittest.TestCase):
 
 
 class InteractionTests(unittest.TestCase):
-    def test_task_bindings_and_heal_are_saved_without_button(self):
+    def test_task_bindings_are_saved_without_button(self):
         instance = app.App.__new__(app.App)
         instance.combat_skill_key = Mock()
         instance.combat_skill_key.get.return_value = "Q"
@@ -89,15 +89,13 @@ class InteractionTests(unittest.TestCase):
         instance.combat_ultimate_key = Mock()
         instance.combat_ultimate_key.get.return_value = "鼠标侧键2"
         instance.combat_ultimate_key.set = Mock()
-        instance.daily_heal_enabled = Mock()
-        instance.daily_heal_enabled.get.return_value = True
         instance.status = Mock()
         instance._log = Mock()
         with tempfile.TemporaryDirectory() as tmp, patch.object(app, "COMBAT_CONFIG", Path(tmp) / "combat.json"):
             instance._autosave_combat_settings()
             saved = json.loads(app.COMBAT_CONFIG.read_text(encoding="utf-8"))
-        self.assertEqual(saved, {"skill_key": "Q", "ultimate_key": "XBUTTON2", "daily_heal_enabled": True})
-        instance.status.set.assert_called_once_with("任务键位与回血设置已自动保存")
+        self.assertEqual(saved, {"skill_key": "Q", "ultimate_key": "XBUTTON2"})
+        instance.status.set.assert_called_once_with("战斗键位已自动保存")
 
     def test_history_persists_and_separates_pets(self):
         with tempfile.TemporaryDirectory() as tmp:

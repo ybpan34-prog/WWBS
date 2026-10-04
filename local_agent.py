@@ -28,8 +28,6 @@ ALLOWED_TOOLS = {
     "diagnose",
     "set_auto_shutdown_on",
     "set_auto_shutdown_off",
-    "set_daily_heal_on",
-    "set_daily_heal_off",
     "set_pointer_look_on",
     "set_pointer_look_off",
     "set_auto_jump_on",
@@ -278,9 +276,7 @@ def direct_command(message: str, character_name: str = "卡提希娅") -> AgentR
         tool = f"set_auto_shutdown_{'on' if enabled else 'off'}"
         return AgentReply(_setting_reply(character_name, "任务结束后自动关机", enabled), tool)
     if "三号位回血" in text or ("日常" in text and "回血" in text):
-        enabled = not disabling
-        tool = f"set_daily_heal_{'on' if enabled else 'off'}"
-        return AgentReply(_setting_reply(character_name, "日常三号位回血", enabled), tool)
+        return AgentReply("现在可以在“战斗排轴”中，为每个动作选择一、二、三号位。请在那里配置三号位的技能和攻击动作。")
     if "盯鼠标" in text or "鼠标注视" in text:
         if character_name not in {"景燃", "卡提希娅"}:
             return AgentReply(f"{character_name}桌宠暂时不支持盯鼠标设置。")

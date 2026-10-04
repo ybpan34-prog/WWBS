@@ -13,7 +13,7 @@ class Combat4CTests(unittest.TestCase):
     def test_updated_rotation_and_reward_search_timing(self):
         self.assertEqual(app.TaskRunner.HEAL_ROTATION_INTERVAL, 9.0)
         self.assertEqual(app.TaskRunner.MAIN_Q_INTERVAL, 20.0)
-        self.assertEqual(app.TaskRunner.COMBAT_ULTIMATE_INTERVAL, 10.0)
+        self.assertEqual(app.TaskRunner.COMBAT_ULTIMATE_INTERVAL, 15.0)
         self.assertEqual(app.TaskRunner.REWARD_SEARCH_TURN_PIXELS, 190 * 5)
         self.assertLess(app.TaskRunner.REWARD_INITIAL_CHECK_DELAY, 0.2)
         self.assertGreaterEqual(app.TaskRunner.REWARD_SEARCH_TIMEOUT, 90.0)
@@ -160,7 +160,7 @@ class Combat4CTests(unittest.TestCase):
 
         self.assertEqual(controller.left_click.call_count, 4)
 
-    def test_continuous_attack_inserts_one_heavy_after_nine_clicks(self):
+    def test_continuous_attack_inserts_one_heavy_after_fifteen_clicks(self):
         controller = Mock()
         runner = app.TaskRunner(controller, lambda _message: None, dry_run=False)
         runner.MAIN_ATTACK_CLICK_INTERVAL = 0.001
@@ -171,7 +171,7 @@ class Combat4CTests(unittest.TestCase):
 
         runner._run_4c_continuous_attack(enabled, finished, app.threading.Lock())
 
-        self.assertEqual(controller.left_click.call_count, 9)
+        self.assertEqual(controller.left_click.call_count, 15)
         controller.hold_left_button.assert_called_once_with(800)
 
     def test_timed_ultimate_pauses_attacks_while_pressing_binding(self):
@@ -196,7 +196,7 @@ class Combat4CTests(unittest.TestCase):
         runner._run_4c_continuous_attack = Mock()
         runner._ultimate_indicator_ready = Mock(side_effect=AssertionError("unused"))
         controller.press_binding.side_effect = lambda key, _duration: runner.stop_event.set() if key == "R" else None
-        ticks = iter(range(1, 200))
+        ticks = iter(i / 10 for i in range(1, 2000))
 
         with patch.object(app.time, "monotonic", side_effect=lambda: next(ticks)):
             runner._run_4c_battle(Mock(timeout=100), "E", "R", 1)
@@ -215,7 +215,7 @@ class Combat4CTests(unittest.TestCase):
         runner._run_4c_continuous_attack = Mock()
         runner._ultimate_indicator_ready = Mock(side_effect=AssertionError("unused"))
         controller.press_binding.side_effect = lambda key, _duration: runner.stop_event.set() if key == "R" else None
-        ticks = iter(range(1, 200))
+        ticks = iter(i / 10 for i in range(1, 2000))
 
         with patch.object(app.time, "monotonic", side_effect=lambda: next(ticks)):
             runner._run_daily_battle(Mock(timeout=100), "E", "R", 1)

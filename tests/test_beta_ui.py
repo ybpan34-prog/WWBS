@@ -35,13 +35,15 @@ class BetaUiTests(unittest.TestCase):
             card = instance._start_action_cards["daily"]
             self.assertEqual(card.cget("cursor"), "hand2")
             initial_x, initial_y = card.winfo_rootx(), card.winfo_rooty()
+            second = instance._start_action_cards["weekly_rewards"]
+            drop_y = second.winfo_rooty() + second.winfo_height() // 2 + 20
             card.event_generate("<ButtonPress-1>", x=20, y=31)
-            card.event_generate("<B1-Motion>", x=40, y=190,
-                                rootx=initial_x + 40, rooty=initial_y + 190)
+            card.event_generate("<B1-Motion>", x=40, y=drop_y - initial_y,
+                                rootx=initial_x + 40, rooty=drop_y)
             root.update()
             ghost = card._drag_ghost
             self.assertEqual(ghost.winfo_rootx(), initial_x + 20)
-            self.assertEqual(ghost.winfo_rooty(), initial_y + 159)
+            self.assertEqual(ghost.winfo_rooty(), drop_y - 31)
             self.assertIsNone(root.grab_current())
             self.assertEqual(instance._start_action_order, ["weekly_rewards", "daily"])
             self.assertFalse(picker.winfo_ismapped())
@@ -83,7 +85,10 @@ class BetaUiTests(unittest.TestCase):
             picker.event_generate("<Button-1>", x=20, y=15)
             root.update()
             surface = picker._popup_window.winfo_children()[0]
-            surface.event_generate("<Button-1>", x=30, y=92)
+            target = next(item for item in surface.find_all()
+                          if surface.type(item) == "text" and surface.itemcget(item, "text") == "Q")
+            target_x, target_y = surface.coords(target)
+            surface.event_generate("<Button-1>", x=round(target_x), y=round(target_y))
             root.update()
             self.assertEqual(value.get(), "Q")
             self.assertIsNone(picker._popup_window)
@@ -191,7 +196,8 @@ class BetaUiTests(unittest.TestCase):
                         )
                         notice.assert_called_once_with("weekly")
                     run_weekly.assert_called_once_with(15)
-                for moved in ("4C 技能键位", "4C 大招键位", "日常启用三号位回血", "任务正常完成后自动关机"):
+                self.assertNotIn("日常启用三号位回血", start_texts)
+                for moved in ("4C 技能键位", "4C 大招键位", "任务正常完成后自动关机"):
                     self.assertIn(moved, start_texts)
                     self.assertNotIn(moved, settings_texts)
                 self.assertNotIn("保存键位", labels)
@@ -201,7 +207,11 @@ class BetaUiTests(unittest.TestCase):
                 instance.chat_history.append(instance.pet_id, "你", "测试消息")
                 shell = tk.Frame(root)
                 instance._build_pet_chat_history(shell)
-                texts = [child for child in shell.winfo_children()[0].winfo_children() if isinstance(child, tk.Text)]
+                def walk(node):
+                    for child in node.winfo_children():
+                        yield child
+                        yield from walk(child)
+                texts = [child for child in walk(shell) if isinstance(child, tk.Text)]
                 self.assertIn("测试消息", texts[0].get("1.0", "end"))
         finally:
             root.destroy()
