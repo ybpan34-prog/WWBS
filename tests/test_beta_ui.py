@@ -159,14 +159,14 @@ class BetaUiTests(unittest.TestCase):
                     return None
                 weekly_card = card_with_title(instance.start_tab, "周常拿满奖励")
                 self.assertIsNotNone(weekly_card)
-                self.assertEqual(len(instance._start_action_cards), 5)
+                self.assertEqual(len(instance._start_action_cards), 6)
                 self.assertEqual(instance._start_action_order[0], "weekly_rewards")
                 daily_card = instance._start_action_cards["daily"]
                 self.assertTrue(any(getattr(child, "_is_rounded_picker", False)
                                     for child in daily_card.winfo_children()))
                 self.assertEqual(
                     instance._normalize_start_action_order(["daily", "daily", "unknown"]),
-                    ["daily", "weekly_rewards", "weekly_astrite", "combat_4c_10", "combat_4c_custom"],
+                    ["daily", "weekly_rewards", "weekly_astrite", "combat_4c_10", "combat_4c_custom", "tower"],
                 )
                 second = instance._start_action_cards["weekly_astrite"]
                 third = instance._start_action_cards["daily"]

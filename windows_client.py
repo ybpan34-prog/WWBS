@@ -142,6 +142,13 @@ class ClientWindowController:
     def press_key(self, key: str, duration_ms: int = 80) -> None:
         self.press_keys((key,), duration_ms)
 
+    def active_character_slot(self, screenshot_path: Path) -> int | None:
+        from combat_vision import active_character_slot
+        from image_matcher import TemplateMatcher
+        if not hasattr(self, '_role_matcher'):
+            self._role_matcher = TemplateMatcher(Path(__file__).resolve().parent / 'templates' / 'roles')
+        return active_character_slot(screenshot_path, self._role_matcher)
+
     def press_binding(self, binding: str, duration_ms: int = 80) -> None:
         normalized = self.normalize_input_binding(binding)
         if normalized == "XBUTTON1":
@@ -378,14 +385,19 @@ class ClientWindowController:
             return None
 
     def _capture_foreground_client(self) -> tuple[Image.Image, tuple[int, int, int, int]]:
+        already_front = user32.GetForegroundWindow() == self.hwnd and not user32.IsIconic(self.hwnd)
         self._focus_window()
         if user32.GetForegroundWindow() != self.hwnd:
             # A second attempt helps when Windows' foreground-lock timeout races
             # with the worker thread that requested the capture.
             time.sleep(0.12)
             self._focus_window()
+        if user32.GetForegroundWindow() != self.hwnd:
+            raise RuntimeError("游戏窗口未获得焦点，已取消截图。")
         for _attempt in range(4):
-            time.sleep(0.35)
+            # An already focused game only needs a new rendering frame. Focusing
+            # a different window has its own settle delay in _focus_window.
+            time.sleep(.03 if already_front and _attempt == 0 else .12)
             bbox = self._client_bbox()
             image = ImageGrab.grab(bbox=bbox, all_screens=True).convert("RGB")
             if self._capture_has_content(image):
@@ -718,6 +730,8 @@ class ClientWindowController:
         return point.x, point.y
 
     def _focus_window(self) -> None:
+        if user32.GetForegroundWindow() == self.hwnd and not user32.IsIconic(self.hwnd):
+            return
         user32.ShowWindow(self.hwnd, SW_RESTORE)
         foreground = user32.GetForegroundWindow()
         current_thread = kernel32.GetCurrentThreadId()
