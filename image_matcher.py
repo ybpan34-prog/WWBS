@@ -30,6 +30,8 @@ class TemplateMatcher:
         template_name: str,
         threshold: float = 0.82,
         scales: list[float] | None = None,
+        *,
+        first_match: bool = False,
     ) -> MatchResult:
         template_path = self.templates_dir / template_name
         if not template_path.exists():
@@ -55,6 +57,8 @@ class TemplateMatcher:
             if template.shape[0] >= screenshot.shape[0] or template.shape[1] >= screenshot.shape[1]:
                 continue
             result = _match_single_scale_gray(screenshot, template)
+            if first_match and result.score >= threshold:
+                return result
             if best is None or result.score > best.score:
                 best = result
 

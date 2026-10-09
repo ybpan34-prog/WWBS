@@ -1,0 +1,585 @@
+[
+  {
+    "label": "v1-json-custom",
+    "seed": "WWBS1.eNpVjt1KwzAYhu_lOw6lSZqm6a2UMrI0o3X9w6YbQwRPRDwVjxS8AA925MnA3YwY2GWYknUqH4SP53mTvDewgRQjGKsCUghDjAmhNIoYi2POk0QIKZdLpYpC69UKELQuZu8_7f5gX9_s8enr7vn08G73L9-Hx9PxwyU6SDOKMCI5AuN2TAIasZgnAvGAIREQ5kzjTAZVUeuFNEaqNUxXQhQGYY4y8GwxaNW1xTA5OquxNlUjjZ6gG-bpVlbGk_8vqG5snSAuOJtSy83uj5i5VmXnATmTq7HpL_Xob4VhXdX1RDA6fy_7_rqTqgQfEu7gLM9vfwCtFmxT.759bc7e9101cf030",
+    "expected": {
+      "name": "兼容回归—自定义轴",
+      "slot_order": [
+        3,
+        1,
+        2
+      ],
+      "slot_times": {
+        "1": 12.3456789,
+        "2": 7.5,
+        "3": 9.25
+      },
+      "modules": [
+        {
+          "kind": "idle_attack",
+          "slot": 1,
+          "value": 20,
+          "interval": 0.0
+        },
+        {
+          "kind": "attack_seconds",
+          "slot": 1,
+          "value": 3,
+          "interval": 0.0
+        },
+        {
+          "kind": "ultimate",
+          "slot": 1,
+          "value": 1,
+          "interval": 15.0
+        },
+        {
+          "kind": "wait",
+          "slot": 1,
+          "value": 1,
+          "interval": 0.0
+        },
+        {
+          "kind": "attack_count",
+          "slot": 2,
+          "value": 15,
+          "interval": 0.0
+        },
+        {
+          "kind": "heavy_count",
+          "slot": 2,
+          "value": 1,
+          "interval": 0.0
+        },
+        {
+          "kind": "echo",
+          "slot": 2,
+          "value": 1,
+          "interval": 20.0
+        },
+        {
+          "kind": "jump_attack",
+          "slot": 3,
+          "value": 3,
+          "interval": 0.0
+        },
+        {
+          "kind": "skill",
+          "slot": 3,
+          "value": 1,
+          "interval": 5.0
+        },
+        {
+          "kind": "approach",
+          "slot": 3,
+          "value": 0.09,
+          "interval": 0.75
+        }
+      ]
+    }
+  },
+  {
+    "label": "v2-custom-0",
+    "seed": "WWBS2.AAARIjNEVWZ3iJmqu8zd7v8EG-WFvOWuueWbnuW9kuKAlOiHquWumuS5iei9tAKi1STT_LAoQAHuBQGdBwoAAwYJERQXIiUo05EtHVFQ6Eg",
+    "expected": {
+      "name": "兼容回归—自定义轴",
+      "slot_order": [
+        3,
+        1,
+        2
+      ],
+      "slot_times": {
+        "1": 12.3456789,
+        "2": 7.5,
+        "3": 9.25
+      },
+      "modules": [
+        {
+          "kind": "idle_attack",
+          "slot": 1,
+          "value": 20,
+          "interval": 0.0
+        },
+        {
+          "kind": "attack_seconds",
+          "slot": 1,
+          "value": 3,
+          "interval": 0.0
+        },
+        {
+          "kind": "ultimate",
+          "slot": 1,
+          "value": 1,
+          "interval": 15.0
+        },
+        {
+          "kind": "wait",
+          "slot": 1,
+          "value": 1,
+          "interval": 0.0
+        },
+        {
+          "kind": "attack_count",
+          "slot": 2,
+          "value": 15,
+          "interval": 0.0
+        },
+        {
+          "kind": "heavy_count",
+          "slot": 2,
+          "value": 1,
+          "interval": 0.0
+        },
+        {
+          "kind": "echo",
+          "slot": 2,
+          "value": 1,
+          "interval": 20.0
+        },
+        {
+          "kind": "jump_attack",
+          "slot": 3,
+          "value": 3,
+          "interval": 0.0
+        },
+        {
+          "kind": "skill",
+          "slot": 3,
+          "value": 1,
+          "interval": 5.0
+        },
+        {
+          "kind": "approach",
+          "slot": 3,
+          "value": 0.09,
+          "interval": 0.75
+        }
+      ]
+    }
+  },
+  {
+    "label": "v2-custom-1",
+    "seed": "WWBS2.AXjaAUcAuP8AESIzRFVmd4iZqrvM3e7_BBvlhbzlrrnlm57lvZLigJToh6rlrprkuYnovbQCotUk0_ywKEAB7gUBnQcKAAMGCREUFyIlKHVzInthfL8XsBgFXg",
+    "expected": {
+      "name": "兼容回归—自定义轴",
+      "slot_order": [
+        3,
+        1,
+        2
+      ],
+      "slot_times": {
+        "1": 12.3456789,
+        "2": 7.5,
+        "3": 9.25
+      },
+      "modules": [
+        {
+          "kind": "idle_attack",
+          "slot": 1,
+          "value": 20,
+          "interval": 0.0
+        },
+        {
+          "kind": "attack_seconds",
+          "slot": 1,
+          "value": 3,
+          "interval": 0.0
+        },
+        {
+          "kind": "ultimate",
+          "slot": 1,
+          "value": 1,
+          "interval": 15.0
+        },
+        {
+          "kind": "wait",
+          "slot": 1,
+          "value": 1,
+          "interval": 0.0
+        },
+        {
+          "kind": "attack_count",
+          "slot": 2,
+          "value": 15,
+          "interval": 0.0
+        },
+        {
+          "kind": "heavy_count",
+          "slot": 2,
+          "value": 1,
+          "interval": 0.0
+        },
+        {
+          "kind": "echo",
+          "slot": 2,
+          "value": 1,
+          "interval": 20.0
+        },
+        {
+          "kind": "jump_attack",
+          "slot": 3,
+          "value": 3,
+          "interval": 0.0
+        },
+        {
+          "kind": "skill",
+          "slot": 3,
+          "value": 1,
+          "interval": 5.0
+        },
+        {
+          "kind": "approach",
+          "slot": 3,
+          "value": 0.09,
+          "interval": 0.75
+        }
+      ]
+    }
+  },
+  {
+    "label": "v3-default-shortcut",
+    "seed": "WWBS3.A-tbBx1Rg0ThiWhY0O9Z2gEIFtyDv7Oehg",
+    "expected": {
+      "name": "默认战斗轴",
+      "slot_order": [
+        1,
+        2,
+        3
+      ],
+      "slot_times": {
+        "1": 25.0,
+        "2": 15.0,
+        "3": 5.0
+      },
+      "modules": [
+        {
+          "kind": "idle_attack",
+          "slot": 1,
+          "value": 20,
+          "interval": 0.0
+        },
+        {
+          "kind": "skill",
+          "slot": 1,
+          "value": 1,
+          "interval": 5.0
+        },
+        {
+          "kind": "ultimate",
+          "slot": 1,
+          "value": 1,
+          "interval": 15.0
+        },
+        {
+          "kind": "echo",
+          "slot": 1,
+          "value": 1,
+          "interval": 20.0
+        },
+        {
+          "kind": "approach",
+          "slot": 1,
+          "value": 0.09,
+          "interval": 0.75
+        },
+        {
+          "kind": "wait",
+          "slot": 3,
+          "value": 0.35,
+          "interval": 0.0
+        },
+        {
+          "kind": "skill",
+          "slot": 3,
+          "value": 1,
+          "interval": 5.0
+        },
+        {
+          "kind": "wait",
+          "slot": 3,
+          "value": 0.2,
+          "interval": 0.0
+        },
+        {
+          "kind": "jump_attack",
+          "slot": 3,
+          "value": 3,
+          "interval": 0.0
+        },
+        {
+          "kind": "wait",
+          "slot": 3,
+          "value": 1,
+          "interval": 0.0
+        },
+        {
+          "kind": "jump_attack",
+          "slot": 3,
+          "value": 3,
+          "interval": 0.0
+        },
+        {
+          "kind": "wait",
+          "slot": 3,
+          "value": 0.3,
+          "interval": 0.0
+        },
+        {
+          "kind": "echo",
+          "slot": 3,
+          "value": 1,
+          "interval": 20.0
+        },
+        {
+          "kind": "wait",
+          "slot": 3,
+          "value": 0.8,
+          "interval": 0.0
+        },
+        {
+          "kind": "idle_attack",
+          "slot": 3,
+          "value": 100,
+          "interval": 0.0
+        }
+      ]
+    }
+  },
+  {
+    "label": "v3-custom-0",
+    "seed": "WWBS3.AAARIjNEVWZ3iJmqu8zd7v8EG-WFvOWuueWbnuW9kuKAlOiHquWumuS5iei9tAKi1STT_LAoQAHuBQGdBwoAAwYJERQXIiUo05EtHVFQ6Eg",
+    "expected": {
+      "name": "兼容回归—自定义轴",
+      "slot_order": [
+        3,
+        1,
+        2
+      ],
+      "slot_times": {
+        "1": 12.3456789,
+        "2": 7.5,
+        "3": 9.25
+      },
+      "modules": [
+        {
+          "kind": "idle_attack",
+          "slot": 1,
+          "value": 20,
+          "interval": 0.0
+        },
+        {
+          "kind": "attack_seconds",
+          "slot": 1,
+          "value": 3,
+          "interval": 0.0
+        },
+        {
+          "kind": "ultimate",
+          "slot": 1,
+          "value": 1,
+          "interval": 15.0
+        },
+        {
+          "kind": "wait",
+          "slot": 1,
+          "value": 1,
+          "interval": 0.0
+        },
+        {
+          "kind": "attack_count",
+          "slot": 2,
+          "value": 15,
+          "interval": 0.0
+        },
+        {
+          "kind": "heavy_count",
+          "slot": 2,
+          "value": 1,
+          "interval": 0.0
+        },
+        {
+          "kind": "echo",
+          "slot": 2,
+          "value": 1,
+          "interval": 20.0
+        },
+        {
+          "kind": "jump_attack",
+          "slot": 3,
+          "value": 3,
+          "interval": 0.0
+        },
+        {
+          "kind": "skill",
+          "slot": 3,
+          "value": 1,
+          "interval": 5.0
+        },
+        {
+          "kind": "approach",
+          "slot": 3,
+          "value": 0.09,
+          "interval": 0.75
+        }
+      ]
+    }
+  },
+  {
+    "label": "v3-custom-1",
+    "seed": "WWBS3.AXjaAUcAuP8AESIzRFVmd4iZqrvM3e7_BBvlhbzlrrnlm57lvZLigJToh6rlrprkuYnovbQCotUk0_ywKEAB7gUBnQcKAAMGCREUFyIlKHVzInthfL8XsBgFXg",
+    "expected": {
+      "name": "兼容回归—自定义轴",
+      "slot_order": [
+        3,
+        1,
+        2
+      ],
+      "slot_times": {
+        "1": 12.3456789,
+        "2": 7.5,
+        "3": 9.25
+      },
+      "modules": [
+        {
+          "kind": "idle_attack",
+          "slot": 1,
+          "value": 20,
+          "interval": 0.0
+        },
+        {
+          "kind": "attack_seconds",
+          "slot": 1,
+          "value": 3,
+          "interval": 0.0
+        },
+        {
+          "kind": "ultimate",
+          "slot": 1,
+          "value": 1,
+          "interval": 15.0
+        },
+        {
+          "kind": "wait",
+          "slot": 1,
+          "value": 1,
+          "interval": 0.0
+        },
+        {
+          "kind": "attack_count",
+          "slot": 2,
+          "value": 15,
+          "interval": 0.0
+        },
+        {
+          "kind": "heavy_count",
+          "slot": 2,
+          "value": 1,
+          "interval": 0.0
+        },
+        {
+          "kind": "echo",
+          "slot": 2,
+          "value": 1,
+          "interval": 20.0
+        },
+        {
+          "kind": "jump_attack",
+          "slot": 3,
+          "value": 3,
+          "interval": 0.0
+        },
+        {
+          "kind": "skill",
+          "slot": 3,
+          "value": 1,
+          "interval": 5.0
+        },
+        {
+          "kind": "approach",
+          "slot": 3,
+          "value": 0.09,
+          "interval": 0.75
+        }
+      ]
+    }
+  },
+  {
+    "label": "v3-custom-2",
+    "seed": "WWBS3.Anj55vAPGAFHALj_ABEiM0RVZneImaq7zN3u_wQb5YW85a655Zue5b2S4oCU6Ieq5a6a5LmJ6L20AqLVJNP8sChAAe4FAZ0HCgADBgkRFBciJSh1cyJ7_-dysxxhw-Q",
+    "expected": {
+      "name": "兼容回归—自定义轴",
+      "slot_order": [
+        3,
+        1,
+        2
+      ],
+      "slot_times": {
+        "1": 12.3456789,
+        "2": 7.5,
+        "3": 9.25
+      },
+      "modules": [
+        {
+          "kind": "idle_attack",
+          "slot": 1,
+          "value": 20,
+          "interval": 0.0
+        },
+        {
+          "kind": "attack_seconds",
+          "slot": 1,
+          "value": 3,
+          "interval": 0.0
+        },
+        {
+          "kind": "ultimate",
+          "slot": 1,
+          "value": 1,
+          "interval": 15.0
+        },
+        {
+          "kind": "wait",
+          "slot": 1,
+          "value": 1,
+          "interval": 0.0
+        },
+        {
+          "kind": "attack_count",
+          "slot": 2,
+          "value": 15,
+          "interval": 0.0
+        },
+        {
+          "kind": "heavy_count",
+          "slot": 2,
+          "value": 1,
+          "interval": 0.0
+        },
+        {
+          "kind": "echo",
+          "slot": 2,
+          "value": 1,
+          "interval": 20.0
+        },
+        {
+          "kind": "jump_attack",
+          "slot": 3,
+          "value": 3,
+          "interval": 0.0
+        },
+        {
+          "kind": "skill",
+          "slot": 3,
+          "value": 1,
+          "interval": 5.0
+        },
+        {
+          "kind": "approach",
+          "slot": 3,
+          "value": 0.09,
+          "interval": 0.75
+        }
+      ]
+    }
+  }
+]

@@ -2,6 +2,8 @@ __pycache__/
 *.py[cod]
 debug/
 _runtime_screenshot.png
+_role_screenshot.png
+update-notice.json
 _target_preview.png
 _template_source.png
 *.log

@@ -213,7 +213,7 @@ class DailyRoutineTests(unittest.TestCase):
         runner._sleep_interruptible = Mock()
         runner._daily_battle_task_present = Mock(side_effect=(False, True))
 
-        runner._select_daily_slot_one_after_loading(Path("screen.png"))
+        runner._select_daily_slot_after_loading(Path("screen.png"))
 
         self.assertEqual(runner._capture_for_matching.call_count, 2)
         controller.press_key.assert_called_once_with("1", 65)
@@ -344,7 +344,7 @@ class DailyRoutineTests(unittest.TestCase):
 
         runner.run_task(task)
 
-        runner._wait_for_daily_template.assert_called_once_with("menu1.png", timeout=8.0, threshold=0.78)
+        runner._wait_for_daily_template.assert_called_once_with("menu1.png", timeout=8.0, threshold=0.5)
         runner._ensure_weekly_skill_selected.assert_called_once_with()
 
     def test_daily_skips_tacet_field_when_activity_page_was_auto_skipped(self):
@@ -559,14 +559,22 @@ class DailyRoutineTests(unittest.TestCase):
         controller.move_mouse_relative.assert_not_called()
         controller.press_keys.assert_not_called()
 
-    def test_reward_search_scans_current_height_then_raises_and_restores_pitch(self):
-        adjustments = [TaskRunner._daily_reward_vertical_adjustment(index) for index in range(1, 19)]
-
-        self.assertEqual(adjustments[4], -180)
-        self.assertEqual(adjustments[10], -180)
-        self.assertEqual(adjustments[16], 360)
-        self.assertEqual(sum(adjustments), 0)
-        self.assertEqual(adjustments[0], 0)
+    def test_reward_search_rotates_without_changing_camera_height(self):
+        controller = Mock()
+        runner = TaskRunner(controller, lambda _: None, dry_run=False)
+        runner._capture_for_matching = Mock()
+        runner._find_daily_reward_prompt = Mock(return_value=None)
+        runner._daily_battle_task_present = Mock(return_value=False)
+        runner._daily_reward_orb_location = Mock(return_value=(None, None, 0))
+        runner._sleep_interruptible = lambda _: runner.stop_event.set()
+        image = Mock(size=(1920, 1080))
+        context = Mock()
+        context.__enter__ = Mock(return_value=image)
+        context.__exit__ = Mock(return_value=False)
+        with patch.object(app.Image, 'open', return_value=context):
+            with self.assertRaises(RuntimeError):
+                runner._collect_daily_reward(1)
+        controller.move_mouse_relative.assert_called_once_with(260, 0)
 
     def test_daily_healing_is_disabled_by_default(self):
         runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)
@@ -614,7 +622,7 @@ class DailyRoutineTests(unittest.TestCase):
         )
         runner.DAILY_BATTLE_END_CHECK_INTERVAL = 0.01
         runner.HEAL_ROTATION_INTERVAL = 0.5
-        runner._select_daily_slot_one_after_loading = Mock()
+        runner._select_daily_slot_after_loading = Mock()
         runner._capture_for_matching = Mock()
         runner._daily_reward_stage_present = Mock(return_value=False)
         runner._daily_battle_task_present = Mock(side_effect=(True, False))

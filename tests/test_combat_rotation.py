@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import Mock, call, patch
 
 import app
-from combat_rotation import (BattleMonitor, IdleAttackWorker, RotationClock, active_modules, default_store,
+from combat_rotation import (BattleMonitor, IdleAttackWorker, RotationClock, _legacy_default_store, active_modules, default_store,
                              load_store, new_module, save_store, validate_store)
 
 
@@ -18,10 +18,11 @@ class RotationTests(unittest.TestCase):
 
     def test_default_keeps_intervals_and_heavy_frequency(self):
         modules = [m for m in active_modules(default_store()) if m['slot'] == 1]
-        self.assertEqual([m['kind'] for m in modules], ['skill', 'ultimate', 'echo', 'approach', 'idle_attack'])
-        self.assertEqual(modules[-1]['value'], 15)
-        self.assertEqual(modules[1]['interval'], 15)
-        self.assertEqual(modules[0]['interval'], 10)
+        self.assertEqual([m['kind'] for m in modules], ['idle_attack', 'skill', 'ultimate', 'echo', 'approach'])
+        self.assertEqual(modules[0]['value'], 20)
+        self.assertEqual(modules[2]['interval'], 15)
+        self.assertEqual(modules[1]['interval'], 5)
+        self.assertEqual(default_store()['presets'][0]['slot_times'], {'1': 25, '2': 15, '3': 5})
 
     def test_default_healing_sequence_runs_q_before_return_in_both_modes(self):
         for mode in ('daily', 'combat_4c'):
@@ -48,7 +49,7 @@ class RotationTests(unittest.TestCase):
                 clock = RotationClock(modules, 0, slot_times=store['presets'][0]['slot_times'],
                                       background_idle=True)
                 with patch.object(app.time, 'monotonic', side_effect=lambda: tick[0]):
-                    while tick[0] < 14:
+                    while tick[0] < 31:
                         action = clock.next_action(tick[0])
                         runner._run_rotation_action(action, clock, 'E', 'R', threading.Event(),
                                                     threading.Lock(), daily=mode == 'daily')
@@ -64,13 +65,13 @@ class RotationTests(unittest.TestCase):
     def test_loading_old_default_adds_healing_but_preserves_customizations(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'combat.json'
-            old = default_store()
+            old = _legacy_default_store()
             preset = old['presets'][0]
             preset['modules'] = [m for m in preset['modules'] if m['slot'] == 1]
             preset['slot_times']['3'] = 5
             save_store(path, old)
             upgraded = load_store(path)
-            self.assertEqual(upgraded['presets'][0]['slot_times']['3'], 8)
+            self.assertEqual(upgraded['presets'][0]['slot_times'], {'1': 25, '2': 15, '3': 5})
             self.assertTrue(any(m['slot'] == 3 and m['kind'] == 'echo'
                                 for m in active_modules(upgraded)))
             save_store(path, upgraded)
@@ -98,6 +99,7 @@ class RotationTests(unittest.TestCase):
 
     def test_cooldown_is_checked_next_visit_and_top_to_bottom_order_is_preserved(self):
         skill, ult, idle = new_module('skill'), new_module('ultimate'), new_module('idle_attack')
+        skill['interval'] = 10
         other = new_module('wait', 2)
         clock = self.clock([skill, ult, idle, other], 3)
         clock.next_action(0)
@@ -115,7 +117,7 @@ class RotationTests(unittest.TestCase):
         clock.next_action(18)
         self.assertEqual(clock.next_action(18.1)['kind'], 'ultimate')  # skill still cooling
         self.assertEqual(clock.next_action(18.2)['kind'], 'left_click')
-        # ultimate is due, but no action may be fired once this visit's ordered pass ended
+        # Still cooling, so no repeat is emitted early.
         self.assertNotEqual(clock.next_action(19)['kind'], 'ultimate')
 
     def test_ready_skill_then_ultimate_on_same_visit(self):
@@ -196,7 +198,7 @@ class RotationTests(unittest.TestCase):
         item = next(m for m in store['presets'][0]['modules'] if m['kind'] == 'idle_attack')
         item.update(kind='continuous', value=23, slot=3)
         migrated = validate_store(store)
-        self.assertEqual(migrated['version'], 3)
+        self.assertEqual(migrated['version'], 5)
         migrated_item = next(m for m in migrated['presets'][0]['modules'] if m['id'] == item['id'])
         self.assertEqual(migrated_item['kind'], 'idle_attack')
         self.assertEqual(migrated_item['value'], 23)
@@ -275,7 +277,7 @@ class RotationTests(unittest.TestCase):
         controller.press_key.assert_any_call('2', 65)
         runner.stop_event.clear()
         controller.reset_mock()
-        runner._select_daily_slot_one_after_loading = Mock()
+        runner._select_daily_slot_after_loading = Mock()
         runner._capture_for_matching = Mock()
         runner._daily_reward_stage_present = Mock(return_value=False)
         runner._daily_battle_task_present = Mock(return_value=True)
@@ -283,7 +285,8 @@ class RotationTests(unittest.TestCase):
         ticks = iter(i / 10 for i in range(1, 3000))
         with patch.object(app.time, 'monotonic', side_effect=lambda: next(ticks)):
             runner._run_daily_battle(Mock(timeout=100), 'E', 'R', 1)
-        self.assertEqual(controller.press_key.call_args_list, [call('3', 65), call('Q', 120)])
+        runner._select_daily_slot_after_loading.assert_called_once_with(app.APP_DIR / '_runtime_screenshot.png', 3)
+        self.assertEqual(controller.press_key.call_args_list, [call('Q', 120)])
 
     def build_ui(self, root):
         window = app.App.__new__(app.App)
@@ -318,7 +321,7 @@ class RotationTests(unittest.TestCase):
                 window._rotation_refresh_picker()
                 window.rotation_mode_choices['daily'].set('自定义')
                 window._rotation_assign_mode('daily')
-                self.assertEqual(load_store(app.COMBAT_PRESETS_CONFIG)['modes'], {'daily': 'custom', 'combat_4c': 'default'})
+                self.assertEqual(load_store(app.COMBAT_PRESETS_CONFIG)['modes'], {'daily': 'custom', 'combat_4c': 'default', 'tower': 'default'})
         finally:
             root.destroy()
 
@@ -455,7 +458,7 @@ class RotationTests(unittest.TestCase):
             root.tk.call('tk', 'scaling', 2.0)
             with tempfile.TemporaryDirectory() as tmp, patch.object(app, 'COMBAT_PRESETS_CONFIG', Path(tmp)/'combat.json'):
                 window = self.build_ui(root)
-                key = window._rotation_current_preset()['modules'][0]['id']
+                key = next(m['id'] for m in window._rotation_current_preset()['modules'] if m['kind'] == 'skill')
                 window._rotation_edit(key)
                 root.update()
                 dialog = next(w for w in root.winfo_children() if isinstance(w, tk.Toplevel))
@@ -465,9 +468,8 @@ class RotationTests(unittest.TestCase):
                         yield from walk(child)
                 entries = [w for w in walk(dialog) if isinstance(w, tk.Entry)]
                 entries[0].delete(0, tk.END)
-                entries[0].insert(0, '2')
-                entries[1].delete(0, tk.END)
-                entries[1].insert(0, '12')
+                self.assertEqual(len(entries), 1)  # Timed casts no longer have a count field.
+                entries[0].insert(0, '12')
                 save = next(w for w in walk(dialog) if isinstance(w, tk.Canvas) and any(
                     w.type(i) == 'text' and w.itemcget(i, 'text') == '保存' for i in w.find_all()))
                 self.assertTrue(save.winfo_ismapped())
@@ -476,7 +478,7 @@ class RotationTests(unittest.TestCase):
                 root.update()
                 self.assertFalse(dialog.winfo_exists())
                 module = next(m for m in active_modules(load_store(app.COMBAT_PRESETS_CONFIG)) if m['id'] == key)
-                self.assertEqual((module['value'], module['interval']), (2, 12))
+                self.assertEqual((module['value'], module['interval']), (1, 12))
         finally:
             root.destroy()
 
@@ -503,6 +505,9 @@ class RotationTests(unittest.TestCase):
 
     def test_module_dropdown_does_not_cover_time_entries_near_screen_bottom(self):
         root = tk.Tk()
+        # A previous large-font test can change the display's Tk scaling.
+        # Keep this position test's controls onscreen; DPI extremes have their own checks.
+        root.tk.call('tk', 'scaling', 1.5)
         try:
             window = self.build_ui(root)
             root.geometry(f'960x600+40+{max(0, root.winfo_screenheight()-660)}')
@@ -716,7 +721,7 @@ class RotationTests(unittest.TestCase):
                 runner.MAIN_ATTACK_CLICK_INTERVAL = .015
                 runner.BOSS_HEADER_CHECK_INTERVAL = .045
                 runner.DAILY_BATTLE_END_CHECK_INTERVAL = .045
-                runner._select_daily_slot_one_after_loading = Mock()
+                runner._select_daily_slot_after_loading = Mock()
                 runner._sleep_interruptible = lambda duration: time.sleep(min(duration, .025))
                 count = [0]
                 def inspect(*_args, **_kwargs):
@@ -760,7 +765,7 @@ class RotationTests(unittest.TestCase):
                 runner.MAIN_ATTACK_CLICK_INTERVAL = .015
                 runner.BOSS_HEADER_CHECK_INTERVAL = .015
                 runner.DAILY_BATTLE_END_CHECK_INTERVAL = .015
-                runner._select_daily_slot_one_after_loading = Mock()
+                runner._select_daily_slot_after_loading = Mock()
                 runner._sleep_interruptible = lambda duration: time.sleep(min(duration, .002))
                 calls = [0]
                 def inspect(*_args, **_kwargs):
@@ -826,7 +831,7 @@ class RotationTests(unittest.TestCase):
                 runner.BOSS_HEADER_CHECK_INTERVAL = .01
                 runner.DAILY_BATTLE_END_CHECK_INTERVAL = .01
                 runner._sleep_interruptible = lambda duration: time.sleep(min(duration, .002))
-                runner._select_daily_slot_one_after_loading = Mock()
+                runner._select_daily_slot_after_loading = Mock()
                 inspect = Mock(side_effect=[True, RuntimeError('capture failed')])
                 if mode == 'combat_4c':
                     runner._inspect_4c_boss_header = inspect
@@ -858,7 +863,7 @@ class RotationTests(unittest.TestCase):
     def test_beta7_default_upgrade_preserves_ids_but_custom_waits_are_untouched(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp)/'combat.json'
-            old = default_store()
+            old = _legacy_default_store()
             modules = old['presets'][0]['modules']
             modules.pop()
             modules[5]['value'] = 2
@@ -866,7 +871,7 @@ class RotationTests(unittest.TestCase):
             save_store(path, old)
             upgraded = load_store(path)
             result = upgraded['presets'][0]['modules']
-            self.assertEqual([m['id'] for m in result[:-1]], ids)
+            self.assertEqual({m['id'] for m in result} & set(ids), set(ids))
             self.assertEqual(result[5]['value'], .35)
             self.assertEqual((result[-1]['kind'], result[-1]['slot']), ('idle_attack', 3))
             modules[5]['value'] = 3
