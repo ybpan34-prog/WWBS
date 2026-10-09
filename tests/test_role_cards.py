@@ -154,10 +154,16 @@ class RoleCardUiTests(unittest.TestCase):
         self.assertEqual(saved, [m for m in before if m["id"] != module_id])
 
     def test_short_list_never_scrolls_below_its_origin_and_long_list_scrolls(self):
-        first = self.ui._rotation_columns[1]
-        self.root.geometry("1500x1400")
+        # Hosted Windows desktops can clamp a requested 1400px window to their
+        # screen height. Make the list short by content, not by assumed geometry.
+        preset = self.ui._rotation_current_preset()
+        first_id = next(m['id'] for m in preset['modules'] if m['slot'] == 1)
+        preset['modules'] = [m for m in preset['modules'] if m['slot'] != 1 or m['id'] == first_id]
+        self.ui._rotation_rebuild_cards()
         self.root.update()
-        card = self.ui._rotation_cards[self.ui._rotation_current_preset()["modules"][0]["id"]]
+        first = self.ui._rotation_columns[1]
+        self.assertLessEqual(first['list'].winfo_reqheight(), first['canvas'].winfo_height())
+        card = self.ui._rotation_cards[first_id]
         for delta in (-120, 120, -120, -120, 120):
             card.event_generate("<MouseWheel>", delta=delta)
             self.root.update()
