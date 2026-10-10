@@ -521,7 +521,11 @@ class RotationTests(unittest.TestCase):
             popup = picker._popup_window
             self.assertIsNotNone(popup)
             x, y = entry.winfo_rootx()+20, entry.winfo_rooty()+entry.winfo_height()//2
-            self.assertIs(root.winfo_containing(x, y), entry)
+            self.assertTrue(entry.winfo_ismapped())
+            px, py = popup.winfo_rootx(), popup.winfo_rooty()
+            # Native hit-testing depends on unrelated foreground windows. Check
+            # the popup itself cannot cover this input point on the shared desktop.
+            self.assertFalse(px <= x < px+popup.winfo_width() and py <= y < py+popup.winfo_height())
             self.assertGreaterEqual(popup.winfo_rooty(), picker.winfo_rooty()+picker.winfo_height())
         finally:
             root.destroy()

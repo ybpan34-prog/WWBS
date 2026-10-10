@@ -123,7 +123,7 @@ class ClientWindowController:
     def template_scales(self) -> list[float]:
         return [self.scale, self.scale * 0.97, self.scale * 1.03, self.scale * 0.94, self.scale * 1.06]
 
-    def press_keys(self, keys: tuple[str, ...] | list[str], duration_ms: int = 100) -> None:
+    def press_keys(self, keys: tuple[str, ...] | list[str], duration_ms: int = 100, *, cancel_event=None) -> None:
         """Press one or more ordinary keyboard keys, then always release them."""
         self._ensure_window()
         if user32.GetForegroundWindow() != self.hwnd:
@@ -134,13 +134,20 @@ class ClientWindowController:
         try:
             for virtual_key in virtual_keys:
                 self._send_keyboard_event(virtual_key, key_up=False)
-            time.sleep(max(0.02, min(duration_ms, 1000) / 1000.0))
+            duration = max(0.02, min(duration_ms, 1000)/1000.)
+            if cancel_event is None:
+                time.sleep(duration)
+            else:
+                cancel_event.wait(duration)
         finally:
             for virtual_key in reversed(virtual_keys):
                 self._send_keyboard_event(virtual_key, key_up=True)
 
     def press_key(self, key: str, duration_ms: int = 80) -> None:
         self.press_keys((key,), duration_ms)
+
+    def press_keys_cancelable(self, keys, duration_ms, cancel_event):
+        self.press_keys(keys, duration_ms, cancel_event=cancel_event)
 
     def active_character_slot(self, screenshot_path: Path) -> int | None:
         from combat_vision import active_character_slot
@@ -170,7 +177,7 @@ class ClientWindowController:
         finally:
             self._send_mouse_button(MOUSEEVENTF_LEFTUP)
 
-    def hold_left_button(self, duration_ms: int = 800) -> None:
+    def hold_left_button(self, duration_ms: int = 800, *, cancel_event=None) -> None:
         """Hold basic attack for a charged attack, always releasing the button."""
         self._ensure_window()
         if user32.GetForegroundWindow() != self.hwnd:
@@ -179,9 +186,16 @@ class ClientWindowController:
             raise RuntimeError("游戏窗口未获得焦点，已取消重击操作。")
         try:
             self._send_mouse_button(MOUSEEVENTF_LEFTDOWN)
-            time.sleep(max(0.1, min(duration_ms, 2000) / 1000.0))
+            duration = max(0.1, min(duration_ms, 2000) / 1000.0)
+            if cancel_event is None:
+                time.sleep(duration)
+            else:
+                cancel_event.wait(duration)
         finally:
             self._send_mouse_button(MOUSEEVENTF_LEFTUP)
+
+    def hold_left_button_cancelable(self, duration_ms, cancel_event):
+        self.hold_left_button(duration_ms, cancel_event=cancel_event)
 
     def middle_click(self) -> None:
         """Click the middle mouse button once to lock the current combat target."""

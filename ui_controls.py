@@ -1,16 +1,35 @@
 """Shared rounded controls for WWBS pages and application dialogs."""
 import tkinter as tk
 from tkinter import font as tkfont
+from functools import lru_cache
+from math import cos, sin, pi
+
+
+@lru_cache(maxsize=64)
+def _round_arc(radius):
+    return tuple((radius*cos(i*pi/16), radius*sin(i*pi/16)) for i in range(9))
 
 
 def paint_round(canvas, x0, y0, x1, y1, radius, color):
+    # Coordinates are half-open like a widget's width/height. Polygon fills
+    # include their right/bottom boundary, so keep it inside the final pixel;
+    # otherwise the inner fill covers the outer border on those two sides.
+    x1, y1 = max(x0, x1-1), max(y0, y1-1)
     radius = min(radius, max(0, (x1-x0)/2), max(0, (y1-y0)/2))
-    options = {'fill': color, 'outline': ''}
-    canvas.create_rectangle(x0+radius, y0, x1-radius, y1, **options)
-    canvas.create_rectangle(x0, y0+radius, x1, y1-radius, **options)
-    for x in (x0, x1-radius*2):
-        for y in (y0, y1-radius*2):
-            canvas.create_oval(x, y, x+radius*2, y+radius*2, **options)
+    # One closed surface avoids seams where stroked rectangles and circles used
+    # to overlap, especially along the one-pixel right/bottom border.
+    # Sample real circular arcs with the original radius. Tk's smoothed polygon
+    # shrinks the effective corner radius and makes these controls look square.
+    points = []
+    arc = _round_arc(radius)
+    for cx, cy, sx, sy in ((x1-radius, y0+radius, 1, -1),
+                          (x1-radius, y1-radius, 1, 1),
+                          (x0+radius, y1-radius, -1, 1),
+                          (x0+radius, y0+radius, -1, -1)):
+        quadrant = reversed(arc) if sx*sy < 0 else arc
+        for dx, dy in quadrant:
+            points.extend((cx+sx*dx, cy+sy*dy))
+    return canvas.create_polygon(*points, fill=color, outline='', tags='shape')
 
 
 class RoundedButton(tk.Canvas):

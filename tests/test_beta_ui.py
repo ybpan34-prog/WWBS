@@ -47,7 +47,11 @@ class BetaUiTests(unittest.TestCase):
             self.assertIsNone(root.grab_current())
             self.assertEqual(instance._start_action_order, ["weekly_rewards", "daily"])
             self.assertFalse(picker.winfo_ismapped())
-            card.event_generate("<B1-Motion>", x=60, y=220,
+            # Reordering changed the source card's screen position. Match local
+            # event coordinates to the requested screen point, as real motion does.
+            surface = ghost.winfo_children()[0]
+            surface.event_generate("<B1-Motion>", x=initial_x+60-surface.winfo_rootx(),
+                                y=initial_y+220-surface.winfo_rooty(),
                                 rootx=initial_x + 60, rooty=initial_y + 220)
             root.update()
             self.assertEqual(ghost.winfo_rootx(), initial_x + 40)
