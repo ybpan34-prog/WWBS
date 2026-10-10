@@ -86,7 +86,7 @@ DEFAULT_GROUP_KEY = "default"
 DEFAULT_GROUP_NAME = "幻梦游园"
 WEEKLY_TEMPLATE_THRESHOLD = 0.5
 APP_ICON = APP_DIR / "wwbs.ico"
-APP_VERSION = "1.5.4 beta1"
+APP_VERSION = "1.5.4 beta2"
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -162,7 +162,7 @@ DANIYA_THEME_PACK = APP_DIR / "optional-themes" / "daniya-theme.wwbstheme"
 AEMEATH_THEME_PACK = APP_DIR / "optional-themes" / "aemeath-theme.wwbstheme"
 JINGRAN_THEME_PACK = APP_DIR / "optional-themes" / "jingran-theme.wwbstheme"
 CARTETHYIA_THEME_PACK = APP_DIR / "optional-themes" / "cartethyia-theme.wwbstheme"
-UPDATE_API_URL = "https://api.github.com/repos/ybpan34-prog/WWBS/releases/latest"
+UPDATE_API_URL = "https://api.github.com/repos/ybpan34-prog/WWBS/releases?per_page=100"
 UPDATE_ASSET_NAME = "wwbs-exe.zip"
 ABOUT_BILIBILI_URL = "https://www.bilibili.com/video/BV1aPuo6uE9r/"
 ABOUT_GITHUB_URL = "https://github.com/ybpan34-prog/WWBS"
@@ -177,6 +177,13 @@ UPDATE_NOTICE = """v1.3.5 更新内容
 2. 请将游戏窗口调整为 1920*1080p 或等比例缩放。
 3. 请先完成周本的新手教程，并将速度调整至 MAX。"""
 UPDATE_HISTORY = [
+    ("v1.5.4 beta2", """v1.5.4 beta2 · 周常推进与小人外观兼容
+周常每次点击后先确认画面响应，目标须在连续两张新截图中稳定，才点击下一步。
+过渡中位置变化、遮罩颜色不符或上一点击未响应时不继续推进；保留限次重新识别和停止反馈。
+开始游戏及进入下一天只匹配按钮文字区域，排除小人和装饰，不按小漂泊者性别限制运行。
+点击移到按钮中部并减少随机偏移；保留0.5识别阈值，实际点击最短等待约0.3秒。
+更新窗口限制在屏幕可见范围，可滚动、调整大小和关闭；检查更新同时包含beta测试版。
+完整说明见 release-notes-v1.5.4-beta2.md。"""),
     ("v1.5.4 beta1", """v1.5.4 beta1 · 日常领取和普攻衔接修复
 修复0活跃度误认为100：只匹配左下当前分数，连续复核，先领取上方黄色任务奖励再判断宝箱。
 黄色领取按钮合并文字和花纹造成的断段，点击按钮中央；领取页加载和奖励弹层关闭后都等待页面稳定。
@@ -527,8 +534,10 @@ CLICK_JITTER_RATIO = 0.25
 CLICK_DELAY_JITTER_SECONDS = 0.20
 CYCLE_PROBE_ATTEMPTS = 2
 CYCLE_PROBE_INTERVAL = 0.15
-WEEKLY_CLICK_INTERVAL = 0.08
+WEEKLY_CLICK_INTERVAL = 0.30
 WEEKLY_CLICK_JITTER = 0.02
+WEEKLY_STABLE_INTERVAL = 0.15
+WEEKLY_RESPONSE_TIMEOUT = 4.0
 DAILY_REWARD_ORB_MIN_CONFIDENCE = 0.65
 CYCLE_FINAL_MAX_RETRIES = 2
 DIAGNOSTIC_START_TEMPLATE = "menu1.png"
@@ -1005,6 +1014,9 @@ class TaskRunner:
         self.last_clicked_image_step: Step | None = None
         self._weekly_monitoring = False
         self.weekly_rewards_pending = False
+        self._weekly_observed_target = None
+        self._weekly_pending_click = None
+        self._weekly_click_at = 0.
 
     def run_task(self, task: WeeklyTask) -> None:
         self._weekly_monitoring = task.template_group == "default" and task.name == DEFAULT_GROUP_NAME
@@ -1028,7 +1040,7 @@ class TaskRunner:
         self.log(f"使用模板组: {task.template_group}")
         self.log(f"开始任务: {task.name}")
         if self._weekly_monitoring:
-            self.log(f"周常模板识别阈值：{WEEKLY_TEMPLATE_THRESHOLD:.2f}，匹配成功立即返回。")
+            self.log(f"周常阈值：{WEEKLY_TEMPLATE_THRESHOLD:.2f}，连续截图稳定后点击；每步先确认上一点击响应。")
         if task.template_group == "default" and task.name == DEFAULT_GROUP_NAME and not self.dry_run:
             self._wait_for_daily_template("menu1.png", timeout=8.0, threshold=WEEKLY_TEMPLATE_THRESHOLD)
             self._ensure_weekly_skill_selected()
@@ -1057,7 +1069,8 @@ class TaskRunner:
                 self.log("    干运行：已识别位置，但不点击。")
             else:
                 self.log(f"    正在点击识别坐标: ({x}, {y})")
-                result = self.controller.tap(x, y)
+                result = (self._click_cycle_template(step, x, y) if self._weekly_monitoring
+                          else self.controller.tap(x, y))
                 if isinstance(result, dict):
                     self.log(
                         "    鼠标移动结果: "
@@ -1794,6 +1807,9 @@ class TaskRunner:
         screenshot: Path | None = None,
     ):
         target = screenshot or (APP_DIR / "_runtime_screenshot.png")
+        if self._weekly_monitoring and template_crop is None:
+            from weekly_clicks import weekly_template_crop
+            template_crop = weekly_template_crop(template_name, self.matcher.templates_dir)
         if screenshot is None:
             self._capture_for_matching(target)
         best = None
@@ -3637,7 +3653,7 @@ class TaskRunner:
                     self._sleep_interruptible(CYCLE_PROBE_INTERVAL)
         return None
 
-    def _click_cycle_template(self, step: Step, x: int, y: int, recovery: bool = False) -> None:
+    def _click_cycle_template(self, step: Step, x: int, y: int, recovery: bool = False):
         if self.stop_event.is_set():
             return
         action = "重新识别匹配后点击" if recovery else "正在点击识别坐标"
@@ -3653,16 +3669,55 @@ class TaskRunner:
             if not result.get("set_cursor_ok"):
                 self.log("    鼠标没有移动成功：请尝试右键桌面快捷方式，以管理员身份运行。")
         self.last_clicked_image_step = step
+        if (self._weekly_monitoring and self._weekly_observed_target is not None
+                and self._weekly_observed_target.template == step.template):
+            self._weekly_pending_click = self._weekly_observed_target
+            self._weekly_click_at = time.monotonic()
+        return result
+
+    def _wait_weekly_click_response(self) -> bool:
+        pending = self._weekly_pending_click
+        if pending is None:
+            return True
+        remaining = self._weekly_click_at + WEEKLY_CLICK_INTERVAL - time.monotonic()
+        if remaining > 0:
+            self._sleep_interruptible(remaining)
+        deadline = self._weekly_click_at + WEEKLY_RESPONSE_TIMEOUT
+        screenshot = APP_DIR / '_runtime_screenshot.png'
+        while not self.stop_event.is_set():
+            self._capture_for_matching(screenshot)
+            self._check_weekly_cap(screenshot)
+            if self.stop_event.is_set():
+                raise RuntimeError('周常已停止。')
+            if pending.click_responded(screenshot, self.matcher):
+                self._weekly_pending_click = None
+                self.log(f"    已确认 {pending.template} 点击后画面有响应，再识别下一步。")
+                return True
+            if time.monotonic() >= deadline:
+                self.log(f"    {pending.template} 点击后画面未确认变化，暂停推进，仅允许重新识别上一按钮。")
+                return False
+            self._sleep_interruptible(CYCLE_PROBE_INTERVAL)
+        raise RuntimeError('周常已停止。')
 
     def _verify_final_cycle_click(self, final_step: Step) -> None:
         probe = replace(final_step, timeout=min(max(final_step.timeout, 0.5), 1.0))
         self.log(f"    最终轮验证：确认 {final_step.template} 已响应点击。")
         for retry_index in range(CYCLE_FINAL_MAX_RETRIES + 1):
+            if self._weekly_monitoring:
+                if self._weekly_pending_click is not None and self._wait_weekly_click_response():
+                    self.log(f"    最终轮验证通过：{final_step.template} 点击后画面已响应。")
+                    return
             try:
                 x, y, score = self._find_image(probe)
             except WeeklyLimitReached:
                 raise
             except Exception:
+                if self._weekly_monitoring and self._weekly_pending_click is not None:
+                    if self._wait_weekly_click_response():
+                        self.log('    最终轮验证通过：点击响应已确认。')
+                        return
+                    self.stop_event.set()
+                    raise RuntimeError(f'最终点击 {final_step.template} 未确认响应，已停止，不将遮罩或过渡帧当作完成。')
                 self.log(f"    最终轮验证通过：{final_step.template} 已离开当前画面。")
                 return
 
@@ -3690,7 +3745,7 @@ class TaskRunner:
     def _sleep_click_interval(self, base_seconds: float) -> None:
         jitter = CLICK_DELAY_JITTER_SECONDS
         if self._weekly_monitoring:
-            base_seconds = min(base_seconds, WEEKLY_CLICK_INTERVAL)
+            base_seconds = WEEKLY_CLICK_INTERVAL
             jitter = WEEKLY_CLICK_JITTER
         minimum = max(0.0, base_seconds - jitter)
         maximum = max(minimum, base_seconds + jitter)
@@ -3720,21 +3775,45 @@ class TaskRunner:
             raise ValueError("tap_image 步骤需要 template 字段")
         deadline = time.time() + step.timeout
         last_error: Exception | None = None
+        weekly = self._weekly_monitoring
+        if (weekly and not self.dry_run and self._weekly_pending_click is not None
+                and step.template != self._weekly_pending_click.template
+                and not self._wait_weekly_click_response()):
+            raise RuntimeError('上一点击未确认响应，不点击下一步；进入限次重新识别。')
+        previous_target = None
+        frames = 0
         while single_attempt or time.time() <= deadline:
             if self.stop_event.is_set():
                 raise RuntimeError("已停止模板识别。")
             screenshot = APP_DIR / "_runtime_screenshot.png"
             self._capture_for_matching(screenshot)
+            frames += 1
             if self._weekly_monitoring and not self.dry_run:
                 self._check_weekly_cap(screenshot)
             try:
                 scales = self._fast_scales()
                 if self._weekly_monitoring:
+                    from weekly_clicks import WeeklyTarget, weekly_template_crop
+                    crop = weekly_template_crop(step.template, self.matcher.templates_dir)
+                    options = {'template_crop': crop} if crop is not None else {}
                     match = self.matcher.find(screenshot, step.template, WEEKLY_TEMPLATE_THRESHOLD,
-                                              scales, first_match=True)
+                                              scales, first_match=True, **options)
+                    target = WeeklyTarget.read(screenshot, step.template, match, self.matcher.templates_dir, crop)
+                    if target.colour_error > 45:
+                        raise RuntimeError(f'{step.template} 颜色与模板明显不同，等待过渡或遮罩结束。')
+                    stable = previous_target is not None and previous_target.stable_with(target)
+                    if not stable:
+                        previous_target = target
+                        if single_attempt and frames >= 2:
+                            raise RuntimeError(f'{step.template} 连续截图位置或画面未稳定，暂不点击。')
+                        self._sleep_interruptible(WEEKLY_STABLE_INTERVAL)
+                        continue
+                    self._weekly_observed_target = target
                 else:
                     match = self.matcher.find(screenshot, step.template, step.threshold, scales)
-                image_x, image_y = self._random_click_point(match, step.offset_x, step.offset_y)
+                offset_x = 0 if weekly and crop is not None and step.template == 'menu1.png' and step.offset_x == 80 else step.offset_x
+                image_x, image_y = self._random_click_point(match, offset_x, step.offset_y,
+                    jitter_ratio=.05) if weekly else self._random_click_point(match, step.offset_x, step.offset_y)
                 if self.debug_matches:
                     self._save_match_debug(screenshot, step.template, match, image_x, image_y)
                 if hasattr(self.controller, "screenshot_to_screen"):
@@ -3750,7 +3829,8 @@ class TaskRunner:
                 if single_attempt:
                     raise
                 last_error = exc
-                time.sleep(0.6)
+                previous_target = None
+                self._sleep_interruptible(.15 if weekly else .6)
         raise RuntimeError(str(last_error) if last_error else f"识别超时: {step.template}")
 
     def _check_weekly_cap(self, screenshot: Path) -> None:
@@ -3808,7 +3888,7 @@ class TaskRunner:
         raise WeeklyLimitReached()
 
     @staticmethod
-    def _random_click_point(match, offset_x: int, offset_y: int) -> tuple[int, int]:
+    def _random_click_point(match, offset_x: int, offset_y: int, *, jitter_ratio=CLICK_JITTER_RATIO) -> tuple[int, int]:
         margin_x = min(max(1, int(round(match.width * CLICK_EDGE_MARGIN_RATIO))), max(1, (match.width - 1) // 2))
         margin_y = min(max(1, int(round(match.height * CLICK_EDGE_MARGIN_RATIO))), max(1, (match.height - 1) // 2))
         safe_left = match.x + margin_x
@@ -3818,8 +3898,8 @@ class TaskRunner:
 
         anchor_x = min(max(match.center[0] + offset_x, safe_left), safe_right)
         anchor_y = min(max(match.center[1] + offset_y, safe_top), safe_bottom)
-        jitter_x = max(1, int(round(match.width * CLICK_JITTER_RATIO)))
-        jitter_y = max(1, int(round(match.height * CLICK_JITTER_RATIO)))
+        jitter_x = max(1, int(round(match.width * jitter_ratio)))
+        jitter_y = max(1, int(round(match.height * jitter_ratio)))
 
         left = max(safe_left, anchor_x - jitter_x)
         right = min(safe_right, anchor_x + jitter_x)
@@ -8214,14 +8294,8 @@ class App:
                     headers={"User-Agent": f"wwbs/{APP_VERSION}"},
                 )
                 with urllib.request.urlopen(request, timeout=15) as response:
-                    release = json.loads(response.read().decode("utf-8"))
-                tag = str(release.get("tag_name", "")).strip()
-                asset = next(
-                    (item for item in release.get("assets", []) if item.get("name") == UPDATE_ASSET_NAME),
-                    None,
-                )
-                if not tag or not asset:
-                    raise RuntimeError("最新 Release 中没有找到 wwbs-exe.zip。")
+                    releases = json.loads(response.read().decode("utf-8"))
+                tag, release, asset = self._select_update_release(releases)
                 self.root.after(0, lambda: self._show_available_update(tag, release, asset))
             except Exception as exc:
                 error_text = str(exc)
@@ -8230,14 +8304,121 @@ class App:
         self.update_worker = threading.Thread(target=work, daemon=True)
         self.update_worker.start()
 
+    @staticmethod
+    def _select_update_release(releases: list) -> tuple[str, dict, dict]:
+        """Include prereleases, ranking by version rather than upload date."""
+        if not isinstance(releases, list):
+            raise RuntimeError("无法读取版本列表，请稍后重新检查。")
+        candidates = []
+        for release in releases:
+            if not isinstance(release, dict) or release.get("draft"):
+                continue
+            tag = str(release.get("tag_name", "")).strip()
+            if App._version_tuple(tag) == (0, 0, 0, 0, 0):
+                continue
+            asset = next((item for item in release.get("assets", [])
+                          if item.get("name") == UPDATE_ASSET_NAME
+                          and item.get("state", "uploaded") == "uploaded"), None)
+            if asset:
+                candidates.append((tag, release, asset))
+        if not candidates:
+            raise RuntimeError("已发布版本中没有找到可安装的 wwbs-exe.zip。")
+        return max(candidates, key=lambda item: App._version_tuple(item[0]))
+
+    def _update_work_area(self) -> tuple[int, int, int, int]:
+        """Use the owner's monitor and exclude its taskbar."""
+        try:
+            class MonitorInfo(ctypes.Structure):
+                _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
+                            ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
+            user32 = ctypes.windll.user32
+            monitor_from_window = user32.MonitorFromWindow
+            monitor_from_window.restype = wintypes.HANDLE
+            monitor_from_window.argtypes = [wintypes.HWND, wintypes.DWORD]
+            monitor = monitor_from_window(self.root.winfo_id(), 2)
+            info = MonitorInfo()
+            info.cbSize = ctypes.sizeof(info)
+            if user32.GetMonitorInfoW(ctypes.c_void_p(monitor), ctypes.byref(info)):
+                work = info.rcWork
+                return work.left, work.top, work.right, work.bottom
+        except (AttributeError, OSError, TypeError):
+            pass
+        left, top = self.root.winfo_vrootx(), self.root.winfo_vrooty()
+        return (left, top, left+self.root.winfo_vrootwidth(),
+                top+self.root.winfo_vrootheight()-40)
+
     def _show_available_update(self, tag: str, release: dict, asset: dict) -> None:
         self.status.set("远程更新检查完成")
         if self._version_tuple(tag) <= self._version_tuple(APP_VERSION):
-            messagebox.showinfo("检查更新", f"暂未发现比 wwbs {APP_VERSION} 更新的正式版本。", parent=self.root)
+            messagebox.showinfo("检查更新", f"暂未发现比 wwbs {APP_VERSION} 更新的版本（含beta测试版）。", parent=self.root)
             return
+        previous = getattr(self, "_update_offer_window", None)
+        if previous is not None and previous.winfo_exists():
+            previous.destroy()
+        self._close_rounded_picker()
+        window = Toplevel(self.root)
+        window.withdraw()
+        window.title("发现新版本")
+        window.transient(self.root)
+        window.configure(bg=COLORS["app_bg"])
+        window.resizable(True, True)
+        if APP_ICON.exists():
+            window.iconbitmap(str(APP_ICON))
+        self._update_offer_window = window
+
+        def close(_event=None):
+            if window.winfo_exists():
+                window.destroy()
+            if getattr(self, "_update_offer_window", None) is window:
+                self._update_offer_window = None
+            return "break"
+
+        window.protocol("WM_DELETE_WINDOW", close)
+        window.bind("<Escape>", close)
+        body = Frame(window, bg=COLORS["app_bg"], padx=16, pady=14)
+        body.pack(fill=BOTH, expand=True)
+        body.columnconfigure(0, weight=1)
+        body.rowconfigure(1, weight=1)
+        stage = "测试版" if release.get("prerelease") or self._version_tuple(tag)[3] < 3 else "正式版"
+        heading = Label(body, text=f"发现新版本：{tag} · {stage}", anchor="w",
+                        font=(FONT_FAMILY, 14, "bold"), fg=COLORS["text"],
+                        bg=COLORS["app_bg"], justify=LEFT)
+        heading.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        heading.bind("<Configure>", lambda event: heading.configure(wraplength=max(100, event.width-4)))
+        shell, content = self._rounded_panel(body, color=COLORS["panel"],
+                                             outer_color=COLORS["app_bg"])
+        shell.grid(row=1, column=0, sticky="nsew")
+        scrollbar = self._thin_scrollbar(content, orient="vertical")
+        notes_text = Text(content, width=1, height=1, wrap="word", font=(FONT_FAMILY, 10),
+                          bg=COLORS["panel"], fg=COLORS["text"], relief="flat", bd=0,
+                          highlightthickness=0, padx=6, pady=6, yscrollcommand=scrollbar.set)
+        scrollbar.configure(command=notes_text.yview)
+        scrollbar.pack(side=RIGHT, fill="y")
+        notes_text.pack(side=LEFT, fill=BOTH, expand=True)
         notes = str(release.get("body", "")).strip() or "该版本没有填写更新说明。"
-        prompt = f"发现新版本：{tag}\n\n{notes}\n\n是否下载并安装？"
-        if not messagebox.askyesno("发现新版本", prompt, parent=self.root):
+        notes_text.insert("1.0", notes)
+        notes_text.configure(state="disabled")
+        footer = Frame(body, bg=COLORS["app_bg"])
+        footer.grid(row=2, column=0, sticky="ew", pady=(12, 0))
+        self._ui_button(footer, text="下载并安装", width=16, style="Primary.TButton",
+                        command=lambda: self._begin_update_install(tag, asset, close)).pack(side=RIGHT)
+        self._ui_button(footer, text="关闭", command=close).pack(side=RIGHT, padx=(0, 10))
+        window._update_notes_text = notes_text
+        window._update_footer = footer
+        self.root.update_idletasks()
+        left, top, right, bottom = self._update_work_area()
+        available_width, available_height = max(240, right-left-32), max(220, bottom-top-64)
+        width, height = min(760, available_width), min(560, available_height)
+        window.minsize(min(480, available_width), min(300, available_height))
+        x = max(left+16, min(self.root.winfo_x()+(self.root.winfo_width()-width)//2, right-width-16))
+        y = max(top+16, min(self.root.winfo_y()+(self.root.winfo_height()-height)//2, bottom-height-48))
+        window.geometry(f"{width}x{height}{x:+d}{y:+d}")
+        window.deiconify()
+        window.lift()
+        notes_text.focus_set()
+
+    def _begin_update_install(self, tag: str, asset: dict, close) -> None:
+        if getattr(self, "_update_installing", False):
             return
         if not getattr(sys, "frozen", False):
             messagebox.showinfo("开发模式", "源码运行模式可以检查更新，但请使用打包版 wwbs.exe 执行自动替换。", parent=self.root)
@@ -8245,6 +8426,7 @@ class App:
         if self.worker and self.worker.is_alive():
             messagebox.showinfo("任务运行中", "请先结束当前任务，再安装更新。", parent=self.root)
             return
+        close()
         self._update_installing = True
         self.status.set(f"正在下载 {tag}...")
         threading.Thread(target=self._download_and_install_update, args=(tag, asset), daemon=True).start()

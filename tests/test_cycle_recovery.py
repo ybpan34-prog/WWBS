@@ -153,8 +153,8 @@ class CycleRecoveryTests(unittest.TestCase):
             self.runner._weekly_monitoring = True
             self.runner._sleep_click_interval(.15)
             low, high = jitter.call_args.args
-            self.assertAlmostEqual(low, .06)
-            self.assertAlmostEqual(high, .10)
+            self.assertAlmostEqual(low, .28)
+            self.assertAlmostEqual(high, .32)
             self.runner._weekly_monitoring = False
             self.runner._sleep_click_interval(.15)
             self.assertEqual(jitter.call_args.args, (0, .35))

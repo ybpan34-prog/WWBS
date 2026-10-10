@@ -32,6 +32,7 @@ class TemplateMatcher:
         scales: list[float] | None = None,
         *,
         first_match: bool = False,
+        template_crop: tuple[int, int, int, int] | None = None,
     ) -> MatchResult:
         template_path = self.templates_dir / template_name
         if not template_path.exists():
@@ -39,6 +40,8 @@ class TemplateMatcher:
 
         screenshot_image = Image.open(screenshot_path).convert("L")
         template_image = Image.open(template_path).convert("L")
+        if template_crop is not None:
+            template_image = template_image.crop(template_crop)
         scales = scales or [1.0, 0.95, 1.05, 0.9, 1.1]
 
         best: MatchResult | None = None
