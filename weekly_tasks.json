@@ -25,7 +25,7 @@
           "x2": null,
           "y2": null,
           "duration_ms": 300,
-          "seconds": 0.08,
+          "seconds": 0.3,
           "text": ""
         },
         {
@@ -62,7 +62,7 @@
           "x2": null,
           "y2": null,
           "duration_ms": 300,
-          "seconds": 0.08,
+          "seconds": 0.3,
           "text": ""
         }
       ]

@@ -22,14 +22,24 @@ class WeeklyThresholdTests(unittest.TestCase):
         runner.matcher.find = Mock(return_value=MatchResult(80, 180, 40, 40, .6))
         runner._sleep_interruptible = Mock()
         old_step = app.Step(action="tap_image", template="menu3.png", threshold=.82)
-        result = runner._probe_cycle_template(old_step, "本次")
+        with tempfile.TemporaryDirectory() as directory:
+            screen = Path(directory)/'_runtime_screenshot.png'
+            from weekly_clicks import weekly_template_crop
+            with Image.open(app.TEMPLATES_DIR/'menu3.png') as source:
+                caption = source.crop(weekly_template_crop('menu3.png', app.TEMPLATES_DIR)).resize((40, 40))
+            frame = Image.new('RGB', (400, 300), 'gray')
+            frame.paste(caption, (80, 180))
+            frame.save(screen)
+            with patch.object(app, 'APP_DIR', Path(directory)):
+                result = runner._probe_cycle_template(old_step, "本次")
         self.assertEqual(result, (100, 200, .6))
-        runner.matcher.find.assert_called_once_with(
-            app.APP_DIR / "_runtime_screenshot.png", "menu3.png", .5,
-            [1.0, .95, 1.05], first_match=True,
-        )
-        runner._capture_for_matching.assert_called_once()
-        runner._sleep_interruptible.assert_not_called()
+        self.assertEqual(runner.matcher.find.call_count, 2)
+        for call in runner.matcher.find.call_args_list:
+            self.assertEqual(call.args[:3], (screen, 'menu3.png', .5))
+            self.assertTrue(call.kwargs['first_match'])
+            self.assertIn('template_crop', call.kwargs)
+        self.assertEqual(runner._capture_for_matching.call_count, 2)
+        runner._sleep_interruptible.assert_called_once_with(app.WEEKLY_STABLE_INTERVAL)
 
     def test_unmatched_first_scale_continues_and_stops_at_next_success(self):
         rng = np.random.default_rng(42)
