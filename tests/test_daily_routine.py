@@ -236,7 +236,8 @@ class DailyRoutineTests(unittest.TestCase):
         runner._open_terminal_destination = Mock()
         runner._capture_for_matching = Mock()
         runner._yellow_claim_rows = Mock(return_value=[])
-        runner._find_daily_template = Mock(return_value=object())
+        runner._daily_activity_score_full = Mock(return_value=True)
+        runner._wait_daily_reward_page = Mock()
         runner._tap_ratio = lambda x, y, pause=0.0: taps.append((x, y))
         runner._dismiss_reward_overlay_safely = Mock()
 
@@ -252,12 +253,14 @@ class DailyRoutineTests(unittest.TestCase):
         runner._open_terminal_destination = Mock()
         runner._tap_ratio = lambda x, y, pause=0.0: taps.append((x, y))
         runner._click_optional_daily_template = Mock(return_value=False)
+        runner._wait_daily_battlepass_tab = Mock()
 
         runner._collect_daily_battlepass_rewards()
 
         runner._open_terminal_destination.assert_not_called()
         controller.press_key.assert_not_called()
         self.assertEqual(taps[0], (0.744, 0.257))
+        self.assertEqual([call.args[0] for call in runner._wait_daily_battlepass_tab.call_args_list], [2, 1])
 
     def test_auto_selected_weekly_page_does_not_wait_for_daily_activity(self):
         runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)
@@ -619,6 +622,7 @@ class DailyRoutineTests(unittest.TestCase):
             lambda _message: None,
             dry_run=False,
             daily_heal_enabled=True,
+            rotation_presets={'daily': [app.new_module('idle_attack')]},
         )
         runner.DAILY_BATTLE_END_CHECK_INTERVAL = 0.01
         runner.HEAL_ROTATION_INTERVAL = 0.5

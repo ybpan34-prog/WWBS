@@ -251,6 +251,7 @@ class RotationClock:
         self.remaining = 0
         self.idle_count = 0
         self.background_idle = background_idle
+        self.cast_ready_at = started
 
     def _next_slot(self, now):
         self.slot_index = (self.slot_index + 1) % len(self.slots)
@@ -261,6 +262,11 @@ class RotationClock:
         self.active = None
         self.idle_count = 0
         self.next_attack = now
+        self.cast_ready_at = now
+
+    def defer_cast_followup(self, now, delay):
+        """Keep input cadence without blocking clicks or screenshot decisions."""
+        self.cast_ready_at = min(self.visit_deadline, now+max(0, delay))
 
     def has_following_wait(self, now):
         column = self.columns[self.slot]
@@ -280,6 +286,9 @@ class RotationClock:
         if self.needs_select:
             self.needs_select = False
             return {"kind": "select_slot", "module": column[0]}
+        if now < self.cast_ready_at:
+            idle = next((m for m in column if m['kind'] == 'idle_attack'), None)
+            return {'kind': 'idle_attack', 'module': idle} if idle and self.background_idle else None
         if self.active:
             item, deadline = self.active
             kind = item["kind"]
@@ -340,9 +349,10 @@ class RotationClock:
 class BattleMonitor:
     """One screenshot check at a time, independent of the input scheduler."""
 
-    def __init__(self, inspect, initial, stop_event):
+    def __init__(self, inspect, initial, stop_event, *, on_result=None):
         self.inspect = inspect
         self.stop_event = stop_event
+        self.on_result = on_result
         self.condition = threading.Condition()
         self.result = (initial,)
         self.requested = False
@@ -396,6 +406,10 @@ class BattleMonitor:
                 try:
                     result = self.inspect()
                     with self.condition:
+                        deliver = self.enabled and not self.closed
+                    if deliver and self.on_result is not None:
+                        self.on_result(result)
+                    with self.condition:
                         if self.enabled and not self.closed:
                             self.result = (result,)
                 finally:
@@ -425,11 +439,15 @@ class IdleAttackWorker:
         self.next_click = 0.0
         self.closed = False
         self.error = None
+        self.pause_event = threading.Event()
+        self.pause_event.set()
         self.thread = threading.Thread(target=self._run, name="wwbs-idle-attack", daemon=True)
         self.thread.start()
 
     def arm(self, module, deadline):
         with self.condition:
+            if self.closed or self.stop_event.is_set():
+                return
             identity = (module["id"], module.get("slot", 1))
             if identity != self.identity:
                 self.identity = identity
@@ -437,10 +455,12 @@ class IdleAttackWorker:
             if self.state is None:
                 self.next_click = time.monotonic()
             self.state = (int(module["value"]), deadline)
+            self.pause_event.clear()
             self.condition.notify_all()
 
     def pause(self):
         with self.condition:
+            self.pause_event.set()
             self.state = None
             self.condition.notify_all()
         # A long press must finish and release before a skill or switch begins.
@@ -481,7 +501,10 @@ class IdleAttackWorker:
                         heavy = self.count >= heavy_every
                         hold_ms = min(self.heavy_hold_ms, max(1, int((deadline-now)*1000)))
                     if heavy:
-                        self.controller.hold_left_button(hold_ms)
+                        if callable(getattr(type(self.controller), 'hold_left_button_cancelable', None)):
+                            self.controller.hold_left_button_cancelable(hold_ms, self.pause_event)
+                        else:
+                            self.controller.hold_left_button(hold_ms)
                         self.count = 0
                         # Holding is itself an attack; resume without another full gap.
                         next_click = time.monotonic() + 0.025

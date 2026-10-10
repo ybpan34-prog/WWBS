@@ -86,7 +86,7 @@ DEFAULT_GROUP_KEY = "default"
 DEFAULT_GROUP_NAME = "幻梦游园"
 WEEKLY_TEMPLATE_THRESHOLD = 0.5
 APP_ICON = APP_DIR / "wwbs.ico"
-APP_VERSION = "1.5.3"
+APP_VERSION = "1.5.4 beta1"
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -177,6 +177,15 @@ UPDATE_NOTICE = """v1.3.5 更新内容
 2. 请将游戏窗口调整为 1920*1080p 或等比例缩放。
 3. 请先完成周本的新手教程，并将速度调整至 MAX。"""
 UPDATE_HISTORY = [
+    ("v1.5.4 beta1", """v1.5.4 beta1 · 日常领取和普攻衔接修复
+修复0活跃度误认为100：只匹配左下当前分数，连续复核，先领取上方黄色任务奖励再判断宝箱。
+黄色领取按钮合并文字和花纹造成的断段，点击按钮中央；领取页加载和奖励弹层关闭后都等待页面稳定。
+先约电台点击左侧图标中心，连续确认标签已选中，失败重试；不会跳过第一个免费奖励标签。
+启用空闲普攻时，技能、大招和声骸按键释放后恢复普攻，继续并行查询模块，去除叠加的固定待机。
+显式等待、实际施放、切人和结算仍暂停普攻。
+页面切换减少导航重绘，隐藏截图暂停处理，日志分批刷新；圆角大小沿用原样式，修复按钮边框缺口。
+大招过渡期间血条隐藏不判结束；发现吸收立即中断战斗长按，继续吸收及剩余4C轮次。
+完整说明见 release-notes-v1.5.4-beta1.md。"""),
     ("v1.5.3", """v1.5.3 正式版 · 战斗轴分享与执行提速
 角色整列可拖动排序，模块支持快速删除；技能、大招和声骸按间隔循环，离场继续计时。
 新增深塔挑战和独立预设分配；战斗轴可生成短种子互换，导入新增预设并保留原名，兼容三代旧种子。
@@ -943,7 +952,7 @@ class TaskRunner:
     REWARD_SEARCH_TIMEOUT = 90.0
     EMPTY_HEALTH_CONFIRMATIONS = 3
     EMPTY_HEALTH_CONFIRMATION_INTERVAL = 0.15
-    BOSS_HEADER_CHECK_INTERVAL = 0.5
+    BOSS_HEADER_CHECK_INTERVAL = 0.15
     DAILY_BATTLE_END_CHECK_INTERVAL = 1.0
     DAILY_TASK_MISSING_CONFIRMATIONS = 3
     DAILY_TASK_MISSING_CONFIRMATION_INTERVAL = 0.75
@@ -987,6 +996,8 @@ class TaskRunner:
         self._rotation_slot = 1
         self._rotation_end_check = None
         self._rotation_battle_finished = False
+        self._combat_animation_until = 0.
+        self._combat_input_cancel = threading.Event()
         self._rotation_continuous_started = False
         self.matcher = TemplateMatcher(TEMPLATES_DIR)
         self.template_root = TEMPLATES_DIR
@@ -1163,6 +1174,7 @@ class TaskRunner:
         self._rotation_slot = None
         self._rotation_battle_finished = False
         self._rotation_end_check = self._tower_success_present
+        self._combat_animation_until = 0.
         enabled, lock = threading.Event(), threading.Lock()
         idle = IdleAttackWorker(self.controller, self.stop_event, lock,
                                 attack_interval=self.MAIN_ATTACK_CLICK_INTERVAL,
@@ -1276,6 +1288,8 @@ class TaskRunner:
         self._rotation_slot = None
         self._rotation_battle_finished = False
         self._rotation_end_check = self._4c_switch_end_present
+        self._combat_animation_until = 0.
+        self._combat_input_cancel.clear()
         self._rotation_continuous_started = False
         last_header_check = 0.0
         boss_header_seen = False
@@ -1296,7 +1310,15 @@ class TaskRunner:
             rotation = RotationClock(modules, time.monotonic(), self.MAIN_ATTACK_CLICK_INTERVAL,
                                      self.rotation_times.get("combat_4c"), background_idle=True,
                                      slot_order=self.rotation_orders.get("combat_4c"))
-            monitor = BattleMonitor(inspect, initial, self.stop_event)
+            def stop_on_prompt(result):
+                if result[1]:
+                    self._rotation_battle_finished = True
+                    self._combat_input_cancel.set()
+                    idle_worker.close()
+                    attack_enabled.clear()
+                    self.controller.release_keys(("W", "A", "S", "D", "SPACE", "1", "2", "3"))
+                    self.log(f"    识别到{result[1]}，立即停止战斗输入，进入吸收。")
+            monitor = BattleMonitor(inspect, initial, self.stop_event, on_result=stop_on_prompt)
             while time.monotonic() < deadline:
                 if self.stop_event.is_set():
                     return
@@ -1315,6 +1337,10 @@ class TaskRunner:
                         return
                     elif header_present:
                         boss_header_seen = True
+                    elif header_present is None or time.monotonic() < self._combat_animation_until:
+                        # Ultimate cutscenes hide the HUD. Keep the current axis
+                        # and idle attacks running; this frame is not a defeat.
+                        pass
                     elif boss_header_seen:
                         idle_worker.pause()
                         monitor.pause()
@@ -1334,6 +1360,9 @@ class TaskRunner:
                             if reward_hint:
                                 self.log(f"    第{cycle_index}轮：复核发现结束提示，进入声骸吸收流程。")
                                 return
+                            if header_present is None or time.monotonic() < self._combat_animation_until:
+                                missing_header_checks = 0
+                                break
                             if header_present:
                                 missing_header_checks = 0
                                 break
@@ -1373,8 +1402,9 @@ class TaskRunner:
 
     def _inspect_4c_battle_state(
         self, screenshot: Path, cycle_index: int, missing_checks: int, *, log_result: bool = True,
-    ) -> tuple[bool, bool | str]:
+    ) -> tuple[bool | None, bool | str]:
         # Both signals use the same fresh frame; the reward hint is optional.
+        inspected_at = time.monotonic()
         header_present = self._inspect_4c_boss_header(
             screenshot, cycle_index, missing_checks, log_result=log_result,
         )
@@ -1386,7 +1416,15 @@ class TaskRunner:
             prompt, _name = self._find_4c_absorb_prompt(screenshot, scale, fast=True)
         except (OSError, ValueError):
             prompt = None
-        return header_present, "吸收" if prompt is not None else False
+        if prompt is not None:
+            return header_present, "吸收"
+        if not header_present:
+            native_check = callable(getattr(type(self.controller), 'active_character_slot', None))
+            if (inspected_at < self._combat_animation_until
+                    or (native_check and (not self._overworld_hud_ready(screenshot)
+                                          or self.controller.active_character_slot(screenshot) is None))):
+                return None, False
+        return header_present, False
 
     def _4c_reward_hint_present(self, screenshot: Path) -> bool:
         try:
@@ -1491,6 +1529,9 @@ class TaskRunner:
                 observed = self._read_rotation_slot()
                 if self._rotation_battle_finished or self.stop_event.is_set():
                     return False
+                if observed is None and time.monotonic() < self._combat_animation_until:
+                    self._sleep_interruptible(.08)
+                    continue
                 if observed == slot:
                     self._sleep_interruptible(.025)
                     if self.stop_event.is_set():
@@ -1522,6 +1563,8 @@ class TaskRunner:
                              attack_enabled: threading.Event, attack_lock: threading.Lock,
                              *, daily: bool = False, task_seen: bool = True,
                              screenshot: Path | None = None) -> bool:
+        if self._rotation_battle_finished or self.stop_event.is_set():
+            return False
         if action is None:
             return not self.stop_event.is_set()
         kind, item = action["kind"], action["module"]
@@ -1546,7 +1589,11 @@ class TaskRunner:
             self.controller.left_click()
         elif kind == "hold_left":
             remaining_ms = max(1, round((rotation.visit_deadline - time.monotonic()) * 1000))
-            self.controller.hold_left_button(min(self.HEAVY_ATTACK_HOLD_MS, remaining_ms))
+            duration = min(self.HEAVY_ATTACK_HOLD_MS, remaining_ms)
+            if callable(getattr(type(self.controller), 'hold_left_button_cancelable', None)):
+                self.controller.hold_left_button_cancelable(duration, self._combat_input_cancel)
+            else:
+                self.controller.hold_left_button(duration)
         elif kind == "jump":
             self.controller.press_key("SPACE", 50)
         elif kind in {"skill", "ultimate", "echo"}:
@@ -1554,21 +1601,36 @@ class TaskRunner:
                 return False
             rotation.last_run[item["id"]] = time.monotonic()
             explicit_wait = rotation.has_following_wait(time.monotonic())
+            idle_module = next((module for module in rotation.columns[rotation.slot]
+                                if module['kind'] == 'idle_attack'), None)
+            resume_idle = (idle_worker is not None and rotation.background_idle
+                           and idle_module is not None and not explicit_wait)
             if kind == "skill":
                 self.controller.press_binding(skill_key, 65)
-                if not explicit_wait:
+                if not (explicit_wait or resume_idle):
                     self._sleep_interruptible(min(0.20, max(0, rotation.visit_deadline - time.monotonic())))
             elif kind == "ultimate":
                 self._cast_timed_ultimate(ultimate_key, attack_enabled, attack_lock, resume_attacks=False,
-                                         settle_delay=0 if explicit_wait else min(0.8, max(0, rotation.visit_deadline - time.monotonic())))
+                                         settle_delay=0 if explicit_wait or resume_idle else min(0.8, max(0, rotation.visit_deadline - time.monotonic())))
             else:
                 self.controller.press_key("Q", 120)
-                if not explicit_wait:
+                if not (explicit_wait or resume_idle):
                     self._sleep_interruptible(min(self.ECHO_ACTION_SETTLE_DELAY,
                                                   max(0, rotation.visit_deadline - time.monotonic())))
+            # Resume only after the cast key is released. Due-module inspection
+            # then runs alongside the idle worker; actual actions pause it again.
+            if resume_idle and not self.stop_event.is_set() and not self._rotation_battle_finished:
+                # Preserve the skill-to-skill cadence, but represent it in the
+                # scheduler so idle clicks and ending checks remain responsive.
+                delay = {'skill': .2, 'ultimate': .8, 'echo': self.ECHO_ACTION_SETTLE_DELAY}[kind]
+                rotation.defer_cast_followup(time.monotonic(), delay)
+                idle_worker.arm(idle_module, rotation.visit_deadline)
         elif kind == "approach":
             duration = min(float(item["value"]), max(0, rotation.visit_deadline - time.monotonic()))
-            self.controller.press_keys(("W",), max(1, round(duration * 1000)))
+            if callable(getattr(type(self.controller), 'press_keys_cancelable', None)):
+                self.controller.press_keys_cancelable(("W",), max(1, round(duration*1000)), self._combat_input_cancel)
+            else:
+                self.controller.press_keys(("W",), max(1, round(duration * 1000)))
         return not self.stop_event.is_set()
 
     def _run_daily_routine(self, step: Step) -> None:
@@ -2202,6 +2264,7 @@ class TaskRunner:
         self._rotation_slot = first_slot
         self._rotation_battle_finished = False
         self._rotation_end_check = self._daily_reward_stage_present
+        self._combat_animation_until = 0.
         self._rotation_continuous_started = False
         last_task_check = 0.0
         task_seen = False
@@ -2251,6 +2314,8 @@ class TaskRunner:
                     last_task_check = time.monotonic()
                     if present:
                         task_seen = True
+                    elif time.monotonic() < self._combat_animation_until:
+                        pass
                     elif task_seen:
                         idle_worker.pause()
                         monitor.pause()
@@ -2698,21 +2763,45 @@ class TaskRunner:
         red = region[:, :, 0].astype(np.int16)
         green = region[:, :, 1].astype(np.int16)
         blue = region[:, :, 2].astype(np.int16)
-        yellow = (red > 215) & (green > 190) & (blue < 190) & ((red - blue) > 45)
+        yellow = (red > 225) & (green > 215) & (blue < 235) & ((red - blue) > 25)
         row_counts = yellow.sum(axis=1)
-        active = row_counts > max(12, region.shape[1] * 0.08)
-        rows: list[int] = []
-        start = None
-        for index, present in enumerate(active):
-            if present and start is None:
-                start = index
-            elif not present and start is not None:
-                if index - start >= 4:
-                    rows.append(top + (start + index - 1) // 2)
-                start = None
-        if start is not None and len(active) - start >= 4:
-            rows.append(top + (start + len(active) - 1) // 2)
-        return rows
+        active = np.flatnonzero(row_counts > max(12, region.shape[1] * 0.15))
+        if not len(active):
+            return []
+        # Pale yellow buttons contain dark text and patterned highlights. Join
+        # those gaps so one button produces one centre, not several edge clicks.
+        groups = np.split(active, np.flatnonzero(np.diff(active) > max(4, round(height*.015)))+1)
+        return [top+int((group[0]+group[-1])//2) for group in groups
+                if group[-1]-group[0]+1 >= max(12, round(height*.018))]
+
+    def _daily_activity_score_full(self, screenshot: Path) -> bool:
+        with Image.open(screenshot) as source:
+            width, height = source.size
+        # Only the current score beside the bottom-left activity emblem counts.
+        # A loose full-screen match mistakes the visible zero for "100".
+        return self._find_daily_template(
+            "activity_full.png", threshold=.88, screenshot=screenshot,
+            region=(round(width*.15), round(height*.77), round(width*.29), round(height*.94)),
+        ) is not None
+
+    def _wait_daily_reward_page(self, template: str, label: str, *, dismiss_overlay: bool = False) -> None:
+        screenshot = APP_DIR / "_runtime_screenshot.png"
+        deadline = time.monotonic()+8
+        confirmations = 0
+        while time.monotonic() < deadline and not self.stop_event.is_set():
+            _path, width, height = self._capture_size(screenshot)
+            title = self._find_daily_template(template, threshold=.82, screenshot=screenshot,
+                region=(round(width*.02), round(height*.025), round(width*.26), round(height*.13)))
+            ready = title is not None and self._daily_activity_page_present(screenshot)
+            confirmations = confirmations+1 if ready else 0
+            if confirmations >= 2:
+                return
+            # Reward overlays can finish appearing after the blank-area click.
+            # This spot is outside task buttons and milestone chests.
+            if title is None and dismiss_overlay:
+                self._dismiss_reward_overlay_safely()
+            self._sleep_interruptible(.15)
+        raise RuntimeError(f"未确认{label}页面已稳定显示，已停止以避免跳过领取。")
 
     def _dismiss_reward_overlay_safely(self) -> None:
         # Both the stamina exchange success and item reward overlays explicitly
@@ -2722,21 +2811,41 @@ class TaskRunner:
     def _collect_daily_activity_rewards(self) -> None:
         self.log("    返回大世界后，经终端进入索拉指南领取活跃度奖励；只点击黄色“领取”，不点击“前往”。")
         self._open_terminal_destination("索拉指南", 0.515, 0.671, require_transition=True)
+        # The guide can remember a different category. Select activity explicitly
+        # and wait for its title rather than treating an unpainted frame as empty.
+        self._tap_ratio(.039, .174, .15)
+        self._wait_daily_reward_page("activity_title.png", "活跃行迹")
+        self.log("    已确认活跃行迹页面，先领取上方任务奖励。")
         screenshot = APP_DIR / "_runtime_screenshot.png"
-        for _ in range(12):
+        empty_frames = 0
+        for _ in range(36):
+            if self.stop_event.is_set():
+                return
             self._capture_for_matching(screenshot)
             rows = self._yellow_claim_rows(screenshot)
             if not rows:
-                break
+                empty_frames += 1
+                if empty_frames >= 2:
+                    break
+                self._sleep_interruptible(.15)
+                continue
+            empty_frames = 0
             with Image.open(screenshot) as captured:
                 width = captured.width
             self.controller.tap(round(width * 0.88), rows[0])
-            self._sleep_interruptible(0.25)
+            self._sleep_interruptible(.35)
             self._dismiss_reward_overlay_safely()
+            self._wait_daily_reward_page("activity_title.png", "活跃行迹", dismiss_overlay=True)
+        else:
+            raise RuntimeError("活跃度领取多次后仍未完成，已停止；不会提前点击100宝箱。")
 
         self._capture_for_matching(screenshot)
-        full = self._find_daily_template("activity_full.png", threshold=0.62, screenshot=screenshot)
-        if full is None:
+        full = self._daily_activity_score_full(screenshot)
+        if full:
+            self._sleep_interruptible(.15)
+            self._capture_for_matching(screenshot)
+            full = self._daily_activity_score_full(screenshot) and not self._yellow_claim_rows(screenshot)
+        if not full:
             self.log("    未确认活跃度达到100，跳过里程碑宝箱，避免误领。")
         else:
             self.log("    已确认活跃度100，只点击100宝箱，其余里程碑奖励由游戏一并领取。")
@@ -2747,13 +2856,51 @@ class TaskRunner:
     def _collect_daily_battlepass_rewards(self) -> None:
         self.log("    退出活跃指南后已在终端，直接进入先约电台；只领取免费内容，不点击购买或解锁寰宇频道。")
         self._tap_ratio(0.744, 0.257, 0.7)
-        self._tap_ratio(0.062, 0.296, 0.45)
+        self._wait_daily_battlepass_tab(2)
         if self._click_optional_daily_template("one_click_claim.png", "电台任务一键领取", timeout=5.0, threshold=0.66):
             self._dismiss_reward_overlay_safely()
-        self._tap_ratio(0.061, 0.192, 0.45)
+        self._wait_daily_battlepass_tab(1)
         if self._click_optional_daily_template("one_click_claim.png", "大众频道一键领取", timeout=5.0, threshold=0.66):
             self._dismiss_reward_overlay_safely()
         self._tap_ratio(0.957, 0.058, 0.8)
+
+    def _daily_battlepass_tab_selected(self, screenshot: Path, tab: int) -> bool:
+        with Image.open(screenshot) as source:
+            width, height = source.size
+            y = .174 if tab == 1 else .299
+            icon = np.asarray(source.crop((round(width*.025), round(height*(y-.028)),
+                                           round(width*.055), round(height*(y+.028)))).convert('RGB'))
+        red, green, blue = (icon[:, :, i].astype(np.int16) for i in range(3))
+        selected = (red > 150) & (green > 135) & (blue < green-25) & (red > blue+40)
+        if float(selected.mean()) < .08:
+            return False
+        if tab == 2:
+            return self._find_daily_template("battlepass_tasks.png", threshold=.82, screenshot=screenshot,
+                region=(round(width*.015), round(height*.025), round(width*.25), round(height*.13))) is not None
+        # Ensure the selected icon is the radio's reward channel, not a similarly
+        # positioned guide icon. Its shape remains recognizable when highlighted.
+        return self._find_daily_template("battlepass_rewards_tab.png", threshold=.72, screenshot=screenshot,
+            region=(round(width*.02), round(height*.135), round(width*.06), round(height*.215))) is not None
+
+    def _wait_daily_battlepass_tab(self, tab: int) -> None:
+        screenshot = APP_DIR / "_runtime_screenshot.png"
+        deadline = time.monotonic()+8
+        confirmations = 0
+        next_click = 0.
+        while time.monotonic() < deadline and not self.stop_event.is_set():
+            self._capture_for_matching(screenshot)
+            if self._daily_battlepass_tab_selected(screenshot, tab):
+                confirmations += 1
+                if confirmations >= 2:
+                    self.log(f"    已确认先约电台左侧第{tab}个标签。")
+                    return
+            else:
+                confirmations = 0
+                if time.monotonic() >= next_click:
+                    self._tap_ratio(.039, .174 if tab == 1 else .299, .15)
+                    next_click = time.monotonic()+.6
+            self._sleep_interruptible(.12)
+        raise RuntimeError(f"未确认先约电台左侧第{tab}个标签已打开，已停止以避免跳过奖励。")
 
     @staticmethod
     def _weekly_travel_completed(screenshot: Path) -> bool:
@@ -2929,6 +3076,7 @@ class TaskRunner:
         try:
             if self.stop_event.is_set():
                 return
+            self._combat_animation_until = time.monotonic()+5.
             self.controller.press_binding(ultimate_key, 120)
             self._sleep_interruptible(settle_delay)
         finally:
@@ -2942,6 +3090,8 @@ class TaskRunner:
             if self.stop_event.is_set():
                 return True
             self._capture_for_matching(screenshot)
+            if time.monotonic() < self._combat_animation_until:
+                return False
             if self._daily_battle_task_present(screenshot):
                 return False
         return True
@@ -5093,12 +5243,8 @@ class App:
     @staticmethod
     def _paint_rounded_card(canvas: Canvas, x0: int, y0: int, x1: int, y1: int,
                             radius: int, color: str) -> None:
-        options = {"fill": color, "outline": color, "tags": "shape"}
-        canvas.create_rectangle(x0 + radius, y0, x1 - radius, y1, **options)
-        canvas.create_rectangle(x0, y0 + radius, x1, y1 - radius, **options)
-        for x in (x0, x1 - radius * 2):
-            for y in (y0, y1 - radius * 2):
-                canvas.create_oval(x, y, x + radius * 2, y + radius * 2, **options)
+        from ui_controls import paint_round
+        paint_round(canvas, x0, y0, x1, y1, radius, color)
 
     def _rounded_panel(self, parent, *, padding: int = 12, color: str | None = None,
                        outer_color: str | None = None):
@@ -5500,16 +5646,17 @@ class App:
 
         def draw(state: str = "default") -> None:
             button.delete("all")
-            actual_width = max(60, button.winfo_width())
+            actual_width = button.winfo_width() if button.winfo_width() > 1 else width
+            actual_height = button.winfo_height() if button.winfo_height() > 1 else height
             fill = (COLORS["primary_hover"] if state == "hover" else COLORS["primary"])
             if not primary:
                 fill = COLORS["panel"] if state == "default" else COLORS["panel_alt"]
             if state == "pressed":
                 fill = COLORS["line_soft"] if not primary else COLORS["primary"]
-            self._paint_rounded_card(button, 0, 0, actual_width, height, 9,
+            self._paint_rounded_card(button, 0, 0, actual_width, actual_height, 9,
                                      COLORS["primary"] if primary else COLORS["line"])
-            self._paint_rounded_card(button, 1, 1, actual_width - 1, height - 1, 8, fill)
-            button.create_text(actual_width // 2, height // 2, text=label,
+            self._paint_rounded_card(button, 1, 1, actual_width - 1, actual_height - 1, 8, fill)
+            button.create_text(actual_width // 2, actual_height // 2, text=label,
                                fill="#ffffff" if primary else COLORS["text"],
                                font=(FONT_FAMILY, 10, "bold" if primary else "normal"))
 
@@ -5670,6 +5817,10 @@ class App:
                                  bg=COLORS["panel"], highlightthickness=0, bd=0,
                                  cursor="hand2")
                 surface.pack()
+                # Repacking the source can change native mouse routing. The
+                # floating surface must keep forwarding the same drag gesture.
+                surface.bind("<B1-Motion>", motion)
+                surface.bind("<ButtonRelease-1>", release)
                 for item in card.find_withtag("shape"):
                     kind = card.type(item)
                     options = {name: values[-1] for name, values in card.itemconfigure(item).items()}
@@ -5830,10 +5981,20 @@ class App:
 
     def _select_top_tab(self, index: int) -> None:
         self._close_rounded_picker()
+        previous = getattr(self, '_visible_top_tab', None)
+        if previous == index:
+            return
         self._selected_top_tab = index
+        # Keep layout allocated: unmapping/remapping a long axis makes Tk lay out
+        # and repaint every card again. Only raise the cached page and update the
+        # two navigation labels whose state actually changed.
         self._tab_panels[index].tkraise()
-        for position in range(len(self._nav_buttons)):
+        self._visible_top_tab = index
+        changed = range(len(self._nav_buttons)) if previous is None else (previous, index)
+        for position in changed:
             self._draw_nav_button(position)
+        if index == 0 and getattr(self, '_preview_deferred', False):
+            self.root.after_idle(lambda: self._resize_preview_canvas(None))
 
     def _polish_widgets(self, widget) -> None:
         for child in widget.winfo_children():
@@ -7744,7 +7905,7 @@ class App:
                             )
                         else:
                             findings.append(
-                                ("warning", "当前首领名字与整条血条都未出现：可能已经击败，或尚未进入4C战斗。")
+                                ("warning", "当前截图未显示首领名字与血条，可能处于大招或镜头动画；单张截图不能判断战斗结束。")
                             )
                     elif self._task_with_action(diagnostic_tasks, "daily_routine") is not None:
                         required = [
@@ -8988,8 +9149,16 @@ class App:
             return
         self.preview_source = image_path
         self.preview_title = title
-        image = Image.open(image_path).convert("RGB")
+        if getattr(self, '_selected_top_tab', 0) != 0:
+            self._preview_deferred = True
+            return
+        self._preview_deferred = False
         canvas_width, canvas_height = self._preview_canvas_size()
+        render_key = (str(image_path), image_path.stat().st_mtime_ns, canvas_width, canvas_height, title)
+        if getattr(self, '_preview_render_key', None) == render_key:
+            return
+        with Image.open(image_path) as source:
+            image = source.convert("RGB")
         current_width = self.preview_canvas.winfo_width()
         current_height = self.preview_canvas.winfo_height()
         if abs(current_width - canvas_width) > 2 or abs(current_height - canvas_height) > 2:
@@ -8998,6 +9167,7 @@ class App:
         preview_size = (max(1, int(image.width * scale)), max(1, int(image.height * scale)))
         preview = image.resize(preview_size, Image.Resampling.BILINEAR)
         self.preview_photo = ImageTk.PhotoImage(preview)
+        self._preview_render_key = render_key
         self.preview_canvas.delete("all")
         x = (canvas_width - preview_size[0]) // 2
         y = (canvas_height - preview_size[1]) // 2
@@ -9014,6 +9184,10 @@ class App:
     def _resize_preview_canvas(self, _event) -> None:
         if not hasattr(self, "preview_canvas"):
             return
+        if getattr(self, '_selected_top_tab', 0) != 0:
+            self._preview_deferred = True
+            return
+        self._preview_deferred = False
         width, height = self._preview_canvas_size()
         if abs(self.preview_canvas.winfo_width() - width) > 2 or abs(self.preview_canvas.winfo_height() - height) > 2:
             self.preview_canvas.configure(width=width, height=height)
@@ -9085,20 +9259,24 @@ class App:
         self._pet_feedback("failed", self._event_line("mouse_move_failed"), 6800)
 
     def _drain_logs(self) -> None:
-        while True:
+        lines = []
+        # Bound each UI batch so a busy task cannot monopolize navigation input.
+        for _ in range(60):
             try:
                 line = self.log_queue.get_nowait()
             except queue.Empty:
                 break
             if "鼠标没有移动成功" in line:
                 self._notify_mouse_move_failure()
-            self.detail.insert(END, "\n" + line)
+            lines.append(line)
+        if lines:
+            self.detail.insert(END, "\n" + "\n".join(lines))
             self.detail.see(END)
             if hasattr(self, "log_text"):
-                self.log_text.insert(END, line + "\n")
+                self.log_text.insert(END, "\n".join(lines) + "\n")
                 self.log_text.see(END)
-            self.status.set(line)
-        self.root.after(120, self._drain_logs)
+            self.status.set(lines[-1])
+        self.root.after(16 if not self.log_queue.empty() else 120, self._drain_logs)
 
 
 def ensure_default_config() -> None:
