@@ -180,8 +180,8 @@ class BossChallengeEntrance:
         if frame.find('推荐等级'+self.level,'等级'+self.level,
                       region=(.31,.16,.96,.78)):
             return True
-        # Selected list rows use a pale plate; unselected rows are dark. Require
-        # its background on BOTH sides of the text, not bright glyphs alone.
+        # Selected list rows use a pale plate; sample to the right so the level
+        # icon on the left cannot affect the background check.
         return self._selection_plate(frame,row)
 
     @staticmethod
@@ -189,10 +189,9 @@ class BossChallengeEntrance:
         width,height = frame.image.size
         y1,y2 = max(0,round(row.y)), min(height,round(row.y+row.height))
         pixels = np.asarray(frame.image)
-        pads = (pixels[y1:y2,max(0,round(row.x-width*.025)):max(0,round(row.x-width*.006))],
-                pixels[y1:y2,min(width,round(row.x+row.width+width*.006)):
-                       min(width,round(row.x+row.width+width*.025))])
-        return all(pad.size and float((pad.min(axis=2)>155).mean()) > .65 for pad in pads)
+        pad = pixels[y1:y2,min(width,round(row.x+row.width+width*.006)):
+                     min(width,round(row.x+row.width+width*.025))]
+        return bool(pad.size and float((pad.min(axis=2)>155).mean()) > .65)
 
     def _warsong_list(self, frame, runner):
         category = self._category(frame)

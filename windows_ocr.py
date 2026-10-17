@@ -17,7 +17,6 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 [Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime] > $null
 [Windows.Graphics.Imaging.BitmapDecoder,Windows.Foundation,ContentType=WindowsRuntime] > $null
-[Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime] > $null
 [Windows.Globalization.Language,Windows.Globalization,ContentType=WindowsRuntime] > $null
 $asTask = [System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
  $_.Name -eq 'AsTask' -and $_.IsGenericMethodDefinition -and
@@ -29,12 +28,13 @@ function Await($operation,$resultType) {
 }
 $engine=[Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage([Windows.Globalization.Language]::new('zh-Hans'))
 while ($null -ne ($request=[Console]::ReadLine())) {
- $stream=$null; $bitmap=$null
+ $memory=$null; $stream=$null; $bitmap=$null; $response=$null
  try {
   if ($null -eq $engine) { throw 'Windows Chinese OCR language pack is missing.' }
   $path=($request | ConvertFrom-Json).path
-  $file=Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($path)) ([Windows.Storage.StorageFile])
-  $stream=Await ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
+  $bytes=[IO.File]::ReadAllBytes($path)
+  $memory=[IO.MemoryStream]::new($bytes,$false)
+  $stream=[System.IO.WindowsRuntimeStreamExtensions]::AsRandomAccessStream($memory)
   $decoder=Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
   $bitmap=Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
   $result=Await ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
@@ -45,13 +45,15 @@ while ($null -ne ($request=[Console]::ReadLine())) {
    })
    @{words=$words}
   })
-  @{lines=$lines} | ConvertTo-Json -Depth 6 -Compress | ForEach-Object { [Console]::WriteLine($_) }
+  $response=@{lines=$lines}
  } catch {
-  @{error=$_.Exception.Message} | ConvertTo-Json -Compress | ForEach-Object { [Console]::WriteLine($_) }
+  $response=@{error=$_.Exception.Message}
  } finally {
   if ($null -ne $bitmap) { $bitmap.Dispose() }
   if ($null -ne $stream) { $stream.Dispose() }
+  if ($null -ne $memory) { $memory.Dispose() }
  }
+ $response | ConvertTo-Json -Depth 6 -Compress | ForEach-Object { [Console]::WriteLine($_) }
 }
 '''
 
