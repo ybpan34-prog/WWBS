@@ -80,7 +80,7 @@ class BossChallengeEntrance:
         self.level = level if isinstance(level,str) and level in self.LEVELS else self.DEFAULT_LEVEL
         self.ocr_factory = ocr_factory
         self.ocr = None
-        self.screenshot = Path(__file__).resolve().parent/'_warsong_screenshot.png'
+        self.screenshot = Path(__file__).resolve().parent.parent/'_warsong_screenshot.png'
 
     def _capture(self, runner):
         try:

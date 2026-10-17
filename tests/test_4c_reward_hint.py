@@ -65,7 +65,7 @@ class RewardHintTests(unittest.TestCase):
         ])
         monitor = Mock(error=None)
         monitor.poll.side_effect = [((True, False),), ((False, False),)]
-        with patch.object(app, "BattleMonitor", return_value=monitor):
+        with patch("tasks.combat_4c.BattleMonitor", return_value=monitor):
             runner._run_4c_battle(Mock(timeout=80), "E", "R", 1)
         self.assertEqual(runner._inspect_4c_battle_state.call_count, 3)
 

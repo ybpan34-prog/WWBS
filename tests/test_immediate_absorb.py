@@ -94,7 +94,7 @@ class ImmediateAbsorbTests(unittest.TestCase):
         def monitor(_inspect, _initial, _stop, *, on_result):
             on_result((False, '吸收'))
             return Mock(error=None, poll=Mock(return_value=None))
-        with patch.object(app, 'BattleMonitor', side_effect=monitor):
+        with patch('tasks.combat_4c.BattleMonitor', side_effect=monitor):
             runner._run_4c_combat(Mock(timeout=30))
         runner.controller.left_click.assert_not_called()
         runner.controller.press_binding.assert_not_called()

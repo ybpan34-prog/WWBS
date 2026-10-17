@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 from PIL import Image, ImageDraw
 
 import app
-from combat_4c_entrance import BOSS_AVATARS, BossChallengeEntrance, EntranceFrame
+from tasks.combat_4c_entrance import BOSS_AVATARS, BossChallengeEntrance, EntranceFrame
 from windows_client import ClientWindowController
 from windows_ocr import WindowsOcr
 
@@ -83,7 +83,7 @@ class EntranceTests(unittest.TestCase):
         runner._swipe_ratio.side_effect=lambda *_args:state.__setitem__('phase','target')
         ocr=Mock()
         entry=BossChallengeEntrance(target,'90',ocr_factory=lambda:ocr)
-        with patch('combat_4c_entrance.time.monotonic',side_effect=lambda:state['now']), \
+        with patch('tasks.combat_4c_entrance.time.monotonic',side_effect=lambda:state['now']), \
                 patch.object(entry,'_capture',side_effect=capture):
             self.assertTrue(entry.enter(runner))
         self.assertEqual(inputs,['guide','category','target','target','level80','level90','team'])
@@ -97,7 +97,7 @@ class EntranceTests(unittest.TestCase):
         runner=Mock(stop_event=threading.Event())
         runner._sleep_interruptible.side_effect=lambda delay:now.__setitem__(0,now[0]+delay)
         click=Mock()
-        with patch('combat_4c_entrance.time.monotonic',side_effect=lambda:now[0]), \
+        with patch('tasks.combat_4c_entrance.time.monotonic',side_effect=lambda:now[0]), \
                 patch.object(entry,'_capture',return_value=source):
             with self.assertRaisesRegex(RuntimeError,'未能确认'):
                 entry._transition(runner,'队伍页面',entry._single,click,entry._start,timeout=9)

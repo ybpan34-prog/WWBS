@@ -7,7 +7,7 @@ import numpy as np
 from PIL import Image
 
 import app
-from reward_orb_scan import OrbDirectionSweep
+from tasks.reward_orb_scan import ORB_SCAN_STEP, OrbDirectionSweep
 
 
 class OrbDirectionTests(unittest.TestCase):
@@ -46,19 +46,19 @@ class OrbDirectionTests(unittest.TestCase):
         return runner
 
     def test_above_point_eight_goes_directly_without_starting_a_scan(self):
-        with tempfile.TemporaryDirectory() as directory, patch.object(app,'APP_DIR',Path(directory)):
+        with tempfile.TemporaryDirectory() as directory, patch('tasks.other.APP_DIR',Path(directory)):
             runner=self.runner(directory,[(960,300,.81),(960,300,.81)],[None,Mock()])
-            with patch.object(app,'OrbDirectionSweep') as sweep:
+            with patch('tasks.other.OrbDirectionSweep') as sweep:
                 self.assertTrue(runner._collect_daily_reward(1))
                 sweep.assert_not_called()
             runner.controller.press_keys.assert_called_once_with(('W',),500)
             runner.controller.move_mouse_relative.assert_not_called()
 
     def test_point_eight_still_scans_and_forward_waits_for_lap_and_fresh_capture(self):
-        with tempfile.TemporaryDirectory() as directory, patch.object(app,'APP_DIR',Path(directory)):
+        with tempfile.TemporaryDirectory() as directory, patch('tasks.other.APP_DIR',Path(directory)):
             runner=self.runner(directory,[(960,300,.8)]*4,[None,None,None,Mock()])
             scan=Mock(complete=False,best=Mock(confidence=.8))
-            scan.return_delta.return_value=-app.ORB_SCAN_STEP
+            scan.return_delta.return_value=-ORB_SCAN_STEP
             order=[]
             def observe(*_):
                 order.append('observe')
@@ -67,15 +67,15 @@ class OrbDirectionTests(unittest.TestCase):
             runner._capture_for_matching.side_effect=lambda _: order.append('capture')
             runner.controller.move_mouse_relative.side_effect=lambda *_: order.append('turn')
             runner.controller.press_keys.side_effect=lambda *_: order.append('forward')
-            with patch.object(app,'OrbDirectionSweep',return_value=scan):
+            with patch('tasks.other.OrbDirectionSweep',return_value=scan):
                 self.assertTrue(runner._collect_daily_reward(1))
             self.assertEqual(order,['capture','observe','turn','capture','observe','turn','capture','forward','capture'])
             runner.controller.press_keys.assert_called_once_with(('W',),500)
 
     def test_reward_prompt_interrupts_scan_without_more_camera_or_movement(self):
-        with tempfile.TemporaryDirectory() as directory, patch.object(app,'APP_DIR',Path(directory)):
+        with tempfile.TemporaryDirectory() as directory, patch('tasks.other.APP_DIR',Path(directory)):
             runner=self.runner(directory,[(960,300,.7)],[Mock()])
-            with patch.object(app,'OrbDirectionSweep') as sweep:
+            with patch('tasks.other.OrbDirectionSweep') as sweep:
                 self.assertTrue(runner._collect_daily_reward(1))
                 sweep.assert_not_called()
             runner.controller.move_mouse_relative.assert_not_called()

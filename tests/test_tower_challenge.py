@@ -90,7 +90,7 @@ class TowerFlowTests(unittest.TestCase):
         runner._inspect_4c_boss_header = Mock(side_effect=AssertionError('must not inspect header'))
         monitor = Mock(error=None)
         monitor.poll.side_effect = [(False,), (False,), (True,)]
-        with patch.object(app, 'BattleMonitor', return_value=monitor):
+        with patch('tasks.other.BattleMonitor', return_value=monitor):
             runner._run_tower_battle(Mock(timeout=1200), FIXTURES / 'tower-scene.png')
         runner.controller.press_key.assert_called_once_with('3', 65)
         runner.controller.press_binding.assert_called_once_with('E', 65)
@@ -116,7 +116,7 @@ class TowerFlowTests(unittest.TestCase):
         runner._select_rotation_slot = Mock(return_value=True)
         monitor = Mock(error=None)
         monitor.poll.side_effect = [(False,), (True,)]
-        with patch.object(app, 'BattleMonitor', return_value=monitor):
+        with patch('tasks.other.BattleMonitor', return_value=monitor):
             runner._run_tower_battle(Mock(timeout=1200), FIXTURES / 'tower-scene.png')
         runner._select_rotation_slot.assert_called_once_with(3, verify=True)
 

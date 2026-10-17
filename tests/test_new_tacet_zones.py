@@ -8,6 +8,7 @@ from PIL import Image
 
 import app
 from image_matcher import MatchResult
+from tasks.other import DAILY_ZONE_BUTTON_Y_OFFSETS
 
 
 class NewTacetZoneTests(unittest.TestCase):
@@ -126,7 +127,7 @@ class NewTacetZoneTests(unittest.TestCase):
                         match = runner._find_daily_template(template, threshold=.85, scales=[scale],
                                                             template_crop=(0, 0, 82, 29), screenshot=screen)
                         self.assertIsNotNone(match)
-                        row_y = match.center[1] + round(app.DAILY_ZONE_BUTTON_Y_OFFSETS[template]*scale)
+                        row_y = match.center[1] + round(DAILY_ZONE_BUTTON_Y_OFFSETS[template]*scale)
                         self.assertTrue(runner._daily_row_button_ready(screen, row_y))
                         x = round(image.width*.895)
                         self.assertLess(np.asarray(image)[row_y, x].max(), 75)

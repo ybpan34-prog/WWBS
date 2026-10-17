@@ -74,7 +74,7 @@ class ReportedRewardVisionTests(unittest.TestCase):
             self.assertFalse(self.runner()._daily_activity_score_full(path))
 
     def test_full_digits_survive_background_changes_resize_and_reposition(self):
-        from daily_activity import _yellow_digits
+        from tasks.daily_activity import _yellow_digits
         with tempfile.TemporaryDirectory() as directory, \
                 Image.open(FIXTURES/'daily-activity-zero.png') as source, \
                 Image.open(app.TEMPLATES_DIR/'daily'/'activity_full.png') as counter:
@@ -97,7 +97,7 @@ class ReportedRewardVisionTests(unittest.TestCase):
                         self.assertTrue(self.runner(width)._daily_activity_score_full(path))
 
     def test_two_zeroes_and_three_zeroes_do_not_count_as_one_hundred(self):
-        from daily_activity import _yellow_digits
+        from tasks.daily_activity import _yellow_digits
         with tempfile.TemporaryDirectory() as directory, \
                 Image.open(FIXTURES/'daily-activity-zero.png') as source, \
                 Image.open(app.TEMPLATES_DIR/'daily'/'activity_full.png') as counter:
@@ -148,7 +148,7 @@ class RewardRecoveryFlowTests(unittest.TestCase):
         runner = self.runner()
         runner._yellow_claim_rows = Mock(side_effect=[[], [221], [], []])
         runner._daily_activity_score_full = Mock(return_value=False)
-        with patch.object(app, 'APP_DIR', FIXTURES), \
+        with patch('tasks.other.APP_DIR', FIXTURES), \
                 patch.object(app.Image, 'open', return_value=Image.new('RGB', (1600, 900))):
             runner._collect_daily_activity_rewards()
         runner.controller.tap.assert_called_once_with(1408, 221)

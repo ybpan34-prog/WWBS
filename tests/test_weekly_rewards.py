@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 from PIL import Image, ImageDraw
 import app
-from weekly_rewards import WeeklyRewardsVision, WeeklyLimitReached
+from tasks.weekly_rewards import WeeklyRewardsVision, WeeklyLimitReached
 
 
 class WeeklyRewardsTests(unittest.TestCase):
@@ -64,7 +64,7 @@ class WeeklyRewardsTests(unittest.TestCase):
         vision.all_claimed.side_effect = [False, True]
         vision.rightmost_claimable.return_value = (1778, 960)
         vision.claimed_at.return_value = True
-        with patch.object(app, "WeeklyRewardsVision", return_value=vision):
+        with patch("tasks.dreamland.WeeklyRewardsVision", return_value=vision):
             with self.assertRaises(WeeklyLimitReached):
                 runner._check_weekly_cap(Path("unused"))
         self.assertEqual([call.args[:2] for call in runner._tap_ratio.call_args_list], [(0.664, 0.848), (0.940, 0.0565)])
@@ -80,7 +80,7 @@ class WeeklyRewardsTests(unittest.TestCase):
         vision.weekly_page.return_value = True
         vision.all_claimed.return_value = False
         vision.rightmost_claimable.return_value = None
-        with patch.object(app, "WeeklyRewardsVision", return_value=vision), self.assertRaises(WeeklyLimitReached):
+        with patch("tasks.dreamland.WeeklyRewardsVision", return_value=vision), self.assertRaises(WeeklyLimitReached):
             runner._check_weekly_cap(Path("unused"))
         runner.controller.tap.assert_not_called()
         self.assertTrue(runner.weekly_rewards_pending)

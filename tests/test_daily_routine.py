@@ -8,6 +8,7 @@ from PIL import Image
 
 import app
 from app import DAILY_ZONE_NAMES, DAILY_ZONE_TEMPLATES, TaskRunner
+from tasks.other import ORB_SCAN_STEP
 from desktop_pet import DesktopPet
 
 
@@ -48,7 +49,7 @@ class DailyRoutineTests(unittest.TestCase):
         runner._tap_ratio = Mock()
         runner._run_daily_battle = Mock()
         runner._start_weekly_travel_from_selected_page = Mock()
-        with tempfile.TemporaryDirectory() as tmp, patch.object(app, "APP_DIR", Path(tmp)):
+        with tempfile.TemporaryDirectory() as tmp, patch("tasks.other.APP_DIR", Path(tmp)):
             self.material_guide_image().save(Path(tmp) / "_runtime_screenshot.png")
             runner._capture_for_matching = Mock()
             runner._continue_daily_into_weekly_travel()
@@ -83,7 +84,7 @@ class DailyRoutineTests(unittest.TestCase):
         runner._open_daily_tacet_field = Mock(return_value=True)
         runner._collect_daily_reward = Mock(return_value=True)
         runner._click_optional_daily_template = Mock(return_value=False)
-        with tempfile.TemporaryDirectory() as tmp, patch.object(app, "APP_DIR", Path(tmp)):
+        with tempfile.TemporaryDirectory() as tmp, patch("tasks.other.APP_DIR", Path(tmp)):
             self.material_guide_image().save(Path(tmp) / "_runtime_screenshot.png")
             runner._run_daily_routine(app.Step(action="daily_routine"))
         self.assertEqual(runner._run_daily_battle.call_count, 2)
@@ -507,7 +508,7 @@ class DailyRoutineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             screenshot = Path(temp_dir) / "_runtime_screenshot.png"
             Image.new("RGB", (1920, 1080)).save(screenshot)
-            with unittest.mock.patch.object(app, "APP_DIR", Path(temp_dir)):
+            with unittest.mock.patch("tasks.other.APP_DIR", Path(temp_dir)):
                 self.assertTrue(runner._confirm_daily_exit_if_present())
 
         controller.tap.assert_called_once_with(round(1920 * 0.657), round(1080 * 0.628))
@@ -577,7 +578,7 @@ class DailyRoutineTests(unittest.TestCase):
         with patch.object(app.Image, 'open', return_value=context):
             with self.assertRaises(RuntimeError):
                 runner._collect_daily_reward(1)
-        controller.move_mouse_relative.assert_called_once_with(app.ORB_SCAN_STEP, 0)
+        controller.move_mouse_relative.assert_called_once_with(ORB_SCAN_STEP, 0)
 
     def test_daily_healing_is_disabled_by_default(self):
         runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)
@@ -664,7 +665,7 @@ class DailyRoutineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             screenshot = Path(temp_dir) / "_runtime_screenshot.png"
             Image.new("RGB", (1920, 1080)).save(screenshot)
-            with patch.object(app, "APP_DIR", Path(temp_dir)):
+            with patch("tasks.other.APP_DIR", Path(temp_dir)):
                 self.assertFalse(runner._collect_daily_reward(1))
 
         runner._daily_battle_task_present.assert_called_once()
@@ -739,7 +740,7 @@ class DailyRoutineTests(unittest.TestCase):
         runner._find_daily_template = Mock(return_value=object())
         with tempfile.TemporaryDirectory() as temp_dir:
             Image.new("RGB", (1920, 1080), "white").save(Path(temp_dir) / "_runtime_screenshot.png")
-            with patch.object(app, "APP_DIR", Path(temp_dir)):
+            with patch("tasks.other.APP_DIR", Path(temp_dir)):
                 self.assertEqual(runner._wait_daily_refill_result(), "still_short")
 
     def test_consumption_success_is_accepted_after_chooser_closes(self):
@@ -753,7 +754,7 @@ class DailyRoutineTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as temp_dir:
             Image.new("RGB", (1920, 1080), "black").save(Path(temp_dir) / "_runtime_screenshot.png")
-            with patch.object(app, "APP_DIR", Path(temp_dir)):
+            with patch("tasks.other.APP_DIR", Path(temp_dir)):
                 self.assertEqual(runner._wait_daily_refill_result(), "success")
 
     def test_refill_skips_monomer_when_green_card_shows_red_zero(self):

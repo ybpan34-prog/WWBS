@@ -57,7 +57,7 @@ class AbsorbFlowTests(unittest.TestCase):
             runner._capture_for_matching = Mock()
             runner._find_4c_absorb_prompt = Mock(return_value=(Mock(score=.95), "absorb"))
             runner._sleep_interruptible = Mock()
-            with patch.object(app, "APP_DIR", screen.parent):
+            with patch("tasks.combat_4c.APP_DIR", screen.parent):
                 screen.rename(screen.parent / "_runtime_screenshot.png")
                 runner._collect_4c_reward(1)
             runner.controller.press_key.assert_called_once_with("F", 100)
@@ -75,7 +75,7 @@ class AbsorbFlowTests(unittest.TestCase):
             runner._sleep_interruptible = Mock()
             runner.controller.press_keys.side_effect = lambda keys, ms: events.append((keys, ms))
             runner.controller.press_key.side_effect = lambda key, ms: events.append(key)
-            with patch.object(app, "APP_DIR", screen.parent):
+            with patch("tasks.combat_4c.APP_DIR", screen.parent):
                 screen.rename(screen.parent / "_runtime_screenshot.png")
                 runner._collect_4c_reward(1)
             self.assertEqual(events, ["capture", (("W",), 400), "capture", (("W",), 400), "capture", "F"])
@@ -88,7 +88,7 @@ class AbsorbFlowTests(unittest.TestCase):
             runner = app.TaskRunner(Mock(), Mock(), dry_run=False)
             runner._capture_for_matching = Mock()
             runner._find_4c_absorb_prompt = Mock(side_effect=lambda *_: (runner.stop_event.set(), (None, ""))[1])
-            with patch.object(app, "APP_DIR", screen.parent):
+            with patch("tasks.combat_4c.APP_DIR", screen.parent):
                 screen.rename(screen.parent / "_runtime_screenshot.png")
                 runner._collect_4c_reward(1)
             runner.controller.press_keys.assert_not_called()
