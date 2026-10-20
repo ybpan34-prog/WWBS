@@ -10,6 +10,7 @@ from PIL import Image
 from combat_rotation import BattleMonitor, IdleAttackWorker, RotationClock, SLOT_NAMES
 from image_matcher import TemplateMatcher
 from tasks.models import Step
+from tasks.terminal_navigation import terminal_target
 from tasks.reward_orb_scan import ORB_DIRECT_CONFIDENCE, ORB_SCAN_STEP, OrbDirectionSweep
 from tasks.weekly_rewards import WeeklyRewardsVision
 
@@ -447,8 +448,6 @@ class OtherTask:
     def _open_terminal_destination(
         self,
         label: str,
-        x_ratio: float,
-        y_ratio: float,
         *,
         require_transition: bool = False,
     ) -> None:
@@ -456,8 +455,69 @@ class OtherTask:
         self._wait_for_overworld_hud(minimum_wait=1.2 if require_transition else 0.0)
         self.log(f"    大世界按 Esc 打开终端，进入{label}。")
         self.controller.press_key("ESC", 70)
-        self._sleep_interruptible(0.35)
-        self._tap_ratio(x_ratio, y_ratio, 0.45)
+        self._enter_terminal_destination(label)
+
+    def _terminal_destination_ready(self, screenshot: Path, label: str) -> bool:
+        with Image.open(screenshot) as image:
+            width, height = image.size
+        if label == '索拉指南':
+            if not self._sola_guide_page_ready(screenshot):
+                return False
+            titles = ('activity_title.png', 'guide_material_title.png')
+        else:
+            titles = ('battlepass_tasks.png',)
+        region = (round(width*.015), round(height*.025), round(width*.27), round(height*.13))
+        for title in titles:
+            if self._find_daily_template(title, threshold=.82, screenshot=screenshot, region=region):
+                return True
+        if label == '索拉指南':
+            if self._weekly_travel_page_present(screenshot):
+                return True
+            template, box = 'guide_battle_tab.png', (.015, .13, .075, .45)
+        else:
+            template, box = 'battlepass_rewards_tab.png', (.02, .135, .06, .215)
+        return self._find_daily_template(template, threshold=.78, screenshot=screenshot,
+            region=tuple(round(value*(width if index % 2 == 0 else height))
+                         for index, value in enumerate(box))) is not None
+
+    def _enter_terminal_destination(self, label: str, timeout: float = 12.) -> None:
+        """Wait for the actual menu, click once, then verify arrival before returning."""
+        screenshot = APP_DIR/'_runtime_screenshot.png'
+        deadline = time.monotonic()+timeout
+        previous = None
+        stable = ready = attempts = 0
+        next_click = 0.
+        clicked_at = None
+        while time.monotonic() < deadline and not self.stop_event.is_set():
+            self._capture_for_matching(screenshot)
+            target = terminal_target(screenshot, TEMPLATES_DIR/'daily', label)
+            if target is not None:
+                ready = 0
+                stable = stable+1 if previous is not None and max(
+                    abs(a-b) for a, b in zip(target, previous)) <= 5 else 1
+                previous = target
+                if stable >= 3 and time.monotonic() >= next_click:
+                    if attempts >= 3:
+                        break
+                    if self.stop_event.is_set():
+                        break
+                    self.log(f'    已定位终端“{label}”入口，点击图标（第{attempts+1}次）。')
+                    self.controller.tap(*target)
+                    attempts += 1
+                    stable = 0
+                    clicked_at = time.monotonic()
+                    next_click = clicked_at+1.8
+            else:
+                previous = None
+                stable = 0
+                ready = ready+1 if self._terminal_destination_ready(screenshot, label) else 0
+                if ready >= 3 and (clicked_at is None or time.monotonic()-clicked_at >= 1.5):
+                    self.log(f'    已确认进入{label}。')
+                    return
+            self._sleep_interruptible(.20)
+        if self.stop_event.is_set():
+            raise RuntimeError('一键日常已停止。')
+        raise RuntimeError(f'未确认从终端进入{label}（已识别点击{attempts}次），已停止；不会跳过领取。')
 
     @staticmethod
     def _overworld_hud_ready(screenshot: Path) -> bool:
@@ -580,7 +640,7 @@ class OtherTask:
 
     def _open_daily_tacet_field(self, zone_template: str) -> bool:
         self.log("    打开索拉指南 → 素材获取 → 无音清剿。")
-        self._open_terminal_destination("索拉指南", 0.515, 0.671)
+        self._open_terminal_destination("索拉指南")
         if not self._daily_activity_still_pending():
             screenshot = APP_DIR / "_runtime_screenshot.png"
             if getattr(self,'_daily_activity_confirmed_full',False):
@@ -1388,7 +1448,7 @@ class OtherTask:
         self.log('    直接领取当前活跃行迹页面的奖励。' if already_open else
                  "    返回大世界后，经终端进入索拉指南领取活跃度奖励；只点击黄色“领取”，不点击“前往”。")
         if not already_open:
-            self._open_terminal_destination("索拉指南", 0.515, 0.671, require_transition=True)
+            self._open_terminal_destination("索拉指南", require_transition=True)
         # The guide can remember a different category. Select activity explicitly
         # and wait for its title rather than treating an unpainted frame as empty.
         if not already_open:
@@ -1430,7 +1490,7 @@ class OtherTask:
 
     def _collect_daily_battlepass_rewards(self) -> None:
         self.log("    退出活跃指南后已在终端，直接进入先约电台；只领取免费内容，不点击购买或解锁寰宇频道。")
-        self._tap_ratio(0.744, 0.257, 0.7)
+        self._enter_terminal_destination('先约电台')
         self._wait_daily_battlepass_tab(2)
         if self._click_optional_daily_template("one_click_claim.png", "电台任务一键领取", timeout=5.0, threshold=0.66):
             self._dismiss_reward_overlay_safely()
@@ -1491,7 +1551,7 @@ class OtherTask:
     def _continue_daily_into_weekly_travel(self) -> None:
         """Run weekly only when Sola Guide automatically selects its unfinished page."""
         self.log("    回到终端后再次进入索拉指南，检查周度游历。")
-        self._tap_ratio(0.515, 0.671, 0.65)
+        self._enter_terminal_destination('索拉指南')
         screenshot = APP_DIR / "_runtime_screenshot.png"
         self._capture_for_matching(screenshot)
         if self._weekly_travel_page_present(screenshot):
