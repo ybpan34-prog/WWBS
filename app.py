@@ -107,7 +107,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
 APP_VERSION = "1.5.5"
-APP_BUILD = 3
+APP_BUILD = 4
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -201,11 +201,14 @@ UPDATE_NOTICE = """v1.3.5 更新内容
 2. 请将游戏窗口调整为 1920*1080p 或等比例缩放。
 3. 请先完成周本的新手教程，并将速度调整至 MAX。"""
 UPDATE_HISTORY = [
-    ('v1.5.5', '''WWBS 1.5.5 正式版（构建3）
+    ('v1.5.5', '''WWBS 1.5.5 正式版（构建4）
+修复一键日常回到终端后未进入索拉指南就点击活跃行迹的问题：识别图标与名称定位入口，不再按固定坐标盲点。
+入口连续三次稳定才点击；点击后至少等待1.5秒并确认目的页面。仍在终端时隔1.8秒重新定位，最多点击3次。
+索拉指南、先约电台和结算后二次进入指南共用确认逻辑。页面未确认时不继续领取或点击宝箱。
 修复周常把MAX／×5.0倍速误识别成“关闭”：核对按钮文字及原生截图字形，保留缩放兼容。
 点击无响应时排除原模板并重新识别其他页面，再确认是否继续；一次点击只发送一套鼠标事件。
 周常开始后发现倍速非MAX时，日志和桌宠提醒手动改为MAX，不自动切换倍速。
-右上角检查更新可从现有1.5.5构建1／2更新至本次构建3。
+右上角检查更新可从现有1.5.5构建1／2／3更新至本次构建4。
 合入#26：战歌OCR先读取内存并释放截图文件后返回；等级选中避开左侧图标。
 合入#25：拆分任务执行层；保留HDR诊断和周常逐步定位、过渡恢复修复。
 汇总1.5.5测试阶段的功能与修复。

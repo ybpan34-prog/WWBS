@@ -45,6 +45,7 @@ class DailyRoutineTests(unittest.TestCase):
         controller.normalize_input_binding.side_effect = lambda value: value
         log, notice = Mock(), Mock()
         runner = TaskRunner(controller, log, dry_run=False, notice=notice)
+        runner._enter_terminal_destination = Mock()
         runner.daily_zone_name = DAILY_ZONE_NAMES[0]
         runner._tap_ratio = Mock()
         runner._run_daily_battle = Mock()
@@ -54,7 +55,7 @@ class DailyRoutineTests(unittest.TestCase):
             runner._capture_for_matching = Mock()
             runner._continue_daily_into_weekly_travel()
         self.assertEqual([c.args[:2] for c in runner._tap_ratio.call_args_list],
-                         [(0.515, 0.671), (0.957, 0.058)])
+                         [(0.957, 0.058)])
         runner._run_daily_battle.assert_not_called()
         runner._start_weekly_travel_from_selected_page.assert_not_called()
         log.assert_any_call("    日常结算后二次进入索拉指南，已显示素材获取页；正常结算完成，跳过幻梦游园。")
@@ -79,7 +80,7 @@ class DailyRoutineTests(unittest.TestCase):
         for name in ("_run_daily_battle", "_wait_for_daily_success", "_click_daily_template",
                      "_confirm_daily_exit_if_present", "_sleep_interruptible",
                      "_collect_daily_activity_rewards", "_collect_daily_battlepass_rewards",
-                     "_capture_for_matching", "_tap_ratio", "_start_weekly_travel_from_selected_page"):
+                     "_capture_for_matching", "_tap_ratio", "_enter_terminal_destination", "_start_weekly_travel_from_selected_page"):
             setattr(runner, name, Mock())
         runner._open_daily_tacet_field = Mock(return_value=True)
         runner._collect_daily_reward = Mock(return_value=True)
@@ -140,11 +141,12 @@ class DailyRoutineTests(unittest.TestCase):
         runner._tap_ratio = lambda x, y, pause=0.0: events.append(("tap", x, y, pause))
         runner._wait_for_overworld_hud = lambda **_kwargs: events.append(("world",))
 
-        runner._open_terminal_destination("索拉指南", 0.515, 0.671)
+        runner._enter_terminal_destination = lambda label: events.append(("entry", label))
+        runner._open_terminal_destination("索拉指南")
 
         self.assertEqual(events[0], ("world",))
         self.assertEqual(events[1], ("key", "ESC", 70))
-        self.assertEqual(events[-1], ("tap", 0.515, 0.671, 0.45))
+        self.assertEqual(events[-1], ("entry", "索拉指南"))
 
     def test_overworld_hud_requires_all_three_anchor_regions(self):
         image = np.zeros((1080, 1920, 3), dtype=np.uint8)
@@ -250,6 +252,7 @@ class DailyRoutineTests(unittest.TestCase):
     def test_battlepass_opens_directly_from_terminal_without_escape(self):
         controller = Mock()
         runner = TaskRunner(controller, lambda _message: None, dry_run=False)
+        runner._enter_terminal_destination = Mock()
         taps = []
         runner._open_terminal_destination = Mock()
         runner._tap_ratio = lambda x, y, pause=0.0: taps.append((x, y))
@@ -260,11 +263,12 @@ class DailyRoutineTests(unittest.TestCase):
 
         runner._open_terminal_destination.assert_not_called()
         controller.press_key.assert_not_called()
-        self.assertEqual(taps[0], (0.744, 0.257))
+        runner._enter_terminal_destination.assert_called_once_with("先约电台")
         self.assertEqual([call.args[0] for call in runner._wait_daily_battlepass_tab.call_args_list], [2, 1])
 
     def test_auto_selected_weekly_page_does_not_wait_for_daily_activity(self):
         runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)
+        runner._enter_terminal_destination = Mock()
         runner._tap_ratio = Mock()
         runner._capture_for_matching = Mock()
         runner._weekly_travel_page_present = Mock(return_value=True)
@@ -276,6 +280,7 @@ class DailyRoutineTests(unittest.TestCase):
 
     def test_completed_weekly_travel_skips_dream_park(self):
         runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)
+        runner._enter_terminal_destination = Mock()
         runner._tap_ratio = Mock()
         runner._capture_for_matching = Mock()
         runner._wait_for_daily_template = Mock()
@@ -287,11 +292,12 @@ class DailyRoutineTests(unittest.TestCase):
 
         runner._run_default_weekly_from_daily.assert_not_called()
         runner._wait_for_daily_template.assert_not_called()
-        self.assertEqual(runner._tap_ratio.call_args_list[0].args[:2], (0.515, 0.671))
+        runner._enter_terminal_destination.assert_called_once_with("索拉指南")
         self.assertEqual(runner._tap_ratio.call_args_list[-1].args[:2], (0.957, 0.058))
 
     def test_weekly_page_not_auto_selected_is_treated_as_completed(self):
         runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)
+        runner._enter_terminal_destination = Mock()
         runner._tap_ratio = Mock()
         runner._capture_for_matching = Mock()
         runner._weekly_travel_page_present = Mock(return_value=False)
@@ -302,7 +308,7 @@ class DailyRoutineTests(unittest.TestCase):
         runner._continue_daily_into_weekly_travel()
 
         tapped = [call.args[:2] for call in runner._tap_ratio.call_args_list]
-        self.assertEqual(tapped, [(0.515, 0.671), (0.957, 0.058)])
+        self.assertEqual(tapped, [(0.957, 0.058)])
         runner._wait_for_daily_template.assert_not_called()
         runner._start_weekly_travel_from_selected_page.assert_not_called()
 
@@ -471,6 +477,7 @@ class DailyRoutineTests(unittest.TestCase):
 
     def test_selected_weekly_page_still_runs_and_keeps_equipped_skill(self):
         runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)
+        runner._enter_terminal_destination = Mock()
         runner._tap_ratio = Mock()
         runner._capture_for_matching = Mock()
         runner._weekly_travel_page_present = Mock(return_value=True)

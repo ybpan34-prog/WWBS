@@ -138,6 +138,7 @@ class RewardRecoveryFlowTests(unittest.TestCase):
         runner = app.TaskRunner(Mock(), Mock(), dry_run=False)
         runner._capture_for_matching = Mock()
         runner._open_terminal_destination = Mock()
+        runner._enter_terminal_destination = Mock()
         runner._wait_daily_reward_page = Mock()
         runner._sleep_interruptible = Mock()
         runner._dismiss_reward_overlay_safely = Mock()
