@@ -477,6 +477,7 @@ class DailyRoutineTests(unittest.TestCase):
 
     def test_selected_weekly_page_still_runs_and_keeps_equipped_skill(self):
         runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)
+        runner._enter_terminal_destination = Mock()
         runner._tap_ratio = Mock()
         runner._capture_for_matching = Mock()
         runner._weekly_travel_page_present = Mock(return_value=True)
