@@ -235,6 +235,7 @@ class DailyRoutineTests(unittest.TestCase):
 
     def test_activity_milestones_click_only_the_100_chest(self):
         runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)
+        runner._return_to_terminal_from_daily_page = Mock()
         taps = []
         runner._open_terminal_destination = Mock()
         runner._capture_for_matching = Mock()
@@ -252,7 +253,8 @@ class DailyRoutineTests(unittest.TestCase):
     def test_battlepass_opens_directly_from_terminal_without_escape(self):
         controller = Mock()
         runner = TaskRunner(controller, lambda _message: None, dry_run=False)
-        runner._enter_terminal_destination = Mock()
+        runner._return_to_terminal_from_daily_page = Mock()
+        runner._prepare_daily_radio = Mock()
         taps = []
         runner._open_terminal_destination = Mock()
         runner._tap_ratio = lambda x, y, pause=0.0: taps.append((x, y))
@@ -263,7 +265,7 @@ class DailyRoutineTests(unittest.TestCase):
 
         runner._open_terminal_destination.assert_not_called()
         controller.press_key.assert_not_called()
-        runner._enter_terminal_destination.assert_called_once_with("先约电台")
+        runner._prepare_daily_radio.assert_called_once_with()
         self.assertEqual([call.args[0] for call in runner._wait_daily_battlepass_tab.call_args_list], [2, 1])
 
     def test_auto_selected_weekly_page_does_not_wait_for_daily_activity(self):

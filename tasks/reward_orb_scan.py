@@ -7,9 +7,8 @@ from PIL import Image
 from image_matcher import _match_single_scale_gray
 
 
-# Small yaw steps retain enough scenery overlap to observe the lap crossing;
-# large jumps can skip the starting view at higher camera sensitivity.
-ORB_SCAN_STEP = 80
+# Increase yaw by 50%, while retaining scenery overlap for visual lap detection.
+ORB_SCAN_STEP = 120
 ORB_DIRECT_CONFIDENCE = .8
 
 

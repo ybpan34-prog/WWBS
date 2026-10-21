@@ -99,6 +99,70 @@ class TerminalNavigationTests(unittest.TestCase):
             _runner, _finished, clicks = self.run_navigation(directory, stop_after_capture=True)
         self.assertEqual(clicks, [])
 
+    def test_reported_material_page_is_not_mistaken_for_radio(self):
+        runner = self.runner()
+        runner._fast_scales = lambda: [425/1920]
+        self.assertFalse(runner._terminal_destination_ready(FIXTURES/'daily-guide-radio-stuck.png', '先约电台'))
+
+    def return_to_terminal(self, directory, *, ignored=0, never=False, stop=False):
+        runner = self.runner()
+        now, clicks = [0.], []
+        runner._sleep_interruptible = lambda duration: now.__setitem__(0, now[0]+duration)
+        runner._fast_scales = lambda: [425/1920]
+        def capture(path):
+            if stop:
+                runner.stop_event.set()
+            if clicks and len(clicks) > ignored and now[0]-clicks[-1][0] >= .8 and not never:
+                shutil.copy2(FIXTURES/'daily-terminal-menu.png', path)
+            else:
+                shutil.copy2(FIXTURES/'daily-guide-radio-stuck.png', path)
+        runner._capture_for_matching = capture
+        runner.controller.tap.side_effect = lambda x, y: clicks.append((now[0], x, y))
+        with patch('tasks.other.APP_DIR', Path(directory)), patch('tasks.other.time.monotonic', side_effect=lambda: now[0]):
+            if never or stop:
+                with self.assertRaisesRegex(RuntimeError, '未确认退出|已停止'):
+                    runner._return_to_terminal_from_daily_page()
+            else:
+                runner._return_to_terminal_from_daily_page()
+        return runner, now[0], clicks
+
+    def test_reported_material_page_closes_actual_glyph_before_terminal_confirmation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            _runner, finished, clicks = self.return_to_terminal(directory)
+        self.assertEqual(len(clicks), 1)
+        self.assertLess(abs(clicks[0][1]-401), 2)
+        self.assertGreaterEqual(finished-clicks[0][0], 1.5)
+
+    def test_exit_ignored_once_retries_without_clicking_radio_tabs_on_guide(self):
+        with tempfile.TemporaryDirectory() as directory:
+            _runner, _finished, clicks = self.return_to_terminal(directory, ignored=1)
+        self.assertEqual(len(clicks), 2)
+        self.assertGreaterEqual(clicks[1][0]-clicks[0][0], 1.8-.001)
+        self.assertTrue(all(x > 390 for _, x, _ in clicks))
+
+    def test_failed_exit_and_cancel_are_bounded(self):
+        for options, count in (({'never':True}, 3), ({'stop':True}, 0)):
+            with self.subTest(options=options), tempfile.TemporaryDirectory() as directory:
+                _runner, _finished, clicks = self.return_to_terminal(directory, **options)
+                self.assertEqual(len(clicks), count)
+
+    def test_radio_preparation_recovers_guide_before_entry_or_tab_input(self):
+        runner = self.runner()
+        actions = []
+        runner._capture_for_matching = Mock()
+        runner._terminal_destination_ready = Mock(return_value=False)
+        runner._return_to_terminal_from_daily_page = Mock(side_effect=lambda: actions.append('exit guide'))
+        runner._enter_terminal_destination = Mock(side_effect=lambda _: actions.append('enter radio'))
+        with patch('tasks.other.terminal_target', return_value=None):
+            runner._prepare_daily_radio()
+        self.assertEqual(actions, ['exit guide', 'enter radio'])
+        runner.controller.tap.assert_not_called()
+        runner._return_to_terminal_from_daily_page.side_effect = RuntimeError('exit failed')
+        runner._enter_terminal_destination.reset_mock()
+        with patch('tasks.other.terminal_target', return_value=None), self.assertRaisesRegex(RuntimeError, 'exit failed'):
+            runner._prepare_daily_radio()
+        runner._enter_terminal_destination.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()
