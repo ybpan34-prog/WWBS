@@ -55,9 +55,41 @@ class UpdateDiscoveryTests(unittest.TestCase):
             ui._check_for_updates()
         thread.assert_called_once()
         ui.update_worker.start.assert_called_once()
-        self.assertIn('/releases?per_page=100', opened.call_args.args[0].full_url)
+        self.assertTrue(opened.call_args.args[0].full_url.endswith('/releases/latest'))
         ui.root.after.call_args.args[1]()
         self.assertEqual(ui._show_available_update.call_args.args[0], 'v1.5.3')
+
+    def test_latest_object_is_used_once_and_marked_fresh(self):
+        ui = app.App.__new__(app.App)
+        ui.root, ui.status = Mock(), Mock()
+        response = MagicMock()
+        response.__enter__.return_value.read.return_value = json.dumps(release('v9.0.0')).encode()
+        def thread(*, target, daemon):
+            return Mock(start=target)
+        with patch('app.urllib.request.urlopen', return_value=response) as opened, \
+                patch('app.threading.Thread', side_effect=thread):
+            ui._check_for_updates()
+        self.assertEqual(opened.call_count, 1)
+        ui._show_available_update = Mock()
+        ui.root.after.call_args.args[1]()
+        self.assertGreater(ui._show_available_update.call_args.args[2]['_wwbs_verified_at'], 0)
+
+    def test_latest_without_installable_stable_asset_uses_only_ten_recent_releases(self):
+        ui = app.App.__new__(app.App)
+        ui.root, ui.status = Mock(), Mock()
+        responses = [MagicMock(), MagicMock()]
+        for response, data in zip(responses, (release('v9.0.0-beta1'), [release('v1.5.5')])):
+            response.__enter__.return_value.read.return_value = json.dumps(data).encode()
+        def thread(*, target, daemon):
+            return Mock(start=target)
+        with patch('app.urllib.request.urlopen', side_effect=responses) as opened, \
+                patch('app.threading.Thread', side_effect=thread):
+            ui._check_for_updates()
+        self.assertEqual(opened.call_count, 2)
+        self.assertTrue(opened.call_args.args[0].full_url.endswith('releases?per_page=10'))
+        ui._show_available_update = Mock()
+        ui.root.after.call_args.args[1]()
+        self.assertEqual(ui._show_available_update.call_args.args[0], 'v1.5.5')
 
 
 class UpdateDialogTests(unittest.TestCase):

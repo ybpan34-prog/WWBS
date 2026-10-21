@@ -50,6 +50,16 @@ class DownloadTests(unittest.TestCase):
             opener.assert_not_called()
             self.assertEqual(old.read_bytes(),b'old')
 
+    def test_small_network_fragments_do_not_reject_a_valid_zip_signature(self):
+        data=b'PK\x03\x04abcdef'
+        class Fragmented(io.BytesIO):
+            def read1(self, size):
+                return super().read(1)
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'update.zip'
+            download_asset(self.asset(), path, version='1.5.5', opener=Mock(return_value=Fragmented(data)))
+            self.assertEqual(path.read_bytes(), data)
+
     def test_truncated_http_stream_resumes_from_the_last_written_byte(self):
         data=b'PK\x03\x04abcdef'
         class Broken(io.BytesIO):
@@ -57,6 +67,7 @@ class DownloadTests(unittest.TestCase):
                 if self.tell():
                     raise http.client.IncompleteRead(b'',4)
                 return super().read(6)
+            read1 = read
         class Partial(io.BytesIO):
             status=206
             headers={'Content-Range':'bytes 6-9/10'}

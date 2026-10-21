@@ -16,6 +16,7 @@ import uuid
 from urllib.parse import quote, urlsplit, urlunsplit
 
 from local_settings import SETTINGS
+from update_transfer import download_ranges
 
 
 def create_update_work(target: Path) -> Path:
@@ -39,7 +40,7 @@ def refresh_release_asset(asset, tag, *, opener=urllib.request.urlopen, cancelle
     request=urllib.request.Request(url,headers={'User-Agent':'WWBS/updater','Cache-Control':'no-cache',
                                                'Accept':'application/vnd.github+json'})
     try:
-        with opener(request,timeout=15) as response:
+        with opener(request,timeout=8) as response:
             raw=response.read(2*1024*1024+1)
         if len(raw)>2*1024*1024:
             raise ValueError('版本信息过大')
@@ -57,10 +58,11 @@ def refresh_release_asset(asset, tag, *, opener=urllib.request.urlopen, cancelle
 
 def download_asset(asset: dict, destination: Path, *, version: str, progress=lambda *_: None,
                    cancelled=lambda: False, opener=urllib.request.urlopen, sleep=time.sleep,
-                   refresh=None) -> dict:
+                   refresh=None, cache_dir=None, status=lambda _text: None) -> dict:
     asset=dict(asset)
     errors = []
     restart=False
+    ranges=True
     for attempt in range(3):
         if cancelled():
             raise InterruptedError('更新已取消，原程序未改动')
@@ -71,6 +73,32 @@ def download_asset(asset: dict, destination: Path, *, version: str, progress=lam
         parts = urlsplit(base)
         if parts.scheme != 'https' or parts.hostname not in {'github.com', 'api.github.com'}:
             raise ValueError('安装包下载地址无效')
+        if ranges:
+            try:
+                parallel_asset=asset
+                api=urlsplit(str(asset.get('url','')))
+                if attempt == 1 and api.scheme == 'https' and api.hostname == 'api.github.com':
+                    parallel_asset=dict(asset, browser_download_url=asset['url'])
+                if download_ranges(parallel_asset, destination, version=version, progress=progress,
+                        cancelled=cancelled, opener=opener, sleep=sleep,
+                        cache_dir=cache_dir or destination.parent/'.wwbs-download-cache', status=status):
+                    return asset
+                ranges=False
+            except InterruptedError:
+                raise
+            except (OSError, RuntimeError, ValueError, http.client.HTTPException) as exc:
+                errors.append(str(exc))
+                if attempt == 2:
+                    break
+                if refresh is not None:
+                    try:
+                        asset=dict(refresh())
+                    except InterruptedError:
+                        raise
+                    except (OSError, RuntimeError, ValueError):
+                        pass
+                sleep(.5*(attempt+1))
+                continue
         query = parts.query+('&' if parts.query else '')+'wwbs_update='+str(time.time_ns())
         url = urlunsplit((parts.scheme, parts.netloc, parts.path, query, ''))
         headers = {'User-Agent': 'wwbs/'+version, 'Cache-Control': 'no-cache',
@@ -105,10 +133,12 @@ def download_asset(asset: dict, destination: Path, *, version: str, progress=lam
                     while True:
                         if cancelled():
                             raise InterruptedError('更新已取消，原程序未改动')
-                        data = response.read(256*1024)
+                        read = getattr(response, 'read1', response.read)
+                        data = read(64*1024)
                         if not data:
                             break
-                        if total == 0 and data[:4] != b'PK\x03\x04':
+                        prefix = data[:max(0, 4-total)]
+                        if total < 4 and prefix != b'PK\x03\x04'[total:total+len(prefix)]:
                             restart=True
                             raise ValueError('下载入口未返回ZIP安装包')
                         total += len(data)
