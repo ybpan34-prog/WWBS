@@ -63,6 +63,18 @@ class EchoSpiralTests(unittest.TestCase):
             runner.controller.release_keys.assert_called()
             runner.controller.press_key.assert_not_called()
 
+    def test_cancel_while_prompt_is_detected_does_not_press_absorb(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.runner(directory)
+            def detect(*_args):
+                runner.stop_event.set()
+                return Mock(score=.99), 'absorb'
+            runner._find_4c_absorb_prompt.side_effect = detect
+            with patch('tasks.combat_4c.APP_DIR', Path(directory)):
+                runner._collect_4c_reward(1)
+            runner.controller.press_key.assert_not_called()
+            runner.controller.move_mouse_relative.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()

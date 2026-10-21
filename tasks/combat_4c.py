@@ -524,6 +524,8 @@ class Combat4CTask:
             with Image.open(screenshot) as captured:
                 scale = captured.width / 1920.0
             prompt, prompt_name = self._find_4c_absorb_prompt(screenshot, scale)
+            if self.stop_event.is_set():
+                return
             if prompt is not None:
                 self.log(
                     f"    第{cycle_index}轮：发现吸收提示 {prompt_name}，"
