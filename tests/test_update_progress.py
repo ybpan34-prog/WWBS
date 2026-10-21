@@ -3,6 +3,7 @@ from pathlib import Path
 import queue
 import tempfile
 import threading
+import time
 import tkinter as tk
 import unittest
 from unittest.mock import patch
@@ -59,6 +60,28 @@ class UpdateProgressTests(unittest.TestCase):
             self.poll(('error','下载安装包失败'))
             self.assertIn('下载安装包失败',error.call_args.args[1])
         self.assertFalse(self.ui._update_installing)
+
+    def test_real_speed_and_estimate_are_visible_and_clear_at_verification(self):
+        self.poll(('speed', 262144, 8))
+        self.assertIn('256.0 KB/s', self.ui._update_speed.get())
+        self.assertIn('8 秒', self.ui._update_speed.get())
+        self.poll(('phase', '校验安装包'))
+        self.assertEqual(self.ui._update_speed.get(), '')
+
+    def test_fresh_selection_starts_download_without_duplicate_metadata_request(self):
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as patches:
+            root = Path(directory)
+            patches.enter_context(patch.object(app, 'create_update_work', return_value=root))
+            refreshed = patches.enter_context(patch.object(app, 'refresh_release_asset'))
+            downloaded = patches.enter_context(patch.object(app, 'download_asset', return_value={}))
+            patches.enter_context(patch.object(app, 'prepare_update', return_value=root/'extract'))
+            patches.enter_context(patch.object(app, 'snapshot_settings'))
+            patches.enter_context(patch.object(app, 'install_script', return_value='# test'))
+            patches.enter_context(patch.object(app.subprocess, 'Popen'))
+            self.ui._download_and_install_update('v9', {'_wwbs_verified_at':time.monotonic()})
+            refreshed.assert_not_called()
+            self.assertEqual(downloaded.call_count, 1)
+            self.assertEqual(downloaded.call_args.kwargs['cache_dir'].name, '.wwbs-update-cache')
     def test_update_worker_uses_queue_without_calling_tk_from_background(self):
         with tempfile.TemporaryDirectory() as directory,ExitStack() as patches:
             root=Path(directory)

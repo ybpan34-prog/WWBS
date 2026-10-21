@@ -107,7 +107,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
 APP_VERSION = "1.5.5"
-APP_BUILD = 5
+APP_BUILD = 6
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -186,7 +186,7 @@ DANIYA_THEME_PACK = APP_DIR / "optional-themes" / "daniya-theme.wwbstheme"
 AEMEATH_THEME_PACK = APP_DIR / "optional-themes" / "aemeath-theme.wwbstheme"
 JINGRAN_THEME_PACK = APP_DIR / "optional-themes" / "jingran-theme.wwbstheme"
 CARTETHYIA_THEME_PACK = APP_DIR / "optional-themes" / "cartethyia-theme.wwbstheme"
-UPDATE_API_URL = "https://api.github.com/repos/ybpan34-prog/WWBS/releases?per_page=100"
+UPDATE_API_URL = "https://api.github.com/repos/ybpan34-prog/WWBS/releases/latest"
 UPDATE_ASSET_NAME = "wwbs-exe.zip"
 ABOUT_BILIBILI_URL = "https://www.bilibili.com/video/BV1aPuo6uE9r/"
 ABOUT_GITHUB_URL = "https://github.com/ybpan34-prog/WWBS"
@@ -201,7 +201,10 @@ UPDATE_NOTICE = """v1.3.5 更新内容
 2. 请将游戏窗口调整为 1920*1080p 或等比例缩放。
 3. 请先完成周本的新手教程，并将速度调整至 MAX。"""
 UPDATE_HISTORY = [
-    ('v1.5.5', '''WWBS 1.5.5 正式版（构建5）
+    ('v1.5.5', '''WWBS 1.5.5 正式版（构建6）
+优化更新前等待：优先查询最新正式版，异常时只查最近10版；两分钟内确认安装不再重复查版本。
+更新包支持GitHub官方服务器4路分段下载、跨次断点续传、完整SHA256校验；服务器不支持分段时回退普通下载。
+显示真实下载速度及预计剩余时间；减少慢连接下进度长时间不刷新。取消后保留断点，旧程序继续可用。
 日常找光球的单次水平转向从80增至120；保留转满一圈选最高置信度、超过0.80直接前往。
 4C吸收改为向外螺旋搜索：逐段左转并逐渐扩大半径，每段前进不超过220毫秒，出现吸收立即停止移动并按F。
 修复日常领取后仍在索拉指南就点击电台的问题：识别实际关闭图标，连续确认回到终端，才进入电台与切换标签；电台领完也确认返回终端。
@@ -211,7 +214,7 @@ UPDATE_HISTORY = [
 修复周常把MAX／×5.0倍速误识别成“关闭”：核对按钮文字及原生截图字形，保留缩放兼容。
 点击无响应时排除原模板并重新识别其他页面，再确认是否继续；一次点击只发送一套鼠标事件。
 周常开始后发现倍速非MAX时，日志和桌宠提醒手动改为MAX，不自动切换倍速。
-右上角检查更新可从现有1.5.5构建1／2／3／4更新至本次构建5。
+右上角检查更新可从现有1.5.5构建1／2／3／4／5更新至本次构建6。
 合入#26：战歌OCR先读取内存并释放截图文件后返回；等级选中避开左侧图标。
 合入#25：拆分任务执行层；保留HDR诊断和周常逐步定位、过渡恢复修复。
 汇总1.5.5测试阶段的功能与修复。
@@ -5591,13 +5594,22 @@ class App:
 
         def work() -> None:
             try:
-                request = urllib.request.Request(
-                    UPDATE_API_URL,
-                    headers={"User-Agent": f"wwbs/{APP_VERSION}"},
-                )
-                with urllib.request.urlopen(request, timeout=15) as response:
-                    releases = json.loads(response.read().decode("utf-8"))
-                tag, release, asset = self._select_update_release(releases)
+                for url in (UPDATE_API_URL, UPDATE_API_URL.replace('/latest', '?per_page=10')):
+                    try:
+                        request = urllib.request.Request(url,
+                            headers={"User-Agent": f"wwbs/{APP_VERSION}", 'Cache-Control':'no-cache'})
+                        with urllib.request.urlopen(request, timeout=8) as response:
+                            raw = response.read(2*1024*1024+1)
+                        if len(raw) > 2*1024*1024:
+                            raise ValueError('版本信息过大')
+                        releases = json.loads(raw.decode('utf-8'))
+                        tag, release, asset = self._select_update_release(
+                            [releases] if isinstance(releases, dict) else releases)
+                        asset = dict(asset, _wwbs_verified_at=time.monotonic())
+                        break
+                    except (OSError, ValueError, RuntimeError):
+                        if url != UPDATE_API_URL:
+                            raise
                 self.root.after(0, lambda: self._show_available_update(tag, release, asset))
             except Exception as exc:
                 error_text = str(exc)
@@ -5939,8 +5951,8 @@ class App:
         window = Toplevel(self.root)
         window.title('正在更新 WWBS')
         window.configure(bg=COLORS['panel'])
-        window.geometry('520x230')
-        window.minsize(380,210)
+        window.geometry('520x260')
+        window.minsize(380,240)
         self._update_progress_window = window
         body=Frame(window,bg=COLORS['panel'],padx=20,pady=18)
         body.pack(fill=BOTH,expand=True)
@@ -5948,11 +5960,13 @@ class App:
               bg=COLORS['panel'],fg=COLORS['text']).pack(anchor='w')
         self._update_phase=StringVar(value='正在准备下载…')
         self._update_detail=StringVar(value='连接下载服务器')
+        self._update_speed=StringVar(value='')
         Label(body,textvariable=self._update_phase,bg=COLORS['panel'],fg=COLORS['text']).pack(anchor='w',pady=(12,8))
         self._update_progress_bar=ttk.Progressbar(body,maximum=100,mode='indeterminate')
         self._update_progress_bar.pack(fill=X)
         self._update_progress_bar.start(15)
         Label(body,textvariable=self._update_detail,bg=COLORS['panel'],fg=COLORS['muted']).pack(anchor='w',pady=(6,10))
+        Label(body,textvariable=self._update_speed,bg=COLORS['panel'],fg=COLORS['muted']).pack(anchor='w')
         self._update_cancel_button=self._ui_button(body,text='取消更新',command=self._cancel_update_download)
         self._update_cancel_button.pack(side=RIGHT)
         window.protocol('WM_DELETE_WINDOW',self._cancel_update_download)
@@ -5965,7 +5979,7 @@ class App:
                 return
             self._update_cancelled.set()
         self._update_phase.set('正在取消更新…')
-        self._update_detail.set('取消后保留原程序和设置')
+        self._update_detail.set('保留原程序、设置和下载断点，下次可以续传')
         self._update_cancel_button.configure(state='disabled')
 
     def _close_update_progress(self):
@@ -6003,12 +6017,18 @@ class App:
                 self._update_detail.set(detail)
                 self.status.set('正在更新：'+detail)
             elif kind=='phase':
+                self._update_speed.set('')
                 self._update_progress_bar.stop()
                 self._update_progress_bar.configure(mode='indeterminate')
                 self._update_progress_bar.start(15)
                 self._update_phase.set(event[1])
                 self._update_detail.set('请稍候…')
                 self.status.set(event[1])
+            elif kind=='speed':
+                speed, remaining = event[1:]
+                value = (f'{speed/1048576:.2f} MB/s' if speed >= 1048576 else f'{speed/1024:.1f} KB/s')
+                eta = f' · 预计剩余 {max(1,round(remaining))} 秒' if remaining is not None else ''
+                self._update_speed.set('下载速度 '+value+eta if speed > 0 else '等待服务器传送数据…')
             elif kind in ('error','cancelled','handoff'):
                 self._close_update_progress()
                 if kind=='handoff':
@@ -6034,22 +6054,33 @@ class App:
             target_dir = Path(sys.executable).resolve().parent
             work_dir = create_update_work(target_dir)
             zip_path = work_dir / UPDATE_ASSET_NAME
-            phase = '刷新安装包信息'
-            self._update_events.put(('phase',phase))
-            try:
-                asset=refresh_release_asset(asset,tag,cancelled=self._update_cancelled.is_set)
-            except RuntimeError:
-                self._update_events.put(('phase','尝试已有官方链接'))
+            if not 0 <= time.monotonic()-asset.get('_wwbs_verified_at', float('-inf')) <= 120:
+                phase = '刷新安装包信息'
+                self._update_events.put(('phase',phase))
+                try:
+                    asset=refresh_release_asset(asset,tag,cancelled=self._update_cancelled.is_set)
+                except RuntimeError:
+                    self._update_events.put(('phase','尝试已有官方链接'))
             phase = '下载安装包'
             last_progress = [0.]
+            speed_sample = [time.monotonic(), None]
             def progress(received, total):
                 now = time.monotonic()
                 if now-last_progress[0] < .15 and received != total:
                     return
                 last_progress[0] = now
                 self._update_events.put(('download',received,total))
+                if speed_sample[1] is None or received < speed_sample[1]:
+                    speed_sample[:] = [now, received]
+                elif now-speed_sample[0] >= .5:
+                    speed = (received-speed_sample[1])/(now-speed_sample[0])
+                    remaining = (total-received)/speed if total and speed > 0 else None
+                    self._update_events.put(('speed', speed, remaining))
+                    speed_sample[:] = [now, received]
             asset=download_asset(asset, zip_path, version=APP_VERSION, progress=progress,
                            cancelled=self._update_cancelled.is_set,
+                           cache_dir=target_dir/'.wwbs-update-cache',
+                           status=lambda text:self._update_events.put(('phase',text)),
                            refresh=lambda:refresh_release_asset(asset,tag,cancelled=self._update_cancelled.is_set)) or asset
 
             phase = '校验安装包'
