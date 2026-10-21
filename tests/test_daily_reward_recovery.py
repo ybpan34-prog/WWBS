@@ -139,6 +139,8 @@ class RewardRecoveryFlowTests(unittest.TestCase):
         runner._capture_for_matching = Mock()
         runner._open_terminal_destination = Mock()
         runner._enter_terminal_destination = Mock()
+        runner._return_to_terminal_from_daily_page = Mock()
+        runner._prepare_daily_radio = Mock()
         runner._wait_daily_reward_page = Mock()
         runner._sleep_interruptible = Mock()
         runner._dismiss_reward_overlay_safely = Mock()
@@ -180,7 +182,8 @@ class RewardRecoveryFlowTests(unittest.TestCase):
         runner._collect_daily_activity_rewards(already_open=True)
         runner._open_terminal_destination.assert_not_called()
         self.assertEqual([call.args[:2] for call in runner._tap_ratio.call_args_list],
-                         [(.945,.868),(.957,.058)])
+                         [(.945,.868)])
+        runner._return_to_terminal_from_daily_page.assert_called_once_with()
 
     def test_150_confirmed_twice_skips_combat_but_still_claims_all_rewards(self):
         runner=self.runner()
@@ -217,10 +220,11 @@ class RewardRecoveryFlowTests(unittest.TestCase):
         actions = []
         runner.controller.tap.side_effect = lambda x, y: actions.append(('task', x, y))
         runner._tap_ratio.side_effect = lambda x, y, pause: actions.append(('page', x, y))
+        runner._return_to_terminal_from_daily_page.side_effect = lambda: actions.append(('terminal',))
         with patch.object(app.Image, 'open', return_value=Image.new('RGB', (1600, 900))):
             runner._collect_daily_activity_rewards()
         self.assertEqual(actions, [('page', .039, .174), ('task', 1408, 221),
-                                   ('task', 1408, 331), ('page', .945, .868), ('page', .957, .058)])
+                                   ('task', 1408, 331), ('page', .945, .868), ('terminal',)])
 
     def test_stop_after_task_claims_does_not_click_chest_or_leave_page(self):
         runner = self.runner()

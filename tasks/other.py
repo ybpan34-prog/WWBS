@@ -519,6 +519,59 @@ class OtherTask:
             raise RuntimeError('一键日常已停止。')
         raise RuntimeError(f'未确认从终端进入{label}（已识别点击{attempts}次），已停止；不会跳过领取。')
 
+    def _return_to_terminal_from_daily_page(self, timeout: float = 12.) -> None:
+        """Close the actual guide/radio glyph and verify the terminal menu."""
+        screenshot = APP_DIR/'_runtime_screenshot.png'
+        deadline = time.monotonic()+timeout
+        previous = None
+        stable = ready = attempts = 0
+        clicked_at = None
+        while time.monotonic() < deadline and not self.stop_event.is_set():
+            self._capture_for_matching(screenshot)
+            terminal = terminal_target(screenshot, TEMPLATES_DIR/'daily', '索拉指南')
+            if terminal is not None:
+                ready += 1
+                stable = 0
+                previous = None
+                if ready >= 3 and (clicked_at is None or time.monotonic()-clicked_at >= 1.5):
+                    self.log('    已确认回到终端菜单。')
+                    return
+            else:
+                ready = 0
+                with Image.open(screenshot) as image:
+                    width, height = image.size
+                close = self._find_daily_template('guide_close.png', threshold=.87,
+                    screenshot=screenshot, region=(round(width*.90), round(height*.015),
+                                                   round(width*.985), round(height*.13)))
+                target = close.center if close is not None else None
+                stable = stable+1 if target is not None and previous is not None and max(
+                    abs(a-b) for a, b in zip(target, previous)) <= 5 else (1 if target else 0)
+                previous = target
+                if stable >= 3 and (clicked_at is None or time.monotonic()-clicked_at >= 1.8):
+                    if attempts >= 3:
+                        break
+                    if self.stop_event.is_set():
+                        break
+                    self.log('    页面仍在指南／电台，已定位右上角关闭图标，返回终端。')
+                    self.controller.tap(*target)
+                    attempts += 1
+                    clicked_at = time.monotonic()
+                    stable = 0
+            self._sleep_interruptible(.2)
+        if self.stop_event.is_set():
+            raise RuntimeError('一键日常已停止。')
+        raise RuntimeError('未确认退出指南／电台并回到终端，已停止；不会在原页面点击电台标签。')
+
+    def _prepare_daily_radio(self) -> None:
+        screenshot = APP_DIR/'_runtime_screenshot.png'
+        self._capture_for_matching(screenshot)
+        if self.stop_event.is_set():
+            raise RuntimeError('一键日常已停止。')
+        if (terminal_target(screenshot, TEMPLATES_DIR/'daily', '先约电台') is None
+                and not self._terminal_destination_ready(screenshot, '先约电台')):
+            self._return_to_terminal_from_daily_page()
+        self._enter_terminal_destination('先约电台')
+
     @staticmethod
     def _overworld_hud_ready(screenshot: Path) -> bool:
         """Recognize the normal game HUD and reject black/loading frames."""
@@ -1486,18 +1539,18 @@ class OtherTask:
         self.log("    上方任务奖励已领取，直接领取100宝箱；不再按活跃度数字拦截，其余里程碑奖励由游戏一并领取。")
         self._tap_ratio(0.945, 0.868, 0.25)
         self._dismiss_reward_overlay_safely()
-        self._tap_ratio(0.957, 0.058, 0.4)
+        self._return_to_terminal_from_daily_page()
 
     def _collect_daily_battlepass_rewards(self) -> None:
-        self.log("    退出活跃指南后已在终端，直接进入先约电台；只领取免费内容，不点击购买或解锁寰宇频道。")
-        self._enter_terminal_destination('先约电台')
+        self.log("    检查当前页面并返回终端后进入先约电台；只领取免费内容，不点击购买或解锁寰宇频道。")
+        self._prepare_daily_radio()
         self._wait_daily_battlepass_tab(2)
         if self._click_optional_daily_template("one_click_claim.png", "电台任务一键领取", timeout=5.0, threshold=0.66):
             self._dismiss_reward_overlay_safely()
         self._wait_daily_battlepass_tab(1)
         if self._click_optional_daily_template("one_click_claim.png", "大众频道一键领取", timeout=5.0, threshold=0.66):
             self._dismiss_reward_overlay_safely()
-        self._tap_ratio(0.957, 0.058, 0.8)
+        self._return_to_terminal_from_daily_page()
 
     def _daily_battlepass_tab_selected(self, screenshot: Path, tab: int) -> bool:
         with Image.open(screenshot) as source:

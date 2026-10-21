@@ -9,6 +9,7 @@ from PIL import Image
 
 from combat_rotation import BattleMonitor, IdleAttackWorker, RotationClock, SLOT_NAMES
 from tasks.models import Step
+from tasks.echo_spiral import echo_spiral_steps
 
 
 APP_DIR = Path(__file__).resolve().parent.parent
@@ -514,6 +515,8 @@ class Combat4CTask:
     def _collect_4c_reward(self, cycle_index: int) -> None:
         screenshot = APP_DIR / "_runtime_screenshot.png"
         deadline = time.monotonic() + self.REWARD_SEARCH_TIMEOUT
+        route = echo_spiral_steps()
+        self.log(f'    第{cycle_index}轮：从当前位置向外螺旋搜索声骸，每小段重新检查吸收提示。')
         while time.monotonic() < deadline:
             if self.stop_event.is_set():
                 return
@@ -521,6 +524,8 @@ class Combat4CTask:
             with Image.open(screenshot) as captured:
                 scale = captured.width / 1920.0
             prompt, prompt_name = self._find_4c_absorb_prompt(screenshot, scale)
+            if self.stop_event.is_set():
+                return
             if prompt is not None:
                 self.log(
                     f"    第{cycle_index}轮：发现吸收提示 {prompt_name}，"
@@ -532,10 +537,17 @@ class Combat4CTask:
                 return
             if self.stop_event.is_set():
                 return
-            self.controller.press_keys(("W",), 400)
-            self.log(f"    第{cycle_index}轮：未出现吸收提示，向前移动一小段后重新检查。")
-            self._sleep_interruptible(0.10)
-        raise RuntimeError("击败首领后向前搜索仍未找到“F / 吸收”提示，已停止循环。")
+            turn, duration = next(route)
+            self.controller.move_mouse_relative(turn, 0)
+            if self.stop_event.is_set():
+                return
+            if callable(getattr(type(self.controller), 'press_keys_cancelable', None)):
+                self.controller.press_keys_cancelable(('W',), duration, self.stop_event)
+            else:
+                self.controller.press_keys(('W',), duration)
+            self._sleep_interruptible(0.06)
+        self.controller.release_keys()
+        raise RuntimeError("击败首领后螺旋向外搜索仍未找到“F / 吸收”提示，已停止循环。")
 
     def _approach_4c_gold_target(self, offset_x: float, screen_width: int) -> str:
         """Approach a visible echo without violating the right-only camera search."""

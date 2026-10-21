@@ -65,7 +65,7 @@ class AbsorbFlowTests(unittest.TestCase):
             runner.controller.move_mouse_relative.assert_not_called()
             runner.controller.wheel_at.assert_not_called()
 
-    def test_missing_prompt_moves_forward_in_short_segments_and_checks_each_time(self):
+    def test_missing_prompt_spirals_outward_and_checks_each_segment(self):
         with tempfile.TemporaryDirectory() as directory:
             screen = self.screen(directory)
             runner = app.TaskRunner(Mock(), Mock(), dry_run=False)
@@ -75,11 +75,12 @@ class AbsorbFlowTests(unittest.TestCase):
             runner._sleep_interruptible = Mock()
             runner.controller.press_keys.side_effect = lambda keys, ms: events.append((keys, ms))
             runner.controller.press_key.side_effect = lambda key, ms: events.append(key)
+            runner.controller.move_mouse_relative.side_effect = lambda x, y: events.append(('turn',x,y))
             with patch("tasks.combat_4c.APP_DIR", screen.parent):
                 screen.rename(screen.parent / "_runtime_screenshot.png")
                 runner._collect_4c_reward(1)
-            self.assertEqual(events, ["capture", (("W",), 400), "capture", (("W",), 400), "capture", "F"])
-            runner.controller.move_mouse_relative.assert_not_called()
+            self.assertEqual(events, ["capture", ("turn", -84, 0), (("W",), 180), "capture", ("turn", -84, 0), (("W",), 192), "capture", "F"])
+            self.assertEqual(runner.controller.move_mouse_relative.call_count, 2)
             runner.controller.wheel_at.assert_not_called()
 
     def test_stop_during_probe_prevents_forward_movement(self):
