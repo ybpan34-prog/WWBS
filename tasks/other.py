@@ -10,6 +10,7 @@ from PIL import Image
 from combat_rotation import BattleMonitor, IdleAttackWorker, RotationClock, SLOT_NAMES
 from image_matcher import TemplateMatcher
 from tasks.models import Step
+from tasks.daily_settlement import DailySettlementVision
 from tasks.terminal_navigation import terminal_target
 from tasks.reward_orb_scan import ORB_DIRECT_CONFIDENCE, ORB_SCAN_STEP, OrbDirectionSweep
 from tasks.weekly_rewards import WeeklyRewardsVision
@@ -198,6 +199,7 @@ class OtherTask:
         skill_key = self.controller.normalize_input_binding(self.combat_skill_key)
         ultimate_key = self.controller.normalize_input_binding(self.combat_ultimate_key)
         self.log(f"    一键日常目标：{self.daily_zone_name}。")
+        self._daily_restart_pending = False
         self.log("    日常战斗将按已分配的预设切换角色并执行模块。")
         try:
             if not self._open_daily_tacet_field(template_name):
@@ -229,7 +231,7 @@ class OtherTask:
                         break
                 self._wait_for_daily_success(cycle_index)
                 if cycle_index == 1:
-                    self._click_daily_template("restart_challenge.png", "重新挑战", timeout=20.0)
+                    self._click_daily_settlement_action('restart')
                     self._click_optional_daily_template(
                         "insufficient_continue.png",
                         "体力不足继续提示的确认",
@@ -237,7 +239,7 @@ class OtherTask:
                     )
                     self._sleep_interruptible(0.3)
                 else:
-                    self._click_daily_template("exit_instance.png", "退出副本", timeout=20.0)
+                    self._click_daily_settlement_action('exit')
                     self._confirm_daily_exit_if_present()
                     self._sleep_interruptible(0.3)
             self._collect_daily_activity_rewards()
@@ -912,16 +914,26 @@ class OtherTask:
             if self.stop_event.is_set():
                 return
             self._capture_for_matching(screenshot)
+            if self._daily_battle_end_present(screenshot):
+                if getattr(self, '_daily_restart_pending', False):
+                    self._sleep_interruptible(.15)
+                    continue
+                self._rotation_battle_finished = True
+                self._combat_input_cancel.set()
+                self.log('    开局检查已在奖励／结算阶段，不再切人或攻击。')
+                return
             if self._daily_battle_task_present(screenshot):
+                self._daily_restart_pending = False
                 hud_ready = True
                 break
             self._sleep_interruptible(0.15)
+        if not hud_ready:
+            raise RuntimeError('未确认无音区战斗界面，已停止；不会在未知页面强制切人。')
+        if self.stop_event.is_set():
+            return
         self.controller.press_key(str(slot), 65)
         self._sleep_interruptible(0.08)
-        if hud_ready:
-            self.log(f"    战斗界面已加载，按 {slot} 确保当前角色为{SLOT_NAMES[slot]}。")
-        else:
-            self.log(f"    等待战斗界面超时，仍按 {slot} 强制切换至{SLOT_NAMES[slot]}。")
+        self.log(f"    战斗界面已加载，按 {slot} 确保当前角色为{SLOT_NAMES[slot]}。")
 
     def _run_daily_battle(
         self,
@@ -936,14 +948,21 @@ class OtherTask:
         first_slot = self._rotation_first_slot(modules, "daily")
         self._rotation_slot = first_slot
         self._rotation_battle_finished = False
-        self._rotation_end_check = self._daily_reward_stage_present
+        self._rotation_end_check = self._daily_battle_end_present
+        self._combat_input_cancel.clear()
         self._combat_animation_until = 0.
         self._rotation_continuous_started = False
         last_task_check = 0.0
         task_seen = False
         screenshot = APP_DIR / "_runtime_screenshot.png"
-        self._select_daily_slot_after_loading(screenshot, first_slot)
-        if self.stop_event.is_set():
+        try:
+            self._select_daily_slot_after_loading(screenshot, first_slot)
+        except Exception:
+            self._rotation_end_check = None
+            self.controller.release_keys()
+            raise
+        if self.stop_event.is_set() or self._rotation_battle_finished:
+            self._rotation_end_check = None
             return
         self.controller.middle_click()
         self.log(
@@ -953,9 +972,6 @@ class OtherTask:
 
         attack_enabled = threading.Event()
         attack_lock = threading.Lock()
-        rotation = RotationClock(modules, time.monotonic(), self.MAIN_ATTACK_CLICK_INTERVAL,
-                                 self.rotation_times.get("daily"), background_idle=True,
-                                 slot_order=self.rotation_orders.get("daily"))
         idle_worker = IdleAttackWorker(self.controller, self.stop_event, attack_lock,
                                        attack_interval=self.MAIN_ATTACK_CLICK_INTERVAL,
                                        heavy_hold_ms=self.HEAVY_ATTACK_HOLD_MS,
@@ -965,10 +981,26 @@ class OtherTask:
         try:
             def inspect():
                 self._capture_for_matching(screenshot)
-                reward = self._daily_reward_stage_present(screenshot)
+                reward = self._daily_battle_end_present(screenshot)
                 return reward, False if reward else self._daily_battle_task_present(screenshot)
 
-            monitor = BattleMonitor(inspect, inspect(), self.stop_event)
+            def stop_on_end(result):
+                if result[0]:
+                    self._rotation_battle_finished = True
+                    self._combat_input_cancel.set()
+                    idle_worker.close()
+                    attack_enabled.clear()
+                    self.controller.release_keys()
+
+            initial = inspect()
+            if initial[0]:
+                stop_on_end(initial)
+                self.log('    已识别奖励／挑战成功结算，停止战斗并进入收尾。')
+                return
+            rotation = RotationClock(modules, time.monotonic(), self.MAIN_ATTACK_CLICK_INTERVAL,
+                                     self.rotation_times.get("daily"), background_idle=True,
+                                     slot_order=self.rotation_orders.get("daily"))
+            monitor = BattleMonitor(inspect, initial, self.stop_event, on_result=stop_on_end)
             while time.monotonic() < deadline:
                 if self.stop_event.is_set():
                     return
@@ -982,7 +1014,7 @@ class OtherTask:
                         with attack_lock:
                             pass
                         self.controller.release_keys()
-                        self.log("    已识别到领取奖励提示，停止战斗并进入奖励搜索。")
+                        self.log("    已识别奖励／挑战成功结算，停止战斗并进入收尾。")
                         return
                     last_task_check = time.monotonic()
                     if present:
@@ -997,6 +1029,8 @@ class OtherTask:
                             pass
                         self.controller.release_keys()
                         if self._confirm_daily_battle_finished(screenshot):
+                            self._rotation_battle_finished = True
+                            self._combat_input_cancel.set()
                             self.log("    左侧清理目标文字快速复核后仍消失，进入奖励获取阶段。")
                             return
                         monitor.resume()
@@ -1143,6 +1177,15 @@ class OtherTask:
         # Colour navigation is only used after the battle-end confirmation.
         return self._find_daily_reward_prompt(screenshot) is not None
 
+    def _read_daily_settlement(self, screenshot: Path):
+        vision = getattr(self, '_daily_settlement_vision', None)
+        if vision is None:
+            vision = self._daily_settlement_vision = DailySettlementVision(TEMPLATES_DIR/'daily')
+        return vision.read(screenshot, self._fast_scales())
+
+    def _daily_battle_end_present(self, screenshot: Path) -> bool:
+        return self._read_daily_settlement(screenshot) is not None or self._daily_reward_stage_present(screenshot)
+
     @staticmethod
     def _daily_reward_orb_location(screenshot: Path) -> tuple[int | None, int | None, float]:
         with Image.open(screenshot) as source:
@@ -1180,6 +1223,10 @@ class OtherTask:
         approaching = False
         while time.monotonic() < deadline and not self.stop_event.is_set():
             self._capture_for_matching(screenshot)
+            if self._read_daily_settlement(screenshot) is not None:
+                self.controller.release_keys()
+                self.log(f'    第{cycle_index}轮已在挑战成功结算页，跳过找光球和再次领取。')
+                return True
             prompt = self._find_daily_reward_prompt(screenshot)
             target_x, _target_y, density = self._daily_reward_orb_location(screenshot)
             # A white object must never override evidence of ongoing combat.
@@ -1439,13 +1486,46 @@ class OtherTask:
         return ""
 
     def _wait_for_daily_success(self, cycle_index: int) -> None:
-        match = self._wait_for_daily_template(
-            "challenge_success.png",
-            timeout=15.0,
-            threshold=0.64,
-            region_ratio=(0.31, 0.20, 0.69, 0.43),
-        )
-        self.log(f"    第{cycle_index}轮挑战成功，相似度 {match.score:.3f}。")
+        self._wait_daily_settlement()
+        self.log(f"    第{cycle_index}轮挑战成功，已确认结算标题及退出／重开按钮。")
+
+    def _wait_daily_settlement(self, timeout=15.):
+        screenshot = APP_DIR/'_runtime_screenshot.png'
+        deadline = time.monotonic()+timeout
+        previous = None
+        while time.monotonic() < deadline and not self.stop_event.is_set():
+            self._capture_for_matching(screenshot)
+            current = self._read_daily_settlement(screenshot)
+            if current is not None and previous is not None and all(
+                    abs(a-b) <= 5 for a, b in zip((*current.exit.center, *current.restart.center),
+                                                   (*previous.exit.center, *previous.restart.center))):
+                return current
+            previous = current
+            self._sleep_interruptible(.15)
+        raise RuntimeError('未确认挑战成功结算及退出／重开按钮已稳定，已停止；不会继续切人或盲点。')
+
+    def _click_daily_settlement_action(self, action):
+        if action not in ('exit', 'restart'):
+            raise ValueError('未知结算操作')
+        screenshot = APP_DIR/'_runtime_screenshot.png'
+        for _attempt in range(3):
+            settled = self._wait_daily_settlement()
+            if self.stop_event.is_set():
+                return
+            self.controller.tap(*getattr(settled, action).center)
+            if action == 'restart':
+                self._daily_restart_pending = True
+            self.log('    已确认结算按钮并点击'+('退出副本。' if action == 'exit' else '重新挑战。'))
+            deadline, missing = time.monotonic()+1.8, 0
+            while time.monotonic() < deadline and not self.stop_event.is_set():
+                self._sleep_interruptible(.2)
+                self._capture_for_matching(screenshot)
+                missing = missing+1 if self._read_daily_settlement(screenshot) is None else 0
+                if missing >= 2:
+                    return
+            if self.stop_event.is_set():
+                return
+        raise RuntimeError('结算按钮重新定位点击3次仍未生效，已停止；不会把旧结算页当成下一轮完成。')
 
     @staticmethod
     def _yellow_claim_rows(screenshot: Path) -> list[int]:
