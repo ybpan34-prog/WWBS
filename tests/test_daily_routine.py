@@ -77,7 +77,7 @@ class DailyRoutineTests(unittest.TestCase):
         log = Mock()
         runner = TaskRunner(controller, log, dry_run=False)
         runner.daily_zone_name = DAILY_ZONE_NAMES[0]
-        for name in ("_run_daily_battle", "_wait_for_daily_success", "_click_daily_template",
+        for name in ("_run_daily_battle", "_wait_for_daily_success", "_click_daily_template", "_click_daily_settlement_action",
                      "_confirm_daily_exit_if_present", "_sleep_interruptible",
                      "_collect_daily_activity_rewards", "_collect_daily_battlepass_rewards",
                      "_capture_for_matching", "_tap_ratio", "_enter_terminal_destination", "_start_weekly_travel_from_selected_page"):
@@ -212,6 +212,7 @@ class DailyRoutineTests(unittest.TestCase):
     def test_slot_one_is_selected_only_after_battle_hud_is_ready(self):
         controller = Mock()
         runner = TaskRunner(controller, lambda _message: None, dry_run=False)
+        runner._daily_battle_end_present = Mock(return_value=False)
         runner._capture_for_matching = Mock()
         runner._sleep_interruptible = Mock()
         runner._daily_battle_task_present = Mock(side_effect=(False, True))

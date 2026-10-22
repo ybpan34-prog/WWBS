@@ -303,6 +303,7 @@ class Combat4CTask:
         if ((check_end or observed is None) and self._rotation_end_check is not None
                 and self._rotation_end_check(screenshot)):
             self._rotation_battle_finished = True
+            self._combat_input_cancel.set()
             self.log("    切人确认时发现战斗结束，停止切人并进入任务收尾。")
             return None
         return observed
@@ -386,6 +387,8 @@ class Combat4CTask:
             idle_worker.pause()
         attack_enabled.clear()
         if not self._select_rotation_slot(item.get("slot", 1), verify=kind == "select_slot"):
+            return False
+        if self._rotation_battle_finished or self.stop_event.is_set():
             return False
         if kind == "select_slot":
             rotation.start_visit(time.monotonic())
