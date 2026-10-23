@@ -20,15 +20,23 @@ class LocalSettingsTests(unittest.TestCase):
             (root/'_internal'/name).write_text(json.dumps(value, ensure_ascii=False), encoding='utf-8')
         return root
 
-    def test_latest_version_is_selected_and_current_version_and_directory_are_excluded(self):
+    def test_same_version_other_directory_is_available_but_current_is_excluded(self):
         with tempfile.TemporaryDirectory() as directory:
             parent=Path(directory)
             current=self.installation(parent,'current','1.5.4',{'pet-settings.json':{'pet':'daniya'}})
-            self.installation(parent,'same','1.5.4',{'pet-settings.json':{'pet':'aemeath'}})
+            same=self.installation(parent,'same','1.5.4',{'pet-settings.json':{'pet':'aemeath'}})
             self.installation(parent,'old','1.5.4 beta3',{'pet-settings.json':{'pet':'daniya'}})
-            newest=self.installation(parent,'newer','1.5.4 beta4',{'pet-settings.json':{'pet':'cartethyia'}})
+            self.installation(parent,'newer','1.5.4 beta4',{'pet-settings.json':{'pet':'cartethyia'}})
             result=settings.discover_latest(current,'1.5.4',[parent])
-            self.assertEqual(result.root,newest.resolve())
+            self.assertEqual(result.root,same.resolve())
+
+    def test_noop_preview_ignores_json_format_and_reports_missing_files(self):
+        source = settings.Installation(Path('old'), '1.5.5', {})
+        plan = settings.ImportPlan(source, {'combat-settings.json': b'{"skill_key":"E"}'},
+                                   {'combat-settings.json': b'{ "skill_key": "E" }'})
+        self.assertEqual(settings.changed_settings(plan), [])
+        changed = settings.ImportPlan(source, plan.payloads, {'combat-settings.json': None})
+        self.assertEqual(settings.changed_settings(changed), ['combat-settings.json'])
 
     def test_embedded_executable_version_beats_stale_readme(self):
         root=Path('_release-work/wwbs-v1.5.4-beta4/wwbs')
@@ -179,6 +187,28 @@ class LocalSettingsTests(unittest.TestCase):
             (old/'pet-display-settings.json').write_text('{"percent":115}')
             settings.bootstrap_own_settings(root,bundled)
             self.assertEqual(json.loads((root/'pet-display-settings.json').read_text())['percent'],85)
+
+    def test_identical_import_does_not_write_or_restart(self):
+        ui = app.App.__new__(app.App)
+        ui.root, ui.status, ui.worker = Mock(), Mock(), None
+        ui._rotation_seed_window = Mock(return_value=(Mock(), Mock(), Mock()))
+        ui._restart_app = Mock()
+        commands = {}
+        def button(_parent, *, text, command, **_options):
+            commands[text] = command
+            return Mock()
+        ui._ui_button = button
+        source = settings.Installation(Path('old'), '1.5.5', {})
+        plan = settings.ImportPlan(source, {'theme-settings.json': b'{"theme":"simple"}'},
+                                   {'theme-settings.json': b'{"theme":"simple"}'})
+        with patch.object(app, 'apply_import') as apply, patch.object(app, 'Label', return_value=Mock()), \
+                patch.object(app.messagebox, 'showinfo') as info:
+            ui._offer_local_settings(plan, False)
+            commands['确认继承并重启']()
+            apply.assert_not_called()
+            ui._restart_app.assert_not_called()
+            info.assert_called_once()
+        self.assertIn('选择其他文件夹', commands)
 
     def test_cancel_confirmation_never_calls_apply(self):
         ui=app.App.__new__(app.App)

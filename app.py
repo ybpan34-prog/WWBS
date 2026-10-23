@@ -32,7 +32,7 @@ from update_manager import (create_update_work, download_asset, refresh_release_
                             signal_update_ready)
 from local_settings import (apply_import, bootstrap_own_settings, default_search_roots,
                             discover_latest, discovery_needed, prepare_import, save_discovery_state,
-                            snapshot_settings, describe_import, save_import_receipt, verify_import_receipt)
+                            snapshot_settings, describe_import, save_import_receipt, verify_import_receipt, changed_settings)
 from combat_rotation import ACTION_SPECS, COMBAT_MODES, SLOT_NAMES, active_modules, default_store, load_store, new_module, save_store, validate_store
 from combat_seed import decode_seed, export_seed, import_seed
 from seed_library import download_seed, search_seeds, upload_seed
@@ -107,7 +107,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
 APP_VERSION = "1.5.5"
-APP_BUILD = 7
+APP_BUILD = 8
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -201,6 +201,10 @@ UPDATE_NOTICE = """v1.3.5 更新内容
 2. 请将游戏窗口调整为 1920*1080p 或等比例缩放。
 3. 请先完成周本的新手教程，并将速度调整至 MAX。"""
 UPDATE_HISTORY = [
+    ('v1.5.5', '''WWBS 1.5.5 正式版（构建8）
+修复检测本地设置：允许继承其他同版本安装目录，增加手动选择旧版本文件夹。
+确认前列出实际变化和来源缺失的项目；设置完全相同时明确提示，不再无效重启。
+主题、键位、轴与预设仍需确认后才覆盖，保留此前日常结算与更新修复。'''),
     ('v1.5.5', '''WWBS 1.5.5 正式版（构建7）
 修复日常已到挑战成功页仍切人普攻：结算标题和退出／重新挑战文字共同确认，并接入开局、切人、后台战斗检查与奖励获取。
 后台确认结束立即关闭普攻并中断长动作；已在结算页不再找光球或再次按F。
@@ -4572,6 +4576,7 @@ class App:
         hint.bind('<Configure>', lambda event: hint.configure(wraplength=max(180, event.width-4)))
         self._ui_button(local_box, text="检测本地设置", width=16,
                         command=self._detect_local_settings).pack(anchor='w')
+        self._ui_button(local_box, text='选择旧版本文件夹', command=self._choose_local_settings).pack(anchor='w', pady=6)
         self.local_settings_status = StringVar(value='点击检测后会显示进度；确认前不会修改设置。')
         scan_status = Label(local_box, textvariable=self.local_settings_status, fg=COLORS['muted'],
                             bg=COLORS['panel_alt'], justify=LEFT, anchor='w')
@@ -5694,7 +5699,19 @@ class App:
         if discovery_needed(USER_SETTINGS_DIR, APP_VERSION):
             self._detect_local_settings(automatic=True)
 
-    def _detect_local_settings(self, automatic=False) -> None:
+    def _choose_local_settings(self):
+        folder = filedialog.askdirectory(title='选择用过的旧版本文件夹（包含 wwbs.exe）', parent=self.root)
+        if not folder:
+            return
+        folder = Path(folder)
+        if folder.name == '_internal':
+            folder = folder.parent
+        previous = getattr(self, '_settings_import_window', None)
+        if previous is not None and previous.winfo_exists():
+            previous.destroy()
+        self._detect_local_settings(search_roots=[folder])
+
+    def _detect_local_settings(self, automatic=False, search_roots=None) -> None:
         previous = getattr(self, '_settings_import_window', None)
         if previous is not None and previous.winfo_exists():
             previous.deiconify()
@@ -5720,7 +5737,7 @@ class App:
             self._show_settings_scan_progress()
         def work():
             try:
-                source = discover_latest(USER_SETTINGS_DIR, APP_VERSION, default_search_roots(USER_SETTINGS_DIR),
+                source = discover_latest(USER_SETTINGS_DIR, APP_VERSION, (search_roots if search_roots is not None else default_search_roots(USER_SETTINGS_DIR)),
                                          cancelled=cancelled.is_set,
                                          progress=lambda checked, found: results.put(('progress', (checked, found))))
                 plan = prepare_import(source, USER_SETTINGS_DIR) if source else None
@@ -5827,6 +5844,15 @@ class App:
             self.status.set('检测已完成；请停止任务后重新检测')
             return
         items = describe_import(plan)
+        changes = changed_settings(plan)
+        missing = [label for name, label in (('theme-settings.json', '主题'), ('combat-settings.json', '键位'), ('combat-presets.json', '轴与预设')) if name not in plan.payloads]
+        items += f'\n\n实际将改变 {len(changes)} 项设置。'
+        if changes:
+            items += '\n'+describe_import(replace(plan, payloads={name: plan.payloads[name] for name in changes}))
+        if missing:
+            items += '\n来源缺少：'+'、'.join(missing)+'，这些设置会保留当前值。'
+        if not changes:
+            items += '\n来源设置与当前相同，无需重启；可以选择其他旧版本文件夹。'
         self._set_settings_scan_status(f'找到 {plan.source.version}，请核对并确认继承。')
         dialog, controls, text = self._rotation_seed_window(
             '继承本地设置', '确认后覆盖当前对应设置并重启程序。执行后无法撤回。')
@@ -5842,6 +5868,9 @@ class App:
             if getattr(self, '_update_installing', False) or (self.worker and self.worker.is_alive()):
                 messagebox.showinfo('本地设置', '请先停止任务或等待更新完成。', parent=dialog)
                 return
+            if not changes:
+                messagebox.showinfo('无需继承', '来源设置与当前相同，未修改设置，也无需重启。请核对来源目录，或选择其他旧版本文件夹。', parent=dialog)
+                return
             try:
                 apply_import(plan, USER_SETTINGS_DIR)
                 save_import_receipt(plan, USER_SETTINGS_DIR)
@@ -5852,6 +5881,7 @@ class App:
             self._log(f'已继承 {plan.source.version} 的本地设置，正在重启。')
             dialog.destroy()
             self._restart_app()
+        self._ui_button(controls, text='选择其他文件夹', command=self._choose_local_settings).pack(side=LEFT, pady=10)
         cancel_button = self._ui_button(controls, text='取消', command=cancel)
         cancel_button.pack(side=RIGHT, pady=10)
         self._ui_button(controls, text='确认继承并重启', width=18, style='Primary.TButton',
