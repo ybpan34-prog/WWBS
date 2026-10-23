@@ -78,6 +78,7 @@ class TaskRunner(Combat4CTask, DreamlandTask, OtherTask):
         rotation_orders: dict[str, list[int]] | None = None,
         boss_challenge: BossChallengeEntrance | None = None,
         warning=None,
+        daily_orb_confidence=.45,
     ):
         self.controller = controller
         self.log = log
@@ -86,6 +87,8 @@ class TaskRunner(Combat4CTask, DreamlandTask, OtherTask):
         self.max_cycles = max_cycles
         self.combat_skill_key = combat_skill_key
         self.combat_ultimate_key = combat_ultimate_key
+        from tasks.reward_orb_scan import orb_confidence
+        self.daily_orb_confidence = orb_confidence(daily_orb_confidence)
         self.daily_zone_name = daily_zone_name
         self.daily_heal_enabled = bool(daily_heal_enabled)
         self.boss_challenge = boss_challenge
@@ -351,10 +354,18 @@ class TaskRunner(Combat4CTask, DreamlandTask, OtherTask):
             self.log(f"    调试图保存失败: {exc}")
 
     def _capture_for_matching(self, target: Path) -> None:
-        try:
-            self.controller.screencap(target, bring_to_front=not self.dry_run)
-        except TypeError:
-            self.controller.screencap(target)
+        for attempt in range(3):
+            try:
+                try:
+                    self.controller.screencap(target, bring_to_front=not self.dry_run)
+                except TypeError:
+                    self.controller.screencap(target)
+                return
+            except (OSError, RuntimeError) as exc:
+                if attempt == 2 or self.stop_event.is_set():
+                    raise RuntimeError(f'连续截图失败，未继续使用旧画面：{exc}') from exc
+                self.log(f'    截图暂时失败，正在重试（{attempt+1}/2）：{exc}')
+                self._sleep_interruptible(.2)
 
     @staticmethod
     def _require_xy(step: Step) -> None:

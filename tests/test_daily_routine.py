@@ -215,7 +215,7 @@ class DailyRoutineTests(unittest.TestCase):
         runner._daily_battle_end_present = Mock(return_value=False)
         runner._capture_for_matching = Mock()
         runner._sleep_interruptible = Mock()
-        runner._daily_battle_task_present = Mock(side_effect=(False, True))
+        runner._daily_combat_visible = Mock(side_effect=(False, True))
 
         runner._select_daily_slot_after_loading(Path("screen.png"))
 
@@ -642,7 +642,7 @@ class DailyRoutineTests(unittest.TestCase):
         runner._select_daily_slot_after_loading = Mock()
         runner._capture_for_matching = Mock()
         runner._daily_reward_stage_present = Mock(return_value=False)
-        runner._daily_battle_task_present = Mock(side_effect=(True, False))
+        runner._daily_combat_visible = Mock(side_effect=(True, False))
         runner._confirm_daily_battle_finished = Mock(return_value=True)
         runner._perform_4c_heal_rotation = Mock()
         runner._sleep_interruptible = lambda duration: app.time.sleep(min(duration, .002))

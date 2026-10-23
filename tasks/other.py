@@ -7,8 +7,10 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from boss_rain import boss_bar_present
 from combat_rotation import BattleMonitor, IdleAttackWorker, RotationClock, SLOT_NAMES
 from image_matcher import TemplateMatcher
+from tasks.echo_spiral import echo_spiral_steps
 from tasks.models import Step
 from tasks.daily_settlement import DailySettlementVision
 from tasks.terminal_navigation import terminal_target
@@ -906,6 +908,13 @@ class OtherTask:
             screenshot=screenshot,
         ) is not None
 
+    def _daily_combat_visible(self, screenshot: Path) -> bool:
+        if self._daily_battle_task_present(screenshot):
+            return True
+        with Image.open(screenshot) as image:
+            # Require the boss's two aligned HUD tracks, not a floating mob bar.
+            return boss_bar_present(image)
+
     def _select_daily_slot_after_loading(self, screenshot: Path, slot: int = 1) -> None:
         """Wait for the battle HUD, then ensure the first configured character is active."""
         deadline = time.monotonic() + 15.0
@@ -922,7 +931,7 @@ class OtherTask:
                 self._combat_input_cancel.set()
                 self.log('    开局检查已在奖励／结算阶段，不再切人或攻击。')
                 return
-            if self._daily_battle_task_present(screenshot):
+            if self._daily_combat_visible(screenshot):
                 self._daily_restart_pending = False
                 hud_ready = True
                 break
@@ -982,7 +991,7 @@ class OtherTask:
             def inspect():
                 self._capture_for_matching(screenshot)
                 reward = self._daily_battle_end_present(screenshot)
-                return reward, False if reward else self._daily_battle_task_present(screenshot)
+                return reward, False if reward else self._daily_combat_visible(screenshot)
 
             def stop_on_end(result):
                 if result[0]:
@@ -1184,7 +1193,9 @@ class OtherTask:
         return vision.read(screenshot, self._fast_scales())
 
     def _daily_battle_end_present(self, screenshot: Path) -> bool:
-        return self._read_daily_settlement(screenshot) is not None or self._daily_reward_stage_present(screenshot)
+        if self._read_daily_settlement(screenshot) is not None:
+            return True
+        return self._daily_reward_stage_present(screenshot) and not self._daily_combat_visible(screenshot)
 
     @staticmethod
     def _daily_reward_orb_location(screenshot: Path) -> tuple[int | None, int | None, float]:
@@ -1221,6 +1232,10 @@ class OtherTask:
         previous_forward_confidence: float | None = None
         sweep = None
         approaching = False
+        threshold = getattr(self, 'daily_orb_confidence', .45)
+        missed_turns = 0
+        route = None
+        self.log(f'    光球置信度阈值 {threshold:.0%}；转动12次未达到时改为螺旋搜索。')
         while time.monotonic() < deadline and not self.stop_event.is_set():
             self._capture_for_matching(screenshot)
             if self._read_daily_settlement(screenshot) is not None:
@@ -1231,11 +1246,10 @@ class OtherTask:
             target_x, _target_y, density = self._daily_reward_orb_location(screenshot)
             # A white object must never override evidence of ongoing combat.
             if (
-                prompt is None
-                and self._daily_battle_task_present(screenshot)
+                self._daily_combat_visible(screenshot)
             ):
                 self.controller.release_keys()
-                self.log("    奖励搜索时发现左侧清理目标文字仍在，判定战斗尚未结束，继续攻击。")
+                self.log("    奖励搜索时发现清理目标文字或首领血条仍在，判定战斗尚未结束，继续攻击。")
                 return False
             with Image.open(screenshot) as captured:
                 width, height = captured.size
@@ -1249,18 +1263,37 @@ class OtherTask:
                 self._sleep_interruptible(0.2)
                 self._claim_daily_double_reward(cycle_index)
                 return True
-            valid = target_x is not None and density > DAILY_REWARD_ORB_MIN_CONFIDENCE
-            stalled = self._daily_reward_movement_stalled(previous_forward_confidence, density)
-            if valid and density > ORB_DIRECT_CONFIDENCE:
+            valid = target_x is not None and density > threshold
+            if valid:
+                missed_turns = 0
+            if route is None and missed_turns >= 12 and not valid:
+                route = echo_spiral_steps()
+                self.log('    视角转动12次仍未达到所选置信度，开始向外螺旋移动搜索。')
+            if route is not None and not valid:
+                turn, duration = next(route)
+                self.controller.move_mouse_relative(turn, 0)
+                if self.stop_event.is_set():
+                    break
+                if callable(getattr(type(self.controller), 'press_keys_cancelable', None)):
+                    self.controller.press_keys_cancelable(('W',), duration, self.stop_event)
+                else:
+                    self.controller.press_keys(('W',), duration)
+                self._sleep_interruptible(.06)
+                continue
+            if route is not None and valid:
+                route = None
                 approaching, sweep = True, None
-                self.log(f"    光球置信度 {density:.2f} 超过0.80，直接前往。")
+            stalled = self._daily_reward_movement_stalled(previous_forward_confidence, density)
+            if valid and density > max(ORB_DIRECT_CONFIDENCE, threshold):
+                approaching, sweep = True, None
+                self.log(f"    光球置信度 {density:.2f} 超过阈值 {max(ORB_DIRECT_CONFIDENCE, threshold):.0%}，直接前往。")
             elif not valid or stalled:
                 approaching = False
             if not approaching:
                 if sweep is None:
                     sweep = OrbDirectionSweep()
-                    self.log("    开始水平转满一圈，记录各方向光球置信度；超过0.80时直接前往。")
-                sweep.observe(scan_image, target_x, density)
+                    self.log(f"    开始水平扫描，记录各方向光球置信度；超过{max(ORB_DIRECT_CONFIDENCE, threshold):.0%}时直接前往。")
+                sweep.observe(scan_image, target_x if valid else None, density)
                 previous_forward_confidence = None
                 if sweep.complete:
                     if sweep.best is not None:
@@ -1273,6 +1306,8 @@ class OtherTask:
                     continue  # Fresh screenshot at the selected direction before moving.
                 self.controller.move_mouse_relative(ORB_SCAN_STEP, 0)
                 sweep.advance(ORB_SCAN_STEP)
+                if not valid:
+                    missed_turns += 1
             else:
                 offset = target_x - width * 0.5
                 if abs(offset) > width * 0.05:

@@ -366,7 +366,9 @@ class Combat4CTask:
         if self.stop_event.is_set():
             return False
         current = SLOT_NAMES.get(observed, '未识别')
-        raise RuntimeError(f"未能确认切到{SLOT_NAMES[slot]}，最后识别为{current}。已停止，不会跳过此角色继续切人。")
+        self._rotation_slot = observed or 0
+        self.log(f"    未能确认切到{SLOT_NAMES[slot]}，最后识别为{current}；跳过本次角色模块，继续下一个角色。")
+        return False
 
     def _run_rotation_action(self, action: dict | None, rotation: RotationClock,
                              skill_key: str, ultimate_key: str,
@@ -387,7 +389,11 @@ class Combat4CTask:
             idle_worker.pause()
         attack_enabled.clear()
         if not self._select_rotation_slot(item.get("slot", 1), verify=kind == "select_slot"):
-            return False
+            if self.stop_event.is_set() or self._rotation_battle_finished:
+                return False
+            # Skip this visit without pretending that the requested role is active.
+            rotation.visit_deadline = time.monotonic()
+            return True
         if self._rotation_battle_finished or self.stop_event.is_set():
             return False
         if kind == "select_slot":
@@ -517,7 +523,8 @@ class Combat4CTask:
 
     def _collect_4c_reward(self, cycle_index: int) -> None:
         screenshot = APP_DIR / "_runtime_screenshot.png"
-        deadline = time.monotonic() + self.REWARD_SEARCH_TIMEOUT
+        transition_until = time.monotonic() + 2.5
+        deadline = transition_until + self.REWARD_SEARCH_TIMEOUT
         route = echo_spiral_steps()
         self.log(f'    第{cycle_index}轮：从当前位置向外螺旋搜索声骸，每小段重新检查吸收提示。')
         while time.monotonic() < deadline:
@@ -540,6 +547,10 @@ class Combat4CTask:
                 return
             if self.stop_event.is_set():
                 return
+            if time.monotonic() < transition_until:
+                self.controller.release_keys()
+                self._sleep_interruptible(.1)
+                continue  # Death animation may ignore controls; absorb prompt still wins.
             turn, duration = next(route)
             self.controller.move_mouse_relative(turn, 0)
             if self.stop_event.is_set():

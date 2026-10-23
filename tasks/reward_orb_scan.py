@@ -7,8 +7,8 @@ from PIL import Image
 from image_matcher import _match_single_scale_gray
 
 
-# Increase yaw by 50%, while retaining scenery overlap for visual lap detection.
-ORB_SCAN_STEP = 120
+# Daily yaw increased by 150% relative to the previous 120-unit step.
+ORB_SCAN_STEP = 300
 ORB_DIRECT_CONFIDENCE = .8
 
 
@@ -70,3 +70,13 @@ class OrbDirectionSweep:
 
     def return_delta(self):
         return self.best.turn-self.turn if self.best is not None else 0
+
+
+def orb_confidence(value):
+    try:
+        number = float(str(value).rstrip('%'))
+        if number > 1:
+            number /= 100
+        return number if .45 <= number <= .95 else .45
+    except (ValueError, TypeError):
+        return .45

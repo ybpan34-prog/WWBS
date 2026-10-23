@@ -106,7 +106,7 @@ class DailySettlementTests(unittest.TestCase):
                 runner._daily_restart_pending = pending
                 runner._capture_for_matching = Mock()
                 runner._daily_battle_end_present = Mock(return_value=pending)
-                runner._daily_battle_task_present = Mock(return_value=False)
+                runner._daily_combat_visible = Mock(return_value=False)
                 now = [0.]
                 runner._sleep_interruptible = lambda seconds: now.__setitem__(0, now[0]+seconds)
                 with patch('tasks.other.time.monotonic', side_effect=lambda: now[0]), \
