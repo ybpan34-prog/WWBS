@@ -76,7 +76,7 @@ class AbsorbFlowTests(unittest.TestCase):
             runner.controller.press_keys.side_effect = lambda keys, ms: events.append((keys, ms))
             runner.controller.press_key.side_effect = lambda key, ms: events.append(key)
             runner.controller.move_mouse_relative.side_effect = lambda x, y: events.append(('turn',x,y))
-            with patch("tasks.combat_4c.APP_DIR", screen.parent):
+            with patch("tasks.combat_4c.APP_DIR", screen.parent), patch("tasks.combat_4c.time.monotonic", side_effect=[0]+[3]*20):
                 screen.rename(screen.parent / "_runtime_screenshot.png")
                 runner._collect_4c_reward(1)
             self.assertEqual(events, ["capture", ("turn", -84, 0), (("W",), 180), "capture", ("turn", -84, 0), (("W",), 192), "capture", "F"])
