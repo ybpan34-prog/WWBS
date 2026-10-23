@@ -354,10 +354,18 @@ class TaskRunner(Combat4CTask, DreamlandTask, OtherTask):
             self.log(f"    调试图保存失败: {exc}")
 
     def _capture_for_matching(self, target: Path) -> None:
-        try:
-            self.controller.screencap(target, bring_to_front=not self.dry_run)
-        except TypeError:
-            self.controller.screencap(target)
+        for attempt in range(3):
+            try:
+                try:
+                    self.controller.screencap(target, bring_to_front=not self.dry_run)
+                except TypeError:
+                    self.controller.screencap(target)
+                return
+            except (OSError, RuntimeError) as exc:
+                if attempt == 2 or self.stop_event.is_set():
+                    raise RuntimeError(f'连续截图失败，未继续使用旧画面：{exc}') from exc
+                self.log(f'    截图暂时失败，正在重试（{attempt+1}/2）：{exc}')
+                self._sleep_interruptible(.2)
 
     @staticmethod
     def _require_xy(step: Step) -> None:

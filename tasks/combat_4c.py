@@ -523,7 +523,8 @@ class Combat4CTask:
 
     def _collect_4c_reward(self, cycle_index: int) -> None:
         screenshot = APP_DIR / "_runtime_screenshot.png"
-        deadline = time.monotonic() + self.REWARD_SEARCH_TIMEOUT
+        transition_until = time.monotonic() + 2.5
+        deadline = transition_until + self.REWARD_SEARCH_TIMEOUT
         route = echo_spiral_steps()
         self.log(f'    第{cycle_index}轮：从当前位置向外螺旋搜索声骸，每小段重新检查吸收提示。')
         while time.monotonic() < deadline:
@@ -546,6 +547,10 @@ class Combat4CTask:
                 return
             if self.stop_event.is_set():
                 return
+            if time.monotonic() < transition_until:
+                self.controller.release_keys()
+                self._sleep_interruptible(.1)
+                continue  # Death animation may ignore controls; absorb prompt still wins.
             turn, duration = next(route)
             self.controller.move_mouse_relative(turn, 0)
             if self.stop_event.is_set():

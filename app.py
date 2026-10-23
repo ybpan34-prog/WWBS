@@ -107,8 +107,8 @@ DEFAULT_CONFIG = USER_SETTINGS_DIR / "weekly_tasks.json"
 TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
-APP_VERSION = "1.5.5"
-APP_BUILD = 9
+APP_VERSION = "1.5.6"
+APP_BUILD = 1
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -202,11 +202,13 @@ UPDATE_NOTICE = """v1.3.5 更新内容
 2. 请将游戏窗口调整为 1920*1080p 或等比例缩放。
 3. 请先完成周本的新手教程，并将速度调整至 MAX。"""
 UPDATE_HISTORY = [
-    ('v1.5.5', '''WWBS 1.5.5 正式版（构建9）
+    ('v1.5.6', '''WWBS 1.5.6 正式版
 新增日常光球置信度选项（设置中45%～95%，默认45%），保存并随本地设置继承。
 日常单次转向从120增至300；连续12次未超过阈值时，改为向外螺旋移动搜索。
 每小段检查领取提示与战斗状态，发现清理目标或首领血条时恢复战斗，不再盲目搜索。
-切人确认超时记录提示并跳过本次角色模块，继续下一角色；结算与停止仍立即中断。'''),
+切人确认超时记录提示并跳过本次角色模块，继续下一角色；结算与停止仍立即中断。
+Boss击败后增加2.5秒动画宽限，提示出现立即吸收；截图暂时失败会有限重试。
+包含本地设置同版本继承、手选目录与实际变化预览。'''),
     ('v1.5.5', '''WWBS 1.5.5 正式版（构建8）
 修复检测本地设置：允许继承其他同版本安装目录，增加手动选择旧版本文件夹。
 确认前列出实际变化和来源缺失的项目；设置完全相同时明确提示，不再无效重启。
