@@ -215,7 +215,7 @@ class DailyRoutineTests(unittest.TestCase):
         runner._daily_battle_end_present = Mock(return_value=False)
         runner._capture_for_matching = Mock()
         runner._sleep_interruptible = Mock()
-        runner._daily_battle_task_present = Mock(side_effect=(False, True))
+        runner._daily_combat_visible = Mock(side_effect=(False, True))
 
         runner._select_daily_slot_after_loading(Path("screen.png"))
 

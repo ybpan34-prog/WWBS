@@ -72,6 +72,60 @@ class OrbDirectionTests(unittest.TestCase):
             self.assertEqual(order,['capture','observe','turn','capture','observe','turn','capture','forward','capture'])
             runner.controller.press_keys.assert_called_once_with(('W',),500)
 
+    def test_twelve_failed_turns_then_spiral_and_prompt_stops_movement(self):
+        with tempfile.TemporaryDirectory() as directory, patch('tasks.other.APP_DIR', Path(directory)):
+            runner = self.runner(directory, [(None, None, .3)]*14, [None]*13+[Mock()])
+            self.assertTrue(runner._collect_daily_reward(1))
+            turns = runner.controller.move_mouse_relative.call_args_list
+            self.assertEqual([call.args for call in turns[:12]], [(300, 0)]*12)
+            self.assertEqual(len(turns), 13)
+            self.assertEqual(turns[-1].args, (-84, 0))
+            runner.controller.press_keys.assert_called_once_with(('W',), 180)
+            runner.controller.press_key.assert_called_once_with('F', 100)
+
+    def test_selected_confidence_rejects_lower_orb_and_accepts_above_threshold(self):
+        with tempfile.TemporaryDirectory() as directory, patch('tasks.other.APP_DIR', Path(directory)):
+            runner = self.runner(directory, [(960, 300, .81), (960, 300, .91), (960, 300, .91)], [None, None, Mock()])
+            runner.daily_orb_confidence = .9
+            self.assertTrue(runner._collect_daily_reward(1))
+            runner.controller.move_mouse_relative.assert_called_once_with(300, 0)
+            runner.controller.press_keys.assert_called_once_with(('W',), 500)
+
+    def test_combat_return_during_spiral_stops_without_claiming_or_moving_again(self):
+        with tempfile.TemporaryDirectory() as directory, patch('tasks.other.APP_DIR', Path(directory)):
+            runner = self.runner(directory, [(None, None, .3)]*14, [None]*13+[Mock()])
+            runner._daily_combat_visible = Mock(side_effect=[False]*13+[True])
+            self.assertFalse(runner._collect_daily_reward(1))
+            self.assertEqual(runner.controller.move_mouse_relative.call_count, 13)
+            runner.controller.press_keys.assert_called_once_with(('W',), 180)
+            runner.controller.press_key.assert_not_called()
+            runner._claim_daily_double_reward.assert_not_called()
+
+    def test_boss_hud_alone_prevents_reward_search_even_without_objective(self):
+        with tempfile.TemporaryDirectory() as directory, patch('tasks.other.APP_DIR', Path(directory)):
+            runner = self.runner(directory, [(None, None, .3)], [None])
+            with patch('tasks.other.boss_bar_present', return_value=True):
+                self.assertFalse(runner._collect_daily_reward(1))
+            runner.controller.move_mouse_relative.assert_not_called()
+            runner.controller.press_keys.assert_not_called()
+
+    def test_confidence_save_keeps_zone_and_loads_for_task(self):
+        from tasks.reward_orb_scan import orb_confidence
+        import json
+        for raw, expected in [('75%', .75), (.9, .9), ('bad', .45), (float('nan'), .45), (2, .45)]:
+            self.assertEqual(orb_confidence(raw), expected)
+        with tempfile.TemporaryDirectory() as directory, patch.object(app, 'DAILY_CONFIG', Path(directory)/'daily-settings.json'):
+            ui = app.App.__new__(app.App)
+            ui.daily_zone = Mock(get=Mock(return_value=app.DAILY_ZONE_NAMES[0]))
+            ui.daily_orb_confidence = Mock(get=Mock(return_value='75%'))
+            ui.status = Mock()
+            ui._save_daily_zone()
+            data = json.loads(app.DAILY_CONFIG.read_text(encoding='utf-8'))
+            self.assertEqual(data['orb_confidence'], .75)
+            self.assertEqual(data['zone'], app.DAILY_ZONE_NAMES[0])
+            runner = app.TaskRunner(Mock(), Mock(), daily_orb_confidence=data['orb_confidence'])
+            self.assertEqual(runner.daily_orb_confidence, .75)
+
     def test_reward_prompt_interrupts_scan_without_more_camera_or_movement(self):
         with tempfile.TemporaryDirectory() as directory, patch('tasks.other.APP_DIR',Path(directory)):
             runner=self.runner(directory,[(960,300,.7)],[Mock()])

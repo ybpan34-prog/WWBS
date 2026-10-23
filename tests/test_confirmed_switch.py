@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 from PIL import Image
 
 import app
-from combat_rotation import RotationClock
+from combat_rotation import RotationClock, new_module
 from combat_vision import active_character_slot
 from image_matcher import TemplateMatcher
 
@@ -115,13 +115,20 @@ class ConfirmedSwitchTests(unittest.TestCase):
             self.execute(next_role, clock)
         self.assertEqual(self.controller.active, 1)
 
-    def test_failed_switch_stops_instead_of_skipping_to_one(self):
+    def test_failed_switch_skips_visit_and_continues_to_one(self):
         self.controller.ignore_two = 999
         with patch.object(app.time, 'monotonic', side_effect=lambda: self.now):
-            with self.assertRaisesRegex(RuntimeError, '不会跳过此角色'):
-                self.runner._select_rotation_slot(2, verify=True)
-        self.assertEqual(self.runner._rotation_slot, 3)
-        self.assertTrue(all(key in ('2','click') for key, _ in self.controller.events))
+            self.assertFalse(self.runner._select_rotation_slot(2, verify=True))
+            self.assertEqual(self.runner._rotation_slot, 3)
+            clock = RotationClock([new_module('skill', slot) for slot in (2,1,3)], self.now, slot_order=[2,1,3])
+            action = clock.next_action(self.now)
+            self.assertEqual(action['module']['slot'], 2)
+            self.assertTrue(self.execute(action, clock))
+            action = clock.next_action(self.now)
+            self.assertEqual(action['module']['slot'], 1)
+            self.assertTrue(self.execute(action, clock))
+            self.assertEqual(self.controller.active, 1)
+            self.assertNotIn(('E',3), self.controller.events)
 
     def test_stop_during_confirmation_does_not_press_another_key(self):
         self.runner._capture_for_matching = lambda _: self.runner.stop_event.set()
@@ -165,3 +172,4 @@ class ConfirmedSwitchTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

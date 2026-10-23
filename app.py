@@ -23,6 +23,7 @@ from tkinter import font as tkfont
 from PIL import Image, ImageTk
 
 from image_matcher import TemplateMatcher
+from tasks.reward_orb_scan import orb_confidence
 from tasks.combat_4c_entrance import BOSS_AVATARS, BossChallengeEntrance
 from windows_client import ClientWindowController
 from display_environment import FILTER_GUIDANCE, display_findings, read_game_display
@@ -107,7 +108,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
 APP_VERSION = "1.5.5"
-APP_BUILD = 8
+APP_BUILD = 9
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -201,6 +202,11 @@ UPDATE_NOTICE = """v1.3.5 更新内容
 2. 请将游戏窗口调整为 1920*1080p 或等比例缩放。
 3. 请先完成周本的新手教程，并将速度调整至 MAX。"""
 UPDATE_HISTORY = [
+    ('v1.5.5', '''WWBS 1.5.5 正式版（构建9）
+新增日常光球置信度选项（设置中45%～95%，默认45%），保存并随本地设置继承。
+日常单次转向从120增至300；连续12次未超过阈值时，改为向外螺旋移动搜索。
+每小段检查领取提示与战斗状态，发现清理目标或首领血条时恢复战斗，不再盲目搜索。
+切人确认超时记录提示并跳过本次角色模块，继续下一角色；结算与停止仍立即中断。'''),
     ('v1.5.5', '''WWBS 1.5.5 正式版（构建8）
 修复检测本地设置：允许继承其他同版本安装目录，增加手动选择旧版本文件夹。
 确认前列出实际变化和来源缺失的项目；设置完全相同时明确提示，不再无效重启。
@@ -996,6 +1002,11 @@ class App:
         self.boss_challenge_level = StringVar(value=boss_options["level"])
         self.boss_challenge_count = StringVar(value=str(boss_options["count"]))
         self.daily_zone = StringVar(value=self._load_daily_zone())
+        try:
+            orb_value = json.loads(DAILY_CONFIG.read_text(encoding='utf-8')).get('orb_confidence', .45)
+        except (OSError, ValueError, AttributeError):
+            orb_value = .45
+        self.daily_orb_confidence = StringVar(value=f'{orb_confidence(orb_value):.0%}')
         self.auto_shutdown_enabled = BooleanVar(value=self._load_auto_shutdown_enabled())
         self.pet_size = StringVar(value=f"{self._load_pet_size_percent()}%")
         self.pet_visible = self._load_pet_visible()
@@ -2016,7 +2027,7 @@ class App:
         if selected not in DAILY_ZONE_TEMPLATES:
             return
         DAILY_CONFIG.write_text(
-            json.dumps({"zone": selected}, ensure_ascii=False, indent=2),
+            json.dumps({"zone": selected, "orb_confidence": orb_confidence(self.daily_orb_confidence.get())}, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
         self.status.set(f"一键日常无音区：{selected}")
@@ -4583,6 +4594,16 @@ class App:
         scan_status.pack(fill=X, pady=(8, 0))
         scan_status.bind('<Configure>', lambda event: scan_status.configure(wraplength=max(180, event.width-4)))
 
+        daily_box = self._card_body(self.settings_tab)
+        daily_box.pack(fill=X, pady=(0, 14))
+        Label(daily_box, text='日常光球搜索', font=(FONT_FAMILY, 11, 'bold'), bg=COLORS['panel_alt']).pack(anchor='w')
+        Label(daily_box, text='光球置信度（越高越严格）', bg=COLORS['panel_alt']).pack(anchor='w', pady=6)
+        picker = ttk.Combobox(daily_box, textvariable=self.daily_orb_confidence,
+                              values=tuple(f'{v}%' for v in range(45, 100, 5)), state='readonly', width=12)
+        picker.pack(anchor='w')
+        picker.bind('<<ComboboxSelected>>', self._save_daily_zone)
+        Label(daily_box, text='转动12次仍未超过阈值时，向外螺旋移动搜索；出现领取提示立即领取。',
+              bg=COLORS['panel_alt'], fg=COLORS['muted'], wraplength=600, justify=LEFT).pack(anchor='w', pady=6)
         self._build_rain_settings()
         theme_box = self._card_body(self.settings_tab)
         theme_box.pack(fill=X, pady=(0, 14))
@@ -6715,6 +6736,7 @@ class App:
                 warning=lambda message: self.root.after(
                     0, lambda text=message: self._pet_feedback('waiting', text, 12000),
                 ),
+                daily_orb_confidence=orb_confidence(self.daily_orb_confidence.get()),
                 boss_challenge=(BossChallengeEntrance(**self._boss_challenge_run)
                                 if any(task.name == "战歌重奏自动刷取" for task in tasks) else None),
                 rotation_presets={mode: active_modules(rotation_snapshot, mode) for mode in COMBAT_MODES},

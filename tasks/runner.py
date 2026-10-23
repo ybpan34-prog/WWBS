@@ -78,6 +78,7 @@ class TaskRunner(Combat4CTask, DreamlandTask, OtherTask):
         rotation_orders: dict[str, list[int]] | None = None,
         boss_challenge: BossChallengeEntrance | None = None,
         warning=None,
+        daily_orb_confidence=.45,
     ):
         self.controller = controller
         self.log = log
@@ -86,6 +87,8 @@ class TaskRunner(Combat4CTask, DreamlandTask, OtherTask):
         self.max_cycles = max_cycles
         self.combat_skill_key = combat_skill_key
         self.combat_ultimate_key = combat_ultimate_key
+        from tasks.reward_orb_scan import orb_confidence
+        self.daily_orb_confidence = orb_confidence(daily_orb_confidence)
         self.daily_zone_name = daily_zone_name
         self.daily_heal_enabled = bool(daily_heal_enabled)
         self.boss_challenge = boss_challenge
