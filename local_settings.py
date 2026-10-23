@@ -160,7 +160,7 @@ def discover_latest(current: Path, current_version: str, roots: list[Path], *, c
                     if not personalized:
                         continue
                     version = installation_version(folder)
-                    if personalized and version and version_key(version) != version_key(current_version):
+                    if personalized and version:
                         found.append(Installation(resolved, version, files))
                 continue
             if depth >= 4:
@@ -394,3 +394,17 @@ def verify_import_receipt(target: Path):
         return receipt
     except FileNotFoundError:
         return None
+
+
+def changed_settings(plan: ImportPlan) -> list[str]:
+    """Compare JSON values, ignoring whitespace; never treat a no-op as migration."""
+    changed = []
+    for name, payload in plan.payloads.items():
+        previous = plan.before.get(name)
+        try:
+            equal = previous is not None and json.loads(previous) == json.loads(payload)
+        except (ValueError, UnicodeError):
+            equal = False
+        if not equal:
+            changed.append(name)
+    return changed
