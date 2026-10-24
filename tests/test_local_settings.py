@@ -188,6 +188,36 @@ class LocalSettingsTests(unittest.TestCase):
             settings.bootstrap_own_settings(root,bundled)
             self.assertEqual(json.loads((root/'pet-display-settings.json').read_text())['percent'],85)
 
+    def test_confirmation_applies_keys_live_and_old_callbacks_cannot_overwrite_them(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root/'current'
+            target.mkdir()
+            keyfile = target/'combat-settings.json'
+            keyfile.write_text('{"skill_key":"E","ultimate_key":"R"}')
+            old = self.installation(root, 'old', '1.5.5', {'combat-settings.json': {'skill_key': 'XBUTTON2', 'ultimate_key': 'XBUTTON1'}})
+            plan = settings.prepare_import(settings.Installation(old, '1.5.5', settings.settings_files(old)), target)
+            ui = app.App.__new__(app.App)
+            ui.root, ui.status, ui.worker = Mock(), Mock(), None
+            ui.combat_skill_key, ui.combat_ultimate_key = Mock(), Mock()
+            ui._log = Mock()
+            ui._rotation_seed_window = Mock(return_value=(Mock(), Mock(), Mock()))
+            commands = {}
+            def button(_parent, *, text, command, **options):
+                commands[text] = command
+                return Mock()
+            ui._ui_button = button
+            # Simulate queued old-window autosave during close/restart.
+            ui._restart_app = ui._save_combat_settings
+            with patch.object(app, 'USER_SETTINGS_DIR', target), patch.object(app, 'COMBAT_CONFIG', keyfile), \
+                    patch.object(app, 'Label', return_value=Mock()):
+                ui._offer_local_settings(plan, False)
+                commands['确认继承并重启']()
+            self.assertEqual(json.loads(keyfile.read_text()), {'skill_key': 'XBUTTON2', 'ultimate_key': 'XBUTTON1'})
+            ui.combat_skill_key.set.assert_called_with('鼠标侧键2')
+            ui.combat_ultimate_key.set.assert_called_with('鼠标侧键1')
+            self.assertEqual(settings.verify_import_receipt(target)['failed'], [])
+
     def test_identical_import_does_not_write_or_restart(self):
         ui = app.App.__new__(app.App)
         ui.root, ui.status, ui.worker = Mock(), Mock(), None

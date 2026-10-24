@@ -22,3 +22,8 @@
 发布：`npx netlify deploy --site 157c28f8-ec69-49f9-b68b-26fe4e5ddcc1 --build --prod`。
 
 `.netlify`目录和部署授权不提交到源码。生产使用固定存储名，不在预览部署中写入测试数据；单元检查使用内存存储。
+
+
+## 安装包下载中转
+
+`GET /.netlify/functions/update-download?tag=v1.5.6&id=资源ID&size=总字节数&sha256=官方校验码`，必须提供严格的`Range: bytes=开始-结束`，每段最多4MB。只读取固定WWBS仓库中的正式版本安装包，拒绝任意上游URL。桌面客户端直接从GitHub获取资源身份与SHA256，比较下载线路后使用中转或直连；中转不提供更新元数据、不决定安装包是否可信，客户端合并后仍核对官方SHA256。中转不接收本地设置。避免每段重复消耗GitHub匿名元数据API额度。

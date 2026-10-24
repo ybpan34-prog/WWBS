@@ -9,7 +9,7 @@ from PIL import Image
 
 from boss_rain import boss_bar_present
 from combat_rotation import BattleMonitor, IdleAttackWorker, RotationClock, SLOT_NAMES
-from image_matcher import TemplateMatcher
+from image_matcher import TemplateMatcher, _match_single_scale_gray
 from tasks.echo_spiral import echo_spiral_steps
 from tasks.models import Step
 from tasks.daily_settlement import DailySettlementVision
@@ -175,84 +175,9 @@ class OtherTask:
                 raise RuntimeError(f"深塔战斗输入失败：{idle.error}") from idle.error
 
     def _run_daily_routine(self, step: Step) -> None:
-        """Run the two-round daily tacet-field flow with optional healing."""
-        required = (
-            "press_keys",
-            "press_key",
-            "press_binding",
-            "left_click",
-            "hold_left_button",
-            "middle_click",
-            "move_mouse_relative",
-            "release_keys",
-        )
-        if any(not hasattr(self.controller, name) for name in required):
-            raise RuntimeError("一键日常目前只支持 PC 客户端窗口。")
-        template_name = DAILY_ZONE_TEMPLATES.get(self.daily_zone_name)
-        if not template_name:
-            raise RuntimeError("请先在开始页滑动选择要挑战的无音区。")
-        if self.dry_run:
-            self.log(
-                f"    干运行：将精确寻找“{self.daily_zone_name}”，完成两轮战斗与双倍领取，"
-                "随后领取活跃度与先约电台奖励；周度游历未完成时继续执行15轮幻梦游园。"
-            )
-            return
+        from tasks.daily_154 import Daily154Navigation
+        return Daily154Navigation(self)._run_daily_routine(step)
 
-        skill_key = self.controller.normalize_input_binding(self.combat_skill_key)
-        ultimate_key = self.controller.normalize_input_binding(self.combat_ultimate_key)
-        self.log(f"    一键日常目标：{self.daily_zone_name}。")
-        self._daily_restart_pending = False
-        self.log("    日常战斗将按已分配的预设切换角色并执行模块。")
-        try:
-            if not self._open_daily_tacet_field(template_name):
-                if getattr(self,'_daily_activity_confirmed_full',False):
-                    self.log('    已确认当前活跃度达到100，跳过无音区战斗，直接领取任务与宝箱奖励。')
-                    self._collect_daily_activity_rewards(already_open=True)
-                    if self.stop_event.is_set():
-                        return
-                    self._collect_daily_battlepass_rewards()
-                    if self.stop_event.is_set():
-                        return
-                    self._continue_daily_into_weekly_travel()
-                    return
-                completed_message = "今日日常已经完成，不再挑战无音区。"
-                self.log(f"    【提示】检测到索拉指南已自动跳过活跃度页面，{completed_message}")
-                self.notice(completed_message)
-                self._continue_daily_from_open_guide_page()
-                self.log("    日常已完成后的周度游历检查结束。")
-                return
-            for cycle_index in (1, 2):
-                if self.stop_event.is_set():
-                    return
-                self.log(f"    === 一键日常第 {cycle_index}/2 轮 ===")
-                while not self.stop_event.is_set():
-                    self._run_daily_battle(step, skill_key, ultimate_key, cycle_index)
-                    if self.stop_event.is_set():
-                        return
-                    if self._collect_daily_reward(cycle_index):
-                        break
-                self._wait_for_daily_success(cycle_index)
-                if cycle_index == 1:
-                    self._click_daily_settlement_action('restart')
-                    self._click_optional_daily_template(
-                        "insufficient_continue.png",
-                        "体力不足继续提示的确认",
-                        timeout=5.0,
-                    )
-                    self._sleep_interruptible(0.3)
-                else:
-                    self._click_daily_settlement_action('exit')
-                    self._confirm_daily_exit_if_present()
-                    self._sleep_interruptible(0.3)
-            self._collect_daily_activity_rewards()
-            self._collect_daily_battlepass_rewards()
-            self._continue_daily_into_weekly_travel()
-            self.log("    一键日常与自动周常流程完成。")
-        finally:
-            try:
-                self.controller.release_keys(("W", "A", "S", "D", "SPACE", "1", "2", "3", "4"))
-            except Exception as exc:
-                self.log(f"    释放日常任务按键时遇到问题: {exc}")
 
     def _capture_size(self, screenshot: Path | None = None) -> tuple[Path, int, int]:
         target = screenshot or (APP_DIR / "_runtime_screenshot.png")
@@ -812,7 +737,21 @@ class OtherTask:
         top = max(0, row_y - round(height * 0.03))
         bottom = min(height, row_y + round(height * 0.03))
         row = image[top:bottom, round(width * 0.105):round(width * 0.34)]
-        return bool(row.size and float((row.min(axis=2) > 170).mean()) > 0.5)
+        if not row.size or float((row.min(axis=2) > 170).mean()) <= .5:
+            return False
+        # Activity reward cards are pale too. Require the actual submenu text,
+        # accepting both dark selected lettering and light unselected lettering.
+        with Image.open(TEMPLATES_DIR/'daily'/'guide_tacet_section.png') as label:
+            label = label.convert('L').crop((0, 0, 116, 35))
+            gray = np.asarray(Image.fromarray(row).convert('L'), dtype=np.float64)/255
+            for scale in (width/1920, width/1920*.96, width/1920*1.04):
+                patch = np.asarray(label.resize((round(label.width*scale), round(label.height*scale))), dtype=np.float64)/255
+                if patch.shape[0] > gray.shape[0] or patch.shape[1] > gray.shape[1]:
+                    continue
+                if max(_match_single_scale_gray(gray, patch).score,
+                       _match_single_scale_gray(gray, 1-patch).score) >= .82:
+                    return True
+        return False
 
     def _select_daily_tacet_section(self) -> None:
         screenshot = APP_DIR / "_runtime_screenshot.png"
@@ -830,7 +769,15 @@ class OtherTask:
                 screenshot=screenshot,
             )
             if match is None:
-                self._sleep_interruptible(0.4)
+                battle = self._find_daily_template('guide_battle_tab.png', threshold=.84,
+                    region=(round(width*.015), round(height*.20), round(width*.095), round(height*.45)),
+                    scales=[self._fast_scales()[0]], screenshot=screenshot)
+                if battle is not None and attempt < 2:
+                    self.log('    尚未看到无音清剿分类，重新定位挑战入口并等待页面切换。')
+                    self.controller.tap(*battle.center)
+                    self._sleep_interruptible(1.2)
+                else:
+                    self._sleep_interruptible(.4)
                 continue
             # Click the row center, below the label. Its old hardcoded y=0.695
             # landed on the upper edge and could leave the wrong category open.

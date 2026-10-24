@@ -108,7 +108,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
 APP_VERSION = "1.5.6"
-APP_BUILD = 1
+APP_BUILD = 2
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -202,6 +202,11 @@ UPDATE_NOTICE = """v1.3.5 更新内容
 2. 请将游戏窗口调整为 1920*1080p 或等比例缩放。
 3. 请先完成周本的新手教程，并将速度调整至 MAX。"""
 UPDATE_HISTORY = [
+    ('v1.5.6', '''WWBS 1.5.6 正式版（构建2）
+日常除战斗与光球领取外，恢复1.5.4正式版的进本、重开、退出、活跃度及电台领取流程。
+保留已复现的菜单文字核对，防止把活跃度白色任务卡当成“无音清剿已选中”。
+本地继承可按目录查看键位来源；确认后同步当前键位并防止旧窗口保存覆盖，重启后记录实际键位。
+更新新增项目下载中转、线路测速、慢连接切换与4MB分段续传；仍校验GitHub提供的SHA256。'''),
     ('v1.5.6', '''WWBS 1.5.6 正式版
 新增日常光球置信度选项（设置中45%～95%，默认45%），保存并随本地设置继承。
 日常单次转向从120增至300；连续12次未超过阈值时，改为向外螺旋移动搜索。
@@ -2057,6 +2062,8 @@ class App:
         }.get(normalized, normalized)
 
     def _save_combat_settings(self, announce: bool = True) -> None:
+        if getattr(self, '_settings_import_committed', False):
+            return
         try:
             normalized_skill = ClientWindowController.normalize_input_binding(self.combat_skill_key.get())
             normalized_ultimate = ClientWindowController.normalize_input_binding(self.combat_ultimate_key.get())
@@ -3441,6 +3448,8 @@ class App:
             500, lambda: self._rotation_commit_time(slot, preset_id))
 
     def _rotation_commit_time(self, slot: int, preset_id: str | None = None) -> bool:
+        if getattr(self, '_settings_import_committed', False):
+            return False
         if preset_id and preset_id != self._rotation_editing_id:
             return False
         pending = self._rotation_time_jobs.pop(slot, None)
@@ -3472,6 +3481,8 @@ class App:
         self._rotation_time_jobs.clear()
 
     def _rotation_save(self) -> bool:
+        if getattr(self, '_settings_import_committed', False):
+            return False
         try:
             proposal = json.loads(json.dumps(self.rotation_store, ensure_ascii=False))
             preset = next(item for item in proposal["presets"]
@@ -4960,7 +4971,8 @@ class App:
             command = [sys.executable]
         else:
             command = [sys.executable, str(Path(__file__).resolve())]
-        subprocess.Popen(command, cwd=str(APP_DIR))
+        subprocess.Popen(command, cwd=str(USER_SETTINGS_DIR),
+                         env=dict(os.environ, PYINSTALLER_RESET_ENVIRONMENT='1'))
         self._close_app()
 
     @staticmethod
@@ -5734,6 +5746,37 @@ class App:
             previous.destroy()
         self._detect_local_settings(search_roots=[folder])
 
+    def _choose_detected_settings(self):
+        sources = getattr(self, '_settings_scan_sources', [])
+        if not sources:
+            self._choose_local_settings()
+            return
+        dialog, controls, text = self._rotation_seed_window('选择继承来源', '选择确实使用过的旧目录；随后仍需核对并确认继承。')
+        text.pack_forget()
+        listing = Listbox(text.master, height=12, exportselection=False)
+        listing.pack(fill=BOTH, expand=True)
+        for source in sources:
+            try:
+                keyfile = source.files.get('combat-settings.json')
+                keys = json.loads(keyfile.read_text(encoding='utf-8')) if keyfile else {}
+                summary = f"技能 {keys.get('skill_key', '未保存')} / 大招 {keys.get('ultimate_key', '未保存')}"
+            except (OSError, ValueError):
+                summary = '键位文件无法读取'
+            listing.insert(END, f'{source.version} | {summary} | {source.root}')
+        listing.selection_set(0)
+        def choose():
+            selected = listing.curselection()
+            if not selected:
+                return
+            folder = sources[selected[0]].root
+            dialog.destroy()
+            previous = getattr(self, '_settings_import_window', None)
+            if previous is not None and previous.winfo_exists():
+                previous.destroy()
+            self._detect_local_settings(search_roots=[folder])
+        self._ui_button(controls, text='使用所选来源', command=choose).pack(side=RIGHT)
+        self._ui_button(controls, text='关闭', command=dialog.destroy).pack(side=RIGHT, padx=8)
+
     def _detect_local_settings(self, automatic=False, search_roots=None) -> None:
         previous = getattr(self, '_settings_import_window', None)
         if previous is not None and previous.winfo_exists():
@@ -5762,7 +5805,8 @@ class App:
             try:
                 source = discover_latest(USER_SETTINGS_DIR, APP_VERSION, (search_roots if search_roots is not None else default_search_roots(USER_SETTINGS_DIR)),
                                          cancelled=cancelled.is_set,
-                                         progress=lambda checked, found: results.put(('progress', (checked, found))))
+                                         progress=lambda checked, found: results.put(('progress', (checked, found))),
+                                         sources=lambda items: results.put(('sources', items)))
                 plan = prepare_import(source, USER_SETTINGS_DIR) if source else None
                 results.put(('done', plan))
             except Exception as exc:
@@ -5817,6 +5861,9 @@ class App:
             return
         while not results.empty():
             kind, value = results.get_nowait()
+            if kind == 'sources':
+                self._settings_scan_sources = value
+                continue
             if kind == 'progress':
                 self._set_settings_scan_status(f'已检查 {value[0]} 个文件夹，找到 {value[1]} 个可继承版本…')
                 continue
@@ -5853,6 +5900,8 @@ class App:
             messagebox.showerror('本地设置继承未完成', error, parent=self.root)
         else:
             self._log(f"已继承并核对 {receipt['version']} 的 {len(receipt['hashes'])} 项设置。来源：{receipt['source']}")
+            if 'combat-settings.json' in receipt['hashes']:
+                self._log(f'继承后的实际键位：技能 {self.combat_skill_key.get()}；大招 {self.combat_ultimate_key.get()}。')
 
     def _offer_local_settings(self, plan, automatic):
         self._settings_scan_running = False
@@ -5895,15 +5944,22 @@ class App:
                 messagebox.showinfo('无需继承', '来源设置与当前相同，未修改设置，也无需重启。请核对来源目录，或选择其他旧版本文件夹。', parent=dialog)
                 return
             try:
+                self._settings_import_committed = True
                 apply_import(plan, USER_SETTINGS_DIR)
+                if 'combat-settings.json' in plan.payloads:
+                    keys = json.loads(plan.payloads['combat-settings.json'])
+                    self.combat_skill_key.set(self._combat_binding_display(keys.get('skill_key', 'E')))
+                    self.combat_ultimate_key.set(self._combat_binding_display(keys.get('ultimate_key', 'R')))
                 save_import_receipt(plan, USER_SETTINGS_DIR)
                 save_discovery_state(USER_SETTINGS_DIR, APP_VERSION, str(plan.source.root))
             except (OSError, ValueError) as exc:
+                self._settings_import_committed = False
                 messagebox.showerror('继承失败', str(exc), parent=dialog)
                 return
             self._log(f'已继承 {plan.source.version} 的本地设置，正在重启。')
             dialog.destroy()
             self._restart_app()
+        self._ui_button(controls, text='选择其他来源', command=self._choose_detected_settings).pack(side=LEFT, pady=10)
         self._ui_button(controls, text='选择其他文件夹', command=self._choose_local_settings).pack(side=LEFT, pady=10)
         cancel_button = self._ui_button(controls, text='取消', command=cancel)
         cancel_button.pack(side=RIGHT, pady=10)

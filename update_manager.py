@@ -17,6 +17,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 
 from local_settings import SETTINGS
 from update_transfer import download_ranges
+from update_routes import relay_url
 
 
 def create_update_work(target: Path) -> Path:
@@ -60,12 +61,21 @@ def download_asset(asset: dict, destination: Path, *, version: str, progress=lam
                    cancelled=lambda: False, opener=urllib.request.urlopen, sleep=time.sleep,
                    refresh=None, cache_dir=None, status=lambda _text: None) -> dict:
     asset=dict(asset)
+    if opener is urllib.request.urlopen:
+        relay = relay_url(asset, version)
+        if relay:
+            asset['_wwbs_relay'] = relay
     errors = []
     restart=False
     ranges=True
+    relay_enabled = opener is urllib.request.urlopen or bool(asset.get('_wwbs_relay'))
     for attempt in range(3):
         if cancelled():
             raise InterruptedError('更新已取消，原程序未改动')
+        if relay_enabled:
+            relay = relay_url(asset, version)
+            if relay:
+                asset['_wwbs_relay'] = relay
         expected = int(asset.get('size') or 0)
         if expected < 0 or expected > 512*1024*1024:
             raise ValueError('安装包大小不符合预期')
@@ -117,8 +127,8 @@ def download_asset(asset: dict, destination: Path, *, version: str, progress=lam
         request = urllib.request.Request(url, headers=headers)
         try:
             with opener(request, timeout=30) as response:
-                status=getattr(response,'status',200)
-                if status==206:
+                response_status=getattr(response,'status',200)
+                if response_status==206:
                     content_range=response.headers.get('Content-Range','')
                     match=re.fullmatch(r'bytes (\d+)-(\d+)/(\d+)',content_range)
                     if (not match or int(match[1])!=offset or int(match[2])<offset

@@ -129,7 +129,7 @@ class Installation:
 
 
 def discover_latest(current: Path, current_version: str, roots: list[Path], *, cancelled=lambda: False,
-                    progress=lambda checked, found: None, timeout=30):
+                    progress=lambda checked, found: None, timeout=30, sources=lambda items: None):
     current = current.resolve()
     found, visited = [], set()
     pending = deque((Path(root), 0) for root in roots)
@@ -177,7 +177,9 @@ def discover_latest(current: Path, current_version: str, roots: list[Path], *, c
     def order(installation):
         newest = max((p.stat().st_mtime_ns for p in installation.files.values()), default=0)
         return version_key(installation.version), newest, str(installation.root)
-    return max(found, key=order)
+    ordered = sorted(found, key=order, reverse=True)
+    sources(ordered)
+    return ordered[0]
 
 
 def default_search_roots(current: Path) -> list[Path]:
