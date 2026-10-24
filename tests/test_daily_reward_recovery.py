@@ -185,20 +185,15 @@ class RewardRecoveryFlowTests(unittest.TestCase):
                          [(.945,.868)])
         runner._return_to_terminal_from_daily_page.assert_called_once_with()
 
-    def test_150_confirmed_twice_skips_combat_but_still_claims_all_rewards(self):
-        runner=self.runner()
-        runner.daily_zone_name=app.DAILY_ZONE_NAMES[0]
-        runner._daily_activity_confirmed_full=True
-        runner._open_daily_tacet_field=Mock(return_value=False)
-        runner._collect_daily_activity_rewards=Mock()
-        runner._collect_daily_battlepass_rewards=Mock()
-        runner._continue_daily_into_weekly_travel=Mock()
-        runner._run_daily_battle=Mock()
+    def test_completed_page_uses_restored_154_followup_without_starting_combat(self):
+        runner = self.runner()
+        runner.daily_zone_name = app.DAILY_ZONE_NAMES[0]
+        runner._open_daily_tacet_field = Mock(return_value=False)
+        runner._continue_daily_from_open_guide_page = Mock()
+        runner._run_daily_battle = Mock()
         runner._run_daily_routine(app.Step(action='daily_routine'))
         runner._run_daily_battle.assert_not_called()
-        runner._collect_daily_activity_rewards.assert_called_once_with(already_open=True)
-        runner._collect_daily_battlepass_rewards.assert_called_once()
-        runner._continue_daily_into_weekly_travel.assert_called_once()
+        runner._continue_daily_from_open_guide_page.assert_called_once()
 
     def test_pending_page_requires_two_consistent_full_counter_frames(self):
         runner=self.runner()

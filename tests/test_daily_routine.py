@@ -50,7 +50,7 @@ class DailyRoutineTests(unittest.TestCase):
         runner._tap_ratio = Mock()
         runner._run_daily_battle = Mock()
         runner._start_weekly_travel_from_selected_page = Mock()
-        with tempfile.TemporaryDirectory() as tmp, patch("tasks.other.APP_DIR", Path(tmp)):
+        with tempfile.TemporaryDirectory() as tmp, patch("tasks.other.APP_DIR", Path(tmp)), patch("tasks.daily_154.APP_DIR", Path(tmp)):
             self.material_guide_image().save(Path(tmp) / "_runtime_screenshot.png")
             runner._capture_for_matching = Mock()
             runner._continue_daily_into_weekly_travel()
@@ -85,7 +85,7 @@ class DailyRoutineTests(unittest.TestCase):
         runner._open_daily_tacet_field = Mock(return_value=True)
         runner._collect_daily_reward = Mock(return_value=True)
         runner._click_optional_daily_template = Mock(return_value=False)
-        with tempfile.TemporaryDirectory() as tmp, patch("tasks.other.APP_DIR", Path(tmp)):
+        with tempfile.TemporaryDirectory() as tmp, patch("tasks.other.APP_DIR", Path(tmp)), patch("tasks.daily_154.APP_DIR", Path(tmp)):
             self.material_guide_image().save(Path(tmp) / "_runtime_screenshot.png")
             runner._run_daily_routine(app.Step(action="daily_routine"))
         self.assertEqual(runner._run_daily_battle.call_count, 2)
@@ -93,7 +93,8 @@ class DailyRoutineTests(unittest.TestCase):
         runner._collect_daily_battlepass_rewards.assert_called_once()
         runner._start_weekly_travel_from_selected_page.assert_not_called()
         log.assert_any_call("    一键日常与自动周常流程完成。")
-        log.assert_any_call("    日常结算后二次进入索拉指南，已显示素材获取页；正常结算完成，跳过幻梦游园。")
+        runner._click_daily_template.assert_any_call("exit_instance.png", "退出副本", timeout=20.0)
+        runner._click_daily_settlement_action.assert_not_called()
 
     def test_daily_template_scale_search_stops_after_first_good_match(self):
         runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)
@@ -441,7 +442,16 @@ class DailyRoutineTests(unittest.TestCase):
             self.assertFalse(TaskRunner._guide_tacet_section_selected(path, 788))
             image[730:835, 200:660] = (220, 226, 231)
             Image.fromarray(image).save(path)
+            self.assertFalse(TaskRunner._guide_tacet_section_selected(path, 788))
+            with Image.open(app.TEMPLATES_DIR/'daily'/'guide_tacet_section.png') as label:
+                patch = 255-np.asarray(label.convert('RGB').crop((0, 0, 116, 35)))
+            image[772:807, 260:376] = patch
+            Image.fromarray(image).save(path)
             self.assertTrue(TaskRunner._guide_tacet_section_selected(path, 788))
+
+    def test_reported_activity_page_never_confirms_tacet_category(self):
+        self.assertFalse(TaskRunner._guide_tacet_section_selected(
+            Path(__file__).parent/'fixtures'/'daily-guide-activity-wrong-category.png', round(899*.73)))
 
     def test_daily_completed_notice_is_sent_to_the_customer(self):
         notice = Mock()

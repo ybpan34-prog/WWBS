@@ -12,6 +12,8 @@ import time
 import urllib.request
 from urllib.parse import urlsplit
 
+from update_routes import DownloadRoutes
+
 
 class RangesUnavailable(RuntimeError):
     pass
@@ -94,18 +96,23 @@ def _download(asset, destination, size, checksum, folder, version,
     status('正在连接官方下载服务器…')
     base = asset['browser_download_url']
     url = base+('&' if '?' in base else '?')+'wwbs_update='+str(time.time_ns())
-    request = urllib.request.Request(url, headers=dict(headers, Range='bytes=0-0'))
-    try:
-        with opener(request, timeout=8) as response:
-            _range(response, 0, 0, size)
-            direct = response.geturl()
-            parts = urlsplit(direct)
-            if parts.scheme != 'https' or parts.hostname not in {
-                    'github.com', 'api.github.com', 'release-assets.githubusercontent.com',
-                    'objects.githubusercontent.com'}:
-                raise ValueError('更新包重定向地址不是GitHub官方地址')
-    except RangesUnavailable:
-        return False
+    routes = None
+    if asset.get('_wwbs_relay'):
+        routes = DownloadRoutes([url, asset['_wwbs_relay']], headers, size, opener, cancelled, status)
+        direct = routes.select()
+    else:
+        request = urllib.request.Request(url, headers=dict(headers, Range='bytes=0-0'))
+        try:
+            with opener(request, timeout=8) as response:
+                _range(response, 0, 0, size)
+                direct = response.geturl()
+                parts = urlsplit(direct)
+                if parts.scheme != 'https' or parts.hostname not in {
+                        'github.com', 'api.github.com', 'release-assets.githubusercontent.com',
+                        'objects.githubusercontent.com'}:
+                    raise ValueError('更新包重定向地址不是GitHub官方地址')
+        except RangesUnavailable:
+            return False
     boundaries = [(size*i//4, size*(i+1)//4-1) for i in range(4)]
     paths = [folder/f'part-{index}' for index in range(4)]
     counts = []
@@ -122,44 +129,53 @@ def _download(asset, destination, size, checksum, folder, version,
 
     def worker(index):
         start, end = boundaries[index]
-        for attempt in range(3):
-            if cancelled() or abort.is_set():
-                return
-            offset = counts[index]
-            if offset == end-start+1:
-                return
-            request = urllib.request.Request(direct, headers=dict(headers, Range=f'bytes={start+offset}-{end}'))
-            try:
-                with opener(request, timeout=8) as response:
-                    _range(response, start+offset, end, size)
-                    with paths[index].open('ab') as output:
-                        while counts[index] < end-start+1:
-                            if cancelled() or abort.is_set():
-                                return
-                            read = getattr(response, 'read1', response.read)
-                            data = read(min(64*1024, end-start+1-counts[index]))
-                            if not data:
-                                raise OSError('分段下载中断')
-                            if len(data) > end-start+1-counts[index]:
-                                raise ValueError('分段响应超过请求范围')
-                            output.write(data)
-                            with lock:
-                                counts[index] += len(data)
-                                progress(sum(counts), size)
-                return
-            except RangesUnavailable:
-                abort.set()
-                with lock:
-                    errors.append(RangesUnavailable('服务器未支持分段，切换普通下载'))
-                return
-            except (OSError, ValueError, http.client.HTTPException) as exc:
-                if attempt < 2 and not cancelled() and not abort.is_set():
-                    sleep(.3*(attempt+1))
-                    continue
-                abort.set()
-                with lock:
-                    errors.append(exc)
-                return
+        while counts[index] < end-start+1:
+            for attempt in range(3):
+                if cancelled() or abort.is_set():
+                    return
+                offset = counts[index]
+                chunk_end = min(end, start+offset+4*1024*1024-1)
+                selected = routes.current if routes else direct
+                request = urllib.request.Request(selected, headers=dict(headers, Range=f'bytes={start+offset}-{chunk_end}'))
+                try:
+                    with opener(request, timeout=8) as response:
+                        _range(response, start+offset, chunk_end, size)
+                        connected, received = time.monotonic(), 0
+                        with paths[index].open('ab') as output:
+                            while start+counts[index] <= chunk_end:
+                                if cancelled() or abort.is_set():
+                                    return
+                                read = getattr(response, 'read1', response.read)
+                                data = read(min(64*1024, chunk_end+1-start-counts[index]))
+                                if not data:
+                                    raise OSError('分段下载中断')
+                                if len(data) > chunk_end+1-start-counts[index]:
+                                    raise ValueError('分段响应超过请求范围')
+                                output.write(data)
+                                received += len(data)
+                                with lock:
+                                    counts[index] += len(data)
+                                    progress(sum(counts), size)
+                                elapsed = time.monotonic()-connected
+                                if routes and elapsed >= 3 and received/elapsed < 32*1024 and attempt < 2:
+                                    routes.switch(selected)
+                                    raise OSError('当前连接过慢，续传剩余分段')
+                    break
+                except RangesUnavailable:
+                    abort.set()
+                    with lock:
+                        errors.append(RangesUnavailable('服务器未支持分段，切换普通下载'))
+                    return
+                except (OSError, ValueError, http.client.HTTPException) as exc:
+                    if routes:
+                        routes.switch(selected)
+                    if attempt < 2 and not cancelled() and not abort.is_set():
+                        sleep(.3*(attempt+1))
+                        continue
+                    abort.set()
+                    with lock:
+                        errors.append(exc)
+                    return
 
     with ThreadPoolExecutor(max_workers=4, thread_name_prefix='wwbs-download') as pool:
         list(pool.map(worker, range(4)))
