@@ -9,6 +9,17 @@ from tasks.daily_154 import Daily154Navigation
 from tasks.runner import TaskRunner
 
 
+def source_digest(node):
+    # ast.dump changed its empty-field defaults in Python 3.13.
+    def stable(value):
+        if isinstance(value, ast.AST):
+            return {'node': type(value).__name__, **{key: stable(item) for key, item in ast.iter_fields(value)}}
+        if isinstance(value, list):
+            return [stable(item) for item in value]
+        return value
+    return hashlib.sha256(json.dumps(stable(node), sort_keys=True).encode()).hexdigest()
+
+
 class Daily154Tests(unittest.TestCase):
     def test_restored_methods_match_the_published_154_source(self):
         fixture = json.loads((Path(__file__).parent/'fixtures/daily154-method-hashes.json').read_text(encoding='utf-8'))
@@ -22,7 +33,7 @@ class Daily154Tests(unittest.TestCase):
             for child in ast.walk(node):
                 if isinstance(child, ast.ImportFrom) and child.module == 'tasks.weekly_clicks':
                     child.module = 'weekly_clicks'  # Module layout changed after 1.5.4.
-            self.assertEqual(hashlib.sha256(ast.dump(node, include_attributes=False).encode()).hexdigest(), expected, name)
+            self.assertEqual(source_digest(node), expected, name)
 
     def test_combat_and_collection_stay_on_the_current_runner(self):
         runner = TaskRunner(Mock(), Mock())
