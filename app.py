@@ -25,6 +25,7 @@ from PIL import Image, ImageTk
 
 from image_matcher import TemplateMatcher
 from tasks.reward_orb_scan import orb_confidence
+from tasks.models import TaskNeedsReview
 from tasks.combat_4c_entrance import BOSS_AVATARS, BossChallengeEntrance
 from windows_client import ClientWindowController
 from display_environment import FILTER_GUIDANCE, display_findings, read_game_display
@@ -109,7 +110,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
 APP_VERSION = "1.5.6"
-APP_BUILD = 3
+APP_BUILD = 4
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -203,6 +204,11 @@ UPDATE_NOTICE = """v1.3.5 更新内容
 2. 请将游戏窗口调整为 1920*1080p 或等比例缩放。
 3. 请先完成周本的新手教程，并将速度调整至 MAX。"""
 UPDATE_HISTORY = [
+    ('v1.5.6', '''WWBS 1.5.6 正式版（构建4）
+修复先约电台奖励标签和关闭按钮的识别；已经领取完时继续，并复核返回终端。
+光球按F后必须确认实际领取界面；提示闪过或未按到时重新寻找一次光球并再次交互。
+无音消除新增带爱心目标棋子的识别，按当前棋盘计算交换，不把目标当普通颜色拖动。
+未确认棋盘或中途停止会明确显示任务未完成，不再输出完成任务或触发完成处理。'''),
     ('v1.5.6', '''WWBS 1.5.6 正式版（构建3）
 新增快捷任务「无音消除」：从完整棋盘启动，计算交换，消除稳定后重新读取；结算不继续点下一关。
 日常保持1.5.4路线，每个导航和领取步骤增加目标页面复核，未生效会重新定位并有限重试。
@@ -6971,6 +6977,11 @@ class App:
                 self._log("任务由用户手动停止，不会触发自动关机。")
             else:
                 self.root.after(0, lambda: self._handle_successful_task_completion() if self.stop_event is job_event else None)
+        except TaskNeedsReview as exc:
+            text = str(exc)
+            self._log('任务未完成，已停止输入：'+text)
+            self.root.after(0, lambda message=text: self._pet_feedback('review', message, 12000)
+                            if self.stop_event is job_event else None)
         except Exception as exc:
             if self._manual_stop_requested and self.stop_event.is_set():
                 self._log('任务已手动停止，后台操作已退出。')

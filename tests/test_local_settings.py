@@ -243,7 +243,7 @@ class LocalSettingsTests(unittest.TestCase):
             commands[text] = command
             return Mock()
         ui._ui_button = button
-        source = settings.Installation(Path('old'), '1.5.5', {})
+        source = settings.Installation(Path(tempfile.gettempdir())/'wwbs-identical-import-fixture', '1.5.5', {})
         plan = settings.ImportPlan(source, {'theme-settings.json': b'{"theme":"simple"}'},
                                    {'theme-settings.json': b'{"theme":"simple"}'})
         with patch.object(app, 'apply_import') as apply, patch.object(app, 'Label', return_value=Mock()), \

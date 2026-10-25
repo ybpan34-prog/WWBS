@@ -43,6 +43,7 @@ class OrbDirectionTests(unittest.TestCase):
         runner._daily_battle_task_present=Mock(return_value=False)
         runner._sleep_interruptible=Mock()
         runner._claim_daily_double_reward=Mock()
+        runner._wait_daily_reward_dialog=Mock(return_value='claim')
         return runner
 
     def test_above_point_eight_goes_directly_without_starting_a_scan(self):

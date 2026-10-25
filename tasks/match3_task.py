@@ -7,6 +7,7 @@ from PIL import Image
 
 from tasks.match3_solver import ranked_moves, runs
 from tasks.match3_vision import read_board
+from tasks.models import TaskNeedsReview
 from windows_ocr import WindowsOcr
 
 
@@ -35,6 +36,7 @@ class Match3Session:
         self.last_status_at = -100.
         self.remaining = None
         self.result = None
+        self.last_read_reason = ''
 
     def status(self, force=False):
         if self.ocr_disabled or (not force and time.monotonic()-self.last_status_at < 4):
@@ -70,8 +72,13 @@ class Match3Session:
             self.runner._capture_for_matching(self.path)
             if self.runner.stop_event.is_set():
                 return None
-            frame = read_board(self.path)
+            details = {}
+            frame = read_board(self.path, diagnostics=details)
             if frame is None:
+                reason = details.get('reason', '棋盘仍未稳定。')
+                if reason != self.last_read_reason:
+                    self.last_read_reason = reason
+                    self.runner.log('    棋盘复核：'+reason)
                 candidate = None
                 self.status()
                 if self.result or self.remaining == 0:
@@ -95,7 +102,11 @@ class Match3Session:
         try:
             frame = self.stable_board()
             if frame is None:
-                return self.finish('未确认完整稳定棋盘，请关闭规则、引导或其他遮挡后再启动。')
+                if runner.stop_event.is_set():
+                    return
+                if self.result == 'success':
+                    return self.finish('已识别挑战成功，保留结算界面。', completed=True)
+                return self.finish('未确认完整稳定棋盘；'+self.last_read_reason+' 请检查画面后重新启动。')
             self.status(force=True)
             budget = min(20, self.remaining) if self.remaining is not None else 20
             deadline = time.monotonic()+timeout
@@ -110,7 +121,7 @@ class Match3Session:
                 if runner.dry_run:
                     runner.log(f'    预演：建议第{move.start[0]+1}行第{move.start[1]+1}列 → '
                                f'第{move.end[0]+1}行第{move.end[1]+1}列，已知可消除{move.cleared}枚；未拖动。')
-                    return self.finish('预演完成，未操作棋盘。')
+                    return self.finish('预演完成，未操作棋盘。', completed=True)
                 # Re-read immediately before input. A skill or cascade can
                 # change the board while planning/reading the score.
                 runner._capture_for_matching(self.path)
@@ -143,7 +154,7 @@ class Match3Session:
                 return
             self.status(force=True)
             if self.result == 'success':
-                return self.finish('已识别挑战成功，保留结算界面。')
+                return self.finish('已识别挑战成功，保留结算界面。', completed=True)
             if self.result == 'failure' or self.remaining == 0:
                 return self.finish('本局回合已结束，保留结算界面，可手动重开。')
             return self.finish('已达到本次步数或时间上限，停止输入并保留当前页面；未判定为通关。')
@@ -151,8 +162,12 @@ class Match3Session:
             if self.ocr is not None:
                 self.ocr.close()
 
-    def finish(self, message):
+    def finish(self, message, *, completed=False):
+        if self.runner.stop_event.is_set():
+            return
         self.runner.log('    '+message)
+        if not completed:
+            raise TaskNeedsReview('无音消除：'+message)
         self.runner.warning('无音消除：'+message)
 
 
