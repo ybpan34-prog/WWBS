@@ -6,6 +6,7 @@ from dataclasses import dataclass
 class Tile:
     color: int
     special: str = ''
+    health: int = 0
 
 
 UNKNOWN = Tile(-1)
@@ -29,12 +30,12 @@ def runs(board):
             group = []
             for point in points+[None]:
                 tile = board[point[0]][point[1]] if point is not None else UNKNOWN
-                if group and (tile.color < 0 or tile.special == 'rainbow'
+                if group and (tile.color < 0 or tile.special in ('rainbow', 'target')
                               or tile.color != board[group[0][0]][group[0][1]].color):
                     if len(group) >= 3:
                         result.append(set(group))
                     group = []
-                if point is not None and tile.color >= 0 and tile.special != 'rainbow':
+                if point is not None and tile.color >= 0 and tile.special not in ('rainbow', 'target'):
                     group.append(point)
     return result
 
@@ -61,7 +62,7 @@ def evaluate(board, start, end):
     r, c = start
     rr, cc = end
     a, b = changed[r][c], changed[rr][cc]
-    if a.color < 0 or b.color < 0:
+    if a.color < 0 or b.color < 0 or a.special == 'target' or b.special == 'target':
         return None
     changed[r][c], changed[rr][cc] = b, a
     formed = runs(changed)
@@ -84,15 +85,28 @@ def evaluate(board, start, end):
         elif any(len(group) == 4 for group in involved):
             special = 'bomb'
     cleared = expand_specials(changed, cleared)
-    count = len(cleared)
+    targets = {(i, j) for i in range(ROWS) for j in range(COLS) if changed[i][j].special == 'target'}
+    nearby = {point for point in targets if point in cleared or any(
+        (point[0]+dr, point[1]+dc) in cleared for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)))}
+    count = len(cleared-targets)
+    # Target tiles are never selected as ordinary swappable colors. Prefer
+    # eliminations near them, then let the next real screenshot establish damage.
     value = count*10 + {'': 0, 'bomb': 28, 'cross': 60, 'rainbow': 110}[special]
+    value += sum(55 if changed[i][j].health == 1 else 30 for i, j in nearby)
     # Reward only cascades proven by the currently known pieces; never invent
     # future refill colors. This makes the chosen move reproducible.
     fallen = [[UNKNOWN for _ in range(COLS)] for _ in range(ROWS)]
     for col in range(COLS):
-        remaining = [changed[row][col] for row in range(ROWS) if (row, col) not in cleared]
-        for row, tile in zip(range(ROWS-len(remaining), ROWS), remaining):
-            fallen[row][col] = tile
+        segment_start = 0
+        # Conservatively keep target cells fixed in speculative gravity. Their
+        # actual movement/loss of hearts is read afresh after each exchange.
+        for end_row in [r for r in range(ROWS) if (r, col) in targets]+[ROWS]:
+            remaining = [changed[row][col] for row in range(segment_start, end_row) if (row, col) not in cleared]
+            for row, tile in zip(range(end_row-len(remaining), end_row), remaining):
+                fallen[row][col] = tile
+            if end_row < ROWS:
+                fallen[end_row][col] = changed[end_row][col]
+            segment_start = end_row+1
     cascades = runs(fallen)
     if cascades:
         value += len(set().union(*cascades))*7

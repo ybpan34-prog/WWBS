@@ -6,6 +6,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
+class TaskNeedsReview(RuntimeError):
+    """An incomplete task stopped safely; it must not be reported as success."""
+
+
 @dataclass
 class Step:
     action: str

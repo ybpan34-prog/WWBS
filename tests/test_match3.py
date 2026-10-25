@@ -10,6 +10,7 @@ import app
 from tasks.match3_solver import Tile, UNKNOWN, evaluate, ranked_moves, runs, expand_specials
 from tasks.match3_task import Match3Session, status_from_lines
 from tasks.match3_vision import read_board
+from tasks.models import TaskNeedsReview
 
 
 FIXTURE = Path(__file__).parent/'fixtures/match3-board-reported.png'
@@ -73,7 +74,8 @@ class Match3Tests(unittest.TestCase):
         session = Match3Session(runner)
         session.stable_board = Mock(return_value=None)
         session.status = Mock()
-        session.run(30)
+        with self.assertRaises(TaskNeedsReview):
+            session.run(30)
         runner.controller.swipe.assert_not_called()
         runner.stop_event.set()
         session.run(30)
@@ -87,7 +89,8 @@ class Match3Tests(unittest.TestCase):
         session.stable_board = Mock(side_effect=[read_board(FIXTURE), None])
         session.status = Mock()
         with patch('tasks.match3_task.read_board', return_value=None):
-            session.run(30)
+            with self.assertRaises(TaskNeedsReview):
+                session.run(30)
         runner.controller.swipe.assert_not_called()
 
     def test_dry_run_and_shortcut_do_not_change_the_board_or_shutdown(self):

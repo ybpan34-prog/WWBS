@@ -7,6 +7,7 @@ from PIL import Image
 
 from tasks.daily_154 import (Daily154Navigation, DAILY_ZONE_BUTTON_Y_OFFSETS)
 from tasks.daily_checks import DailyStepChecks
+from tasks.daily_radio import DailyRadioVision
 from tasks.terminal_navigation import terminal_target
 from tasks.tacet_navigation import tacet_card_list_present
 from tasks.combat_4c_entrance import EntranceFrame
@@ -41,7 +42,13 @@ class VerifiedDailyNavigation(Daily154Navigation):
         return self._runner._overworld_hud_ready(path) and self._runner._daily_combat_visible(path)
 
     def _world(self, path):
-        return (self._runner._overworld_hud_ready(path) and not self._runner._daily_combat_visible(path)
+        if not self._runner._overworld_hud_ready(path):
+            return False
+        # Radio weapon art/menu icons can satisfy the coarse HUD brightness
+        # check. A known open menu must not acknowledge "returned to world".
+        if self._panel(path, '先约电台') or self._panel(path) or self._terminal(path):
+            return False
+        return (not self._runner._daily_combat_visible(path)
                 and self._runner._read_daily_settlement(path) is None)
 
     def _normal(self, path):
@@ -92,6 +99,8 @@ class VerifiedDailyNavigation(Daily154Navigation):
             if not (self._panel(path) or self._panel(path, '先约电台')):
                 return False
             match = self._match(path, 'guide_close.png', .87)
+            if match is None:
+                match = DailyRadioVision(ROOT/'templates/daily').close(path)
             return self._tap(match.center) if match else False
         return self._checks.transition('退出页面并返回终端／大世界',
                                        lambda p: self._terminal(p) or self._world(p), action)

@@ -14,6 +14,7 @@ from tasks.echo_spiral import echo_spiral_steps
 from tasks.tacet_navigation import selected_tacet_label, tacet_card_list_present
 from tasks.models import Step
 from tasks.daily_settlement import DailySettlementVision
+from tasks.daily_radio import DailyRadioVision
 from tasks.terminal_navigation import terminal_target
 from tasks.reward_orb_scan import ORB_DIRECT_CONFIDENCE, ORB_SCAN_STEP, OrbDirectionSweep
 from tasks.weekly_rewards import WeeklyRewardsVision
@@ -388,6 +389,8 @@ class OtherTask:
         self._enter_terminal_destination(label)
 
     def _terminal_destination_ready(self, screenshot: Path, label: str) -> bool:
+        if label == '先约电台' and DailyRadioVision(TEMPLATES_DIR/'daily').page(screenshot):
+            return True
         with Image.open(screenshot) as image:
             width, height = image.size
         if label == '索拉指南':
@@ -1201,6 +1204,7 @@ class OtherTask:
         threshold = getattr(self, 'daily_orb_confidence', .45)
         missed_turns = 0
         route = None
+        interactions = 0
         self.log(f'    光球置信度阈值 {threshold:.0%}；转动12次未达到时改为螺旋搜索。')
         while time.monotonic() < deadline and not self.stop_event.is_set():
             self._capture_for_matching(screenshot)
@@ -1208,6 +1212,11 @@ class OtherTask:
                 self.controller.release_keys()
                 self.log(f'    第{cycle_index}轮已在挑战成功结算页，跳过找光球和再次领取。')
                 return True
+            if interactions and self._daily_reward_dialog_present(screenshot):
+                if self._wait_daily_reward_dialog() == 'claim' and not self.stop_event.is_set():
+                    self._claim_daily_double_reward(cycle_index)
+                    return True
+                continue
             prompt = self._find_daily_reward_prompt(screenshot)
             target_x, _target_y, density = self._daily_reward_orb_location(screenshot)
             # A white object must never override evidence of ongoing combat.
@@ -1225,10 +1234,25 @@ class OtherTask:
             if prompt is not None:
                 self.controller.release_keys()
                 self.controller.press_key("F", 100)
-                self.log(f"    第{cycle_index}轮：识别到“领取奖励”，已按 F。")
-                self._sleep_interruptible(0.2)
-                self._claim_daily_double_reward(cycle_index)
-                return True
+                interactions += 1
+                self.log(f"    第{cycle_index}轮：识别到“领取奖励”，第{interactions}次按 F，等待实际领取界面。")
+                state = self._wait_daily_reward_dialog()
+                if self.stop_event.is_set():
+                    return False
+                if state == 'settlement':
+                    return True
+                if state == 'claim':
+                    self._claim_daily_double_reward(cycle_index)
+                    return True
+                if state == 'combat':
+                    self.log('    交互确认期间重新看到战斗目标，停止搜索并恢复战斗。')
+                    return False
+                if interactions >= 2:
+                    raise RuntimeError('重新寻找光球并再次按F后，仍未确认进入领取界面；未当作领取成功。')
+                self.log('    按F后未进入领取界面，可能提示闪过未按到；重新寻找一次光球并接近后重试。')
+                previous_forward_confidence = None
+                sweep, route, approaching, missed_turns = None, None, False, 0
+                continue
             valid = target_x is not None and density > threshold
             if valid:
                 missed_turns = 0
@@ -1283,6 +1307,38 @@ class OtherTask:
                 previous_forward_confidence = density
             self._sleep_interruptible(0.22)
         raise RuntimeError("奖励阶段未找到“领取奖励”提示，已停止以避免误操作。")
+
+    def _wait_daily_reward_dialog(self, timeout=3.0):
+        """Only the actual claim button/settlement acknowledges an F interaction."""
+        screenshot = APP_DIR/'_runtime_screenshot.png'
+        deadline = time.monotonic()+timeout
+        previous, stable = '', 0
+        while time.monotonic() < deadline and not self.stop_event.is_set():
+            self._capture_for_matching(screenshot)
+            if self.stop_event.is_set():
+                return ''
+            if self._read_daily_settlement(screenshot) is not None:
+                state = 'settlement'
+            else:
+                if self._daily_reward_dialog_present(screenshot):
+                    state = 'claim'
+                elif self._daily_combat_visible(screenshot):
+                    state = 'combat'
+                else:
+                    state = ''
+            stable = stable+1 if state and state == previous else 1 if state else 0
+            previous = state
+            if state and stable >= 2:
+                self.log('    已用连续新截图确认'+{'claim':'实际领取界面', 'settlement':'挑战成功结算', 'combat':'战斗仍在'}[state]+'。')
+                return state
+            self._sleep_interruptible(.15)
+        return ''
+
+    def _daily_reward_dialog_present(self, screenshot):
+        with Image.open(screenshot) as image:
+            width, height = image.size
+        return self._find_daily_template('double_claim.png', threshold=.68, screenshot=screenshot,
+            region=(round(width*.50), round(height*.54), round(width*.80), round(height*.75))) is not None
 
     def _turn_daily_reward_camera(self, delta: int) -> None:
         while delta and not self.stop_event.is_set():
@@ -1648,6 +1704,8 @@ class OtherTask:
                 region=(round(width*.015), round(height*.025), round(width*.25), round(height*.13))) is not None
         # Ensure the selected icon is the radio's reward channel, not a similarly
         # positioned guide icon. Its shape remains recognizable when highlighted.
+        if DailyRadioVision(TEMPLATES_DIR/'daily').rewards_icon(screenshot):
+            return True
         return self._find_daily_template("battlepass_rewards_tab.png", threshold=.72, screenshot=screenshot,
             region=(round(width*.02), round(height*.135), round(width*.06), round(height*.215))) is not None
 
