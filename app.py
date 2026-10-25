@@ -110,7 +110,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
 APP_VERSION = "1.5.6"
-APP_BUILD = 4
+APP_BUILD = 5
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -204,6 +204,12 @@ UPDATE_NOTICE = """v1.3.5 更新内容
 2. 请将游戏窗口调整为 1920*1080p 或等比例缩放。
 3. 请先完成周本的新手教程，并将速度调整至 MAX。"""
 UPDATE_HISTORY = [
+    ('v1.5.6', '''WWBS 1.5.6 正式版（构建5）
+无音消除遇到新棋子时按未知占位格继续，不再因少数格未识别而拒绝整盘。
+仅使用已知格计算合法交换，未知格不拖动、不假定参与同色消除；大片遮挡仍等待恢复。
+补充本次真实终极棋子样式；按能量瓶三次周围消除、释放80能量的规则调整优先级。
+连续识别到“挑战成功”与“退出关卡”即完成并停留结算，不依赖文字识别组件，不再找棋盘。
+修复消除动画打断后沿用旧稳定计时的问题，减少重复复核日志。'''),
     ('v1.5.6', '''WWBS 1.5.6 正式版（构建4）
 修复先约电台奖励标签和关闭按钮的识别；已经领取完时继续，并复核返回终端。
 光球按F后必须确认实际领取界面；提示闪过或未按到时重新寻找一次光球并再次交互。
@@ -3377,7 +3383,7 @@ class App:
             messagebox.showinfo('无音消除',
                 '先进入无音消除，关闭规则和新手引导，让完整7行8列棋盘显示后点击任务。\n\n'
                 '程序识别棋子、计算相邻交换，等待消除与掉落稳定后再走下一步。角色技能由游戏自动释放。\n\n'
-                '最多操作20步；随机补子可能影响结果。识别不清会停留原页面，结算后不点下一关、不自动关机。\n'
+                '最多操作20步；随机补子可能影响结果。未知格先占位，优先走已知合法交换；无法确认可走的一步时停止。结算后不点下一关、不自动关机。\n'
                 f'随时按{STOP_HOTKEY_LABEL}停止；空闲时按同一快捷键重跑。', parent=self.root)
             return
         if notice_key == 'boss_challenge':

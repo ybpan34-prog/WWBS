@@ -178,5 +178,7 @@ class TargetBoardTests(unittest.TestCase):
             path = Path(directory)/'unknown.png'
             image.save(path)
             details = {}
-            self.assertIsNone(read_board(path, details))
-            self.assertIn('第1行第1列', details['reason'])
+            partial = read_board(path, details)
+            self.assertIsNotNone(partial)
+            self.assertLess(partial.tiles[0][0].color, 0)
+            self.assertIn((0, 0), details['unknown'])

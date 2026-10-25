@@ -11,6 +11,7 @@ class Tile:
 
 UNKNOWN = Tile(-1)
 ROWS, COLS = 7, 8
+BOTTLE_RELEASE_ENERGY = 80
 
 
 @dataclass(frozen=True)
@@ -88,19 +89,20 @@ def evaluate(board, start, end):
     targets = {(i, j) for i in range(ROWS) for j in range(COLS) if changed[i][j].special == 'target'}
     nearby = {point for point in targets if point in cleared or any(
         (point[0]+dr, point[1]+dc) in cleared for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)))}
-    count = len(cleared-targets)
+    count = sum(changed[r][c].color >= 0 and changed[r][c].special != 'target' for r, c in cleared)
     # Target tiles are never selected as ordinary swappable colors. Prefer
     # eliminations near them, then let the next real screenshot establish damage.
     value = count*10 + {'': 0, 'bomb': 28, 'cross': 60, 'rainbow': 110}[special]
-    value += sum(55 if changed[i][j].health == 1 else 30 for i, j in nearby)
+    value += sum(BOTTLE_RELEASE_ENERGY+30 if changed[i][j].health == 1 else 30 for i, j in nearby)
     # Reward only cascades proven by the currently known pieces; never invent
     # future refill colors. This makes the chosen move reproducible.
     fallen = [[UNKNOWN for _ in range(COLS)] for _ in range(ROWS)]
+    blockers = targets | {(r, c) for r in range(ROWS) for c in range(COLS) if changed[r][c].color < 0}
     for col in range(COLS):
         segment_start = 0
         # Conservatively keep target cells fixed in speculative gravity. Their
         # actual movement/loss of hearts is read afresh after each exchange.
-        for end_row in [r for r in range(ROWS) if (r, col) in targets]+[ROWS]:
+        for end_row in [r for r in range(ROWS) if (r, col) in blockers]+[ROWS]:
             remaining = [changed[row][col] for row in range(segment_start, end_row) if (row, col) not in cleared]
             for row, tile in zip(range(end_row-len(remaining), end_row), remaining):
                 fallen[row][col] = tile

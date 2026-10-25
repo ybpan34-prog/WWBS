@@ -1,12 +1,13 @@
 """Read the supplied 7×8 board, rejecting overlays and unrecognised tiles."""
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
 
-from tasks.match3_solver import Tile, ROWS, COLS
+from image_matcher import TemplateMatcher
+from tasks.match3_solver import Tile, UNKNOWN, ROWS, COLS
 
 
 ASSETS = Path(__file__).resolve().parent.parent/'templates/match3'
@@ -23,6 +24,28 @@ def feature(image):
 @lru_cache(maxsize=1)
 def references():
     return np.array([feature(Image.open(ASSETS/(name+'.png'))) for name in NAMES])
+
+
+@lru_cache(maxsize=1)
+def rainbow_reference():
+    with Image.open(ASSETS/'rainbow_native.png') as source:
+        return feature(source)
+
+
+def success_present(path):
+    with Image.open(path) as source:
+        width, height = source.size
+    if abs(width/height-16/9) > .04:
+        return False
+    matcher = TemplateMatcher(ASSETS)
+    for name, box in (('success_title_native.png', (.35, .40, .66, .62)),
+                      ('exit_level_native.png', (.33, .81, .68, .97))):
+        region = tuple(round(value*(width if i % 2 == 0 else height)) for i, value in enumerate(box))
+        try:
+            matcher.find_fast(path, name, threshold=.84, scale=width/1600, region=region)
+        except (OSError, RuntimeError):
+            return False
+    return True
 
 
 @lru_cache(maxsize=1)
@@ -50,6 +73,33 @@ class BoardFrame:
         return self.tiles
 
 
+def shared_board(first, second):
+    """Keep mutually confirmed cells; unfamiliar sprites cannot reset a board."""
+    if first.centers != second.centers:
+        return None
+    if first.tiles == second.tiles:
+        return second
+    shared, confirmed = [], 0
+    for row in range(ROWS):
+        values = []
+        for col in range(COLS):
+            a, b = first.tiles[row][col], second.tiles[row][col]
+            if a.color >= 0 and b.color >= 0:
+                if a != b:
+                    return None
+                values.append(b)
+                confirmed += 1
+            else:
+                values.append(UNKNOWN)
+        shared.append(tuple(values))
+    return replace(second, tiles=tuple(shared), confidence=min(first.confidence, second.confidence)) if confirmed >= 8 else None
+
+
+def known_change(before, after):
+    return any(a.color >= 0 and b.color >= 0 and a != b
+               for old_row, new_row in zip(before, after) for a, b in zip(old_row, new_row))
+
+
 def read_board(path, diagnostics=None):
     def reject(reason):
         if diagnostics is not None:
@@ -72,13 +122,14 @@ def read_board(path, diagnostics=None):
     if not all(len(band) for band in (left, right, upper, lower)):
         return reject('未找到完整棋盘边框，可能有遮挡、弹窗或画面仍在切换。')
     refs = references()
-    tiles, centers, scores = [], [], []
+    tiles, centers, scores, unknown, obscured = [], [], [], [], []
     for row in range(ROWS):
         values, points = [], []
         for col in range(COLS):
             x, y = 773+102.85*col, 163+102.5*row
             candidates = []
             target_candidates = []
+            rainbow_scores = []
             for ox, oy in ((a, b) for a in (-4, 0, 4) for b in (-4, 0, 4)):
                 crop = normal.crop((round(x-34+ox), round(y-34+oy), round(x+34+ox), round(y+34+oy)))
                 data = np.asarray(crop)
@@ -87,11 +138,22 @@ def read_board(path, diagnostics=None):
                 vector = feature(crop)
                 ncc = (refs@vector)/len(vector)
                 candidates.append(ncc)
+                rainbow_scores.append(float(rainbow_reference()@vector/len(vector)))
                 target_score = float(target_reference()@feature(crop.crop((0, 24, 68, 68)))/len(vector))
                 target_candidates.append((target_score, crop))
             if not candidates:
-                return reject(f'第{row+1}行第{col+1}列棋子过暗或被遮挡。')
+                values.append(UNKNOWN)
+                points.append((round(x*width/1600), round(y*height/900)))
+                unknown.append((row, col))
+                obscured.append((row, col))
+                continue
             scores_by_type = np.max(candidates, axis=0)
+            rainbow_score = max(rainbow_scores)
+            if rainbow_score >= .82 and rainbow_score > float(scores_by_type[:7].max())+.08:
+                values.append(Tile(5, 'rainbow'))
+                points.append((round(x*width/1600), round(y*height/900)))
+                scores.append(rainbow_score)
+                continue
             target_score, target_crop = max(target_candidates, key=lambda item: item[0])
             if target_score >= .82 and target_score > float(scores_by_type.max())+.03:
                 values.append(Tile(6, 'target', target_hearts(target_crop)))
@@ -106,10 +168,22 @@ def read_board(path, diagnostics=None):
             score = float(scores_by_type[index])
             other_colors = [scores_by_type[i] for i in range(len(TILES)) if TILES[i].color != TILES[index].color]
             if score < .74 or score-max(other_colors) < .09:
-                return reject(f'第{row+1}行第{col+1}列棋子未确认（相似度{score:.2f}），等待重读。')
-            values.append(TILES[index])
+                values.append(UNKNOWN)
+                unknown.append((row, col))
+            else:
+                values.append(TILES[index])
+                scores.append(score)
             points.append((round(x*width/1600), round(y*height/900)))
-            scores.append(score)
         tiles.append(tuple(values))
         centers.append(tuple(points))
-    return BoardFrame(tuple(tiles), tuple(centers), min(scores))
+    if diagnostics is not None:
+        diagnostics['unknown'] = unknown
+    # A few unfamiliar level-specific tiles are blockers, not a reason to reject
+    # the entire board. Large obscured areas still cannot authorize input.
+    if len(unknown) > 40 or len(obscured) > 14:
+        return reject(f'只有{ROWS*COLS-len(unknown)}格可确认，棋盘可能被大面积遮挡。')
+    obscured_set = set(obscured)
+    if any(sum((r, c) in obscured_set for r in range(top, top+3) for c in range(left, left+3)) >= 8
+           for top in range(ROWS-2) for left in range(COLS-2)):
+        return reject('棋盘有连续大片未识别区域，可能存在弹窗遮挡，等待恢复。')
+    return BoardFrame(tuple(tiles), tuple(centers), min(scores) if scores else 0.)

@@ -5,8 +5,8 @@ import time
 
 from PIL import Image
 
-from tasks.match3_solver import ranked_moves, runs
-from tasks.match3_vision import read_board
+from tasks.match3_solver import evaluate, ranked_moves, runs
+from tasks.match3_vision import read_board, success_present, shared_board, known_change
 from tasks.models import TaskNeedsReview
 from windows_ocr import WindowsOcr
 
@@ -39,7 +39,7 @@ class Match3Session:
         self.last_read_reason = ''
 
     def status(self, force=False):
-        if self.ocr_disabled or (not force and time.monotonic()-self.last_status_at < 4):
+        if self.result or self.ocr_disabled or (not force and time.monotonic()-self.last_status_at < 4):
             return
         self.last_status_at = time.monotonic()
         try:
@@ -68,10 +68,21 @@ class Match3Session:
         deadline = time.monotonic()+timeout
         candidate = None
         stable_at = 0.
+        success_frames = 0
+        unknown_cells = None
         while time.monotonic() < deadline and not self.runner.stop_event.is_set():
             self.runner._capture_for_matching(self.path)
             if self.runner.stop_event.is_set():
                 return None
+            if success_present(self.path):
+                success_frames += 1
+                candidate = None
+                if success_frames >= 2:
+                    self.result = 'success'
+                    return None
+                self.runner._sleep_interruptible(.18)
+                continue
+            success_frames = 0
             details = {}
             frame = read_board(self.path, diagnostics=details)
             if frame is None:
@@ -84,15 +95,23 @@ class Match3Session:
                 if self.result or self.remaining == 0:
                     return None
             elif not runs(frame.tiles):
+                current_unknown = tuple(details.get('unknown', ()))
+                if current_unknown and current_unknown != unknown_cells:
+                    self.runner.log(f'    {len(current_unknown)}格暂未识别，作为占位格；继续从已知格计算合法交换。')
+                unknown_cells = current_unknown
                 # Settling pieces may look individually valid for one frame.
                 # Two identical reads at least .35s apart must also have no
                 # uncleared ordinary match before the next action.
-                if candidate is not None and candidate.signature == frame.signature:
+                shared = shared_board(candidate, frame) if candidate is not None else None
+                if shared is not None:
+                    candidate = shared
                     if time.monotonic()-stable_at >= .35:
-                        if previous is None or previous != frame.signature:
-                            return frame
+                        if previous is None or known_change(previous, shared.tiles):
+                            return shared
                 else:
                     candidate, stable_at = frame, time.monotonic()
+            else:
+                candidate = None  # A pending elimination breaks stability.
             self.runner._sleep_interruptible(.18)
         return None
 
@@ -116,7 +135,7 @@ class Match3Session:
                     break
                 moves = ranked_moves(frame.tiles)
                 if not moves:
-                    return self.finish('当前稳定棋盘没有确认可消除的交换，已停留原页面，请检查是否需要重排。')
+                    return self.finish('已知格中暂时没有可确认的合法交换，保留当前画面；未知格不会被盲目拖动。')
                 move = moves[0]
                 if runner.dry_run:
                     runner.log(f'    预演：建议第{move.start[0]+1}行第{move.start[1]+1}列 → '
@@ -126,9 +145,12 @@ class Match3Session:
                 # change the board while planning/reading the score.
                 runner._capture_for_matching(self.path)
                 latest = read_board(self.path)
-                if latest is None or latest.signature != frame.signature:
+                shared = shared_board(frame, latest) if latest is not None else None
+                refreshed_move = evaluate(shared.tiles, move.start, move.end) if shared is not None else None
+                if refreshed_move is None:
                     frame = self.stable_board()
                     continue
+                frame, move = shared, refreshed_move
                 if runner.stop_event.is_set():
                     return
                 a, b = frame.centers[move.start[0]][move.start[1]], frame.centers[move.end[0]][move.end[1]]
