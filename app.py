@@ -110,7 +110,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
 APP_VERSION = "1.5.6"
-APP_BUILD = 5
+APP_BUILD = 6
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -204,6 +204,10 @@ UPDATE_NOTICE = """v1.3.5 更新内容
 2. 请将游戏窗口调整为 1920*1080p 或等比例缩放。
 3. 请先完成周本的新手教程，并将速度调整至 MAX。"""
 UPDATE_HISTORY = [
+    ('v1.5.6', '''WWBS 1.5.6 正式版（构建6）
+无音消除拖动未生效时不再报错退出：重新读取棋盘，反向稍慢重试，连续无响应则换另一合法交换。
+只有一次合法交换可选时也会重新确认后继续尝试；失效的发送次数不消耗20步预算。
+短暂无法读取拖动结果时继续等待恢复；结算、剩余回合耗尽、停止快捷键和原有总时限仍生效。'''),
     ('v1.5.6', '''WWBS 1.5.6 正式版（构建5）
 无音消除遇到新棋子时按未知占位格继续，不再因少数格未识别而拒绝整盘。
 仅使用已知格计算合法交换，未知格不拖动、不假定参与同色消除；大片遮挡仍等待恢复。
