@@ -642,6 +642,8 @@ class RotationTests(unittest.TestCase):
                  patch.object(app.threading, 'Thread') as thread:
                 window = self.build_ui(root)
                 window.worker = None
+                window.max_cycles = None
+                window.dry_run = tk.BooleanVar(root, value=False)
                 window.stop_event = threading.Event()
                 window._ensure_admin_for_real_run = Mock(return_value=True)
                 window._pet_feedback = Mock()

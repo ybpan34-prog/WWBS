@@ -1,4 +1,5 @@
 import json
+import copy
 import ctypes
 from ctypes import wintypes
 import io
@@ -33,7 +34,7 @@ from update_manager import (create_update_work, download_asset, refresh_release_
                             signal_update_ready)
 from local_settings import (apply_import, bootstrap_own_settings, default_search_roots,
                             discover_latest, discovery_needed, prepare_import, save_discovery_state,
-                            snapshot_settings, describe_import, save_import_receipt, verify_import_receipt, changed_settings)
+                            snapshot_settings, describe_import, save_import_receipt, verify_import_receipt, changed_settings, excluded_settings_source)
 from combat_rotation import ACTION_SPECS, COMBAT_MODES, SLOT_NAMES, active_modules, default_store, load_store, new_module, save_store, validate_store
 from combat_seed import decode_seed, export_seed, import_seed
 from seed_library import download_seed, search_seeds, upload_seed
@@ -108,7 +109,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
 APP_VERSION = "1.5.6"
-APP_BUILD = 2
+APP_BUILD = 3
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -202,6 +203,12 @@ UPDATE_NOTICE = """v1.3.5 更新内容
 2. 请将游戏窗口调整为 1920*1080p 或等比例缩放。
 3. 请先完成周本的新手教程，并将速度调整至 MAX。"""
 UPDATE_HISTORY = [
+    ('v1.5.6', '''WWBS 1.5.6 正式版（构建3）
+新增快捷任务「无音消除」：从完整棋盘启动，计算交换，消除稳定后重新读取；结算不继续点下一关。
+日常保持1.5.4路线，每个导航和领取步骤增加目标页面复核，未生效会重新定位并有限重试。
+修复无音清剿已选中却误报未选中，加入反馈截图中的文字样式与右侧无音区列表交叉核对。
+修复本地设置选择来源窗口无法点击；排除当前安装及构建、测试目录。
+Ctrl+Alt+S运行时立即停止输入并释放按键，空闲时重跑上次任务，防止长按导致误启动。'''),
     ('v1.5.6', '''WWBS 1.5.6 正式版（构建2）
 日常除战斗与光球领取外，恢复1.5.4正式版的进本、重开、退出、活跃度及电台领取流程。
 保留已复现的菜单文字核对，防止把活跃度白色任务卡当成“无音清剿已选中”。
@@ -1106,6 +1113,8 @@ class App:
         self._hotkey_registered = False
         self._hotkey_ready = threading.Event()
         self._hotkey_triggered = threading.Event()
+        self._hotkey_stop_only = threading.Event()
+        self._hotkey_shutdown = threading.Event()
         self._hotkey_status_reported = False
         self._hotkey_poll_job = None
         self._hotkey_was_down = False
@@ -1115,6 +1124,9 @@ class App:
         self._preflight_running = False
         self._last_started_tasks: list[WeeklyTask] = []
         self._last_task_started_at = 0.0
+        self._last_job_options = {}
+        self._active_runner = None
+        self._active_controller = None
 
         self._build_ui()
         for key in ('target_mode','window_title','expected_resolution','adb_path','device_id'):
@@ -2730,7 +2742,7 @@ class App:
 
     @staticmethod
     def _normalize_start_action_order(saved) -> list[str]:
-        defaults = ["weekly_rewards", "weekly_astrite", "daily", "combat_4c_10", "combat_4c_custom", "boss_challenge", "tower"]
+        defaults = ["weekly_rewards", "weekly_astrite", "daily", "combat_4c_10", "combat_4c_custom", "boss_challenge", "tower", "match3"]
         if not isinstance(saved, list):
             return defaults
         ordered = []
@@ -3236,11 +3248,15 @@ class App:
         )
         self._make_start_action_card(action_list, "tower", "深塔挑战", "靠近光球后开战，挑战成功后停止",
                                      self._start_tower_challenge, "tower")
+        self._make_start_action_card(action_list, "match3", "无音消除", "打开棋盘后启动，自动计算交换；每步重读，结算后停止",
+                                     self._start_match3_puzzle, "match3")
         self._repack_start_action_cards()
         Label(left, text="提示：将鼠标放在无音区或键位上滚动滚轮，可快速切换选项。",
               fg=COLORS["muted"], bg=COLORS["panel"],
               wraplength=430, justify=LEFT).pack(anchor="w", pady=(1, 4))
         self._rounded_button(left, f"停止当前任务（{STOP_HOTKEY_LABEL}）", self._stop).pack(fill=X, pady=(3, 11))
+        Label(left, text='快捷键：运行时快速停止，空闲时重新运行上次任务。',
+              fg=COLORS['muted'], bg=COLORS['panel'], wraplength=500).pack(anchor='w', pady=(0, 8))
 
         Label(left, text="桌宠", font=(FONT_FAMILY, 13, "bold"), bg=COLORS["panel"]).pack(anchor="w", pady=(13, 0))
         pet_shell, pet_box = self._rounded_panel(left, padding=12)
@@ -3351,6 +3367,13 @@ class App:
         return button
 
     def _show_run_notice(self, notice_key: str) -> None:
+        if notice_key == 'match3':
+            messagebox.showinfo('无音消除',
+                '先进入无音消除，关闭规则和新手引导，让完整7行8列棋盘显示后点击任务。\n\n'
+                '程序识别棋子、计算相邻交换，等待消除与掉落稳定后再走下一步。角色技能由游戏自动释放。\n\n'
+                '最多操作20步；随机补子可能影响结果。识别不清会停留原页面，结算后不点下一关、不自动关机。\n'
+                f'随时按{STOP_HOTKEY_LABEL}停止；空闲时按同一快捷键重跑。', parent=self.root)
+            return
         if notice_key == 'boss_challenge':
             messagebox.showinfo('战歌重奏自动刷取',
                 '从可打开索拉指南的大世界开始。\n\n'
@@ -5449,6 +5472,9 @@ class App:
         threading.Thread(target=work, daemon=True).start()
 
     def _close_app(self) -> None:
+        if getattr(self, '_hotkey_shutdown', None) is not None:
+            self._hotkey_shutdown.set()
+        self._request_stop_now()
         if getattr(self, '_boss_rain_watcher', None) is not None:
             self._boss_rain_watcher.close()
         if getattr(self, 'rain_overlay', None) is not None:
@@ -5478,36 +5504,70 @@ class App:
             self.desktop_pet.close()
         self.root.destroy()
 
+    def _request_stop_now(self):
+        """Thread-safe: never wait for Tk, screenshots, a hold, or a worker join."""
+        self._manual_stop_requested = True
+        self.stop_event.set()
+        runner = getattr(self, '_active_runner', None)
+        if runner is not None:
+            runner._combat_input_cancel.set()
+            idle = getattr(runner, '_rotation_idle_worker', None)
+            if idle is not None:
+                idle.pause_event.set()
+        controller = getattr(self, '_active_controller', None)
+        if controller is not None and callable(getattr(controller, 'emergency_stop', None)):
+            try:
+                controller.emergency_stop()
+            except (OSError, RuntimeError):
+                pass
+
+    def _publish_hotkey_press(self):
+        worker = getattr(self, 'worker', None)
+        if worker is not None and worker.is_alive():
+            self._request_stop_now()
+            self._hotkey_stop_only.set()
+        self._hotkey_triggered.set()
+
     def _start_stop_hotkey(self) -> None:
         self.root.bind_all("<Control-Alt-s>", self._handle_local_stop_hotkey, add="+")
-
-        def listen() -> None:
+        if not hasattr(self, '_hotkey_shutdown'):
+            self._hotkey_shutdown = threading.Event()
+            self._hotkey_stop_only = threading.Event()
+        self._hotkey_listener_active = True
+        def listen():
             try:
                 self._hotkey_thread_id = int(ctypes.windll.kernel32.GetCurrentThreadId())
-                modifiers = MOD_CONTROL | MOD_ALT | MOD_NOREPEAT
-                self._hotkey_registered = bool(
-                    ctypes.windll.user32.RegisterHotKey(None, STOP_HOTKEY_ID, modifiers, VK_S)
-                )
+                self._hotkey_registered = bool(ctypes.windll.user32.RegisterHotKey(
+                    None, STOP_HOTKEY_ID, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, VK_S))
             except Exception:
                 self._hotkey_registered = False
             finally:
                 self._hotkey_ready.set()
-
-            if not self._hotkey_registered:
-                return
+            was_down = False
             message = wintypes.MSG()
             try:
-                while ctypes.windll.user32.GetMessageW(ctypes.byref(message), None, 0, 0) > 0:
-                    if message.message == WM_HOTKEY and message.wParam == STOP_HOTKEY_ID:
-                        self._hotkey_triggered.set()
+                while not self._hotkey_shutdown.is_set():
+                    trigger = False
+                    if self._hotkey_registered:
+                        while ctypes.windll.user32.PeekMessageW(ctypes.byref(message), None, 0, 0, 1):
+                            if message.message == WM_QUIT:
+                                return
+                            trigger |= message.message == WM_HOTKEY and message.wParam == STOP_HOTKEY_ID
+                    down = self._stop_hotkey_is_down()
+                    # One physical press may arrive by both APIs; consume it once.
+                    if (trigger or (down and not was_down)) and not was_down:
+                        self._publish_hotkey_press()
+                    was_down = down
+                    self._hotkey_shutdown.wait(.015)
             finally:
-                ctypes.windll.user32.UnregisterHotKey(None, STOP_HOTKEY_ID)
-
-        threading.Thread(target=listen, name="wwbs-stop-hotkey", daemon=True).start()
-        self._hotkey_poll_job = self.root.after(100, self._poll_stop_hotkey)
+                self._hotkey_listener_active = False
+                if self._hotkey_registered:
+                    ctypes.windll.user32.UnregisterHotKey(None, STOP_HOTKEY_ID)
+        threading.Thread(target=listen, name='wwbs-task-hotkey', daemon=True).start()
+        self._hotkey_poll_job = self.root.after(25, self._poll_stop_hotkey)
 
     def _handle_local_stop_hotkey(self, _event=None):
-        if not self._hotkey_registered:
+        if not self._hotkey_registered and not getattr(self, '_hotkey_listener_active', False):
             self._stop_from_hotkey()
         return "break"
 
@@ -5516,27 +5576,54 @@ class App:
         if self._hotkey_ready.is_set() and not self._hotkey_status_reported:
             self._hotkey_status_reported = True
             if self._hotkey_registered:
-                self._log(f"全局停止快捷键已启用：{STOP_HOTKEY_LABEL}")
+                self._log(f"全局快捷键已启用：{STOP_HOTKEY_LABEL}（运行时停止，空闲时重跑上次任务）")
             else:
                 self._log(f"全局快捷键注册失败；{STOP_HOTKEY_LABEL} 仍可在程序窗口内使用。")
         registered_trigger = self._hotkey_triggered.is_set()
         if registered_trigger:
             self._hotkey_triggered.clear()
         key_down = self._stop_hotkey_is_down()
-        async_trigger = key_down and not self._hotkey_was_down
+        async_trigger = key_down and not self._hotkey_was_down and not getattr(self, '_hotkey_listener_active', False)
         self._hotkey_was_down = key_down
         if registered_trigger or async_trigger:
             self._stop_from_hotkey()
         if self.root.winfo_exists():
-            self._hotkey_poll_job = self.root.after(100, self._poll_stop_hotkey)
+            self._hotkey_poll_job = self.root.after(25, self._poll_stop_hotkey)
 
     def _stop_from_hotkey(self) -> None:
         now = time.monotonic()
-        if now - self._last_hotkey_stop_at < 0.5:
+        stop_only = getattr(self, '_hotkey_stop_only', None)
+        forced_stop = stop_only is not None and stop_only.is_set()
+        if forced_stop:
+            stop_only.clear()
+        worker = getattr(self, 'worker', None)
+        running = worker is not None and worker.is_alive()
+        if now-getattr(self, '_last_hotkey_stop_at', 0.) < .5:
+            if forced_stop or running:
+                self._request_stop_now()
             return
         self._last_hotkey_stop_at = now
-        self._log(f"收到快捷键 {STOP_HOTKEY_LABEL}。")
-        self._stop()
+        if forced_stop or running:
+            self._stop()
+            return
+        modal = getattr(self, '_settings_import_window', None)
+        if (modal is not None and modal.winfo_exists()) or getattr(self, '_update_installing', False):
+            self._log('请先完成或取消设置导入／更新，再用快捷键重跑任务。')
+            return
+        tasks = copy.deepcopy(getattr(self, '_last_started_tasks', []))
+        if not tasks:
+            self._log('当前没有上次任务；先在快捷任务中运行一次，之后可用快捷键重跑。')
+            return
+        options = getattr(self, '_last_job_options', {})
+        self.max_cycles = options.get('max_cycles')
+        if 'dry_run' in options:
+            self.dry_run.set(options['dry_run'])
+        if options.get('daily_zone') and hasattr(self, 'daily_zone'):
+            self.daily_zone.set(options['daily_zone'])
+        if 'boss_challenge' in options:
+            self._boss_challenge_run = copy.deepcopy(options['boss_challenge'])
+        self._log('快捷键重新运行上次任务：'+'、'.join(task.name for task in tasks))
+        self._start_worker(tasks)
 
     @staticmethod
     def _stop_hotkey_is_down() -> bool:
@@ -5747,14 +5834,32 @@ class App:
         self._detect_local_settings(search_roots=[folder])
 
     def _choose_detected_settings(self):
-        sources = getattr(self, '_settings_scan_sources', [])
+        sources = [source for source in getattr(self, '_settings_scan_sources', [])
+                   if not excluded_settings_source(source.root, USER_SETTINGS_DIR)]
         if not sources:
             self._choose_local_settings()
             return
+        existing = getattr(self, '_settings_source_window', None)
+        if existing is not None and existing.winfo_exists():
+            existing.lift()
+            existing.grab_set()
+            return
+        previous = getattr(self, '_settings_import_window', None)
+        if previous is not None and previous.winfo_exists():
+            previous.grab_release()
+            previous.withdraw()
         dialog, controls, text = self._rotation_seed_window('选择继承来源', '选择确实使用过的旧目录；随后仍需核对并确认继承。')
+        self._settings_source_window = dialog
         text.pack_forget()
+        detail = StringVar(dialog)
+        Label(text.master, textvariable=detail, wraplength=630, justify=LEFT,
+              bg=COLORS['panel_alt'], fg=COLORS['muted']).pack(side='bottom', fill=X, pady=(6, 0))
         listing = Listbox(text.master, height=12, exportselection=False)
         listing.pack(fill=BOTH, expand=True)
+        for sibling in text.master.winfo_children():
+            if sibling is not text and sibling is not listing and callable(getattr(sibling, 'set', None)):
+                sibling.configure(command=listing.yview)
+                listing.configure(yscrollcommand=sibling.set)
         for source in sources:
             try:
                 keyfile = source.files.get('combat-settings.json')
@@ -5764,18 +5869,43 @@ class App:
                 summary = '键位文件无法读取'
             listing.insert(END, f'{source.version} | {summary} | {source.root}')
         listing.selection_set(0)
-        def choose():
+        def selected_detail(_event=None):
+            selected = listing.curselection()
+            detail.set(str(sources[selected[0]].root) if selected else '')
+        listing.bind('<<ListboxSelect>>', selected_detail)
+        selected_detail()
+        def close(_event=None, *, restore=True):
+            if dialog.winfo_exists():
+                dialog.grab_release()
+                dialog.destroy()
+            self._settings_source_window = None
+            if restore and previous is not None and previous.winfo_exists():
+                previous.deiconify()
+                previous.lift()
+                previous.grab_set()
+                previous.focus_force()
+            return 'break'
+        def choose(_event=None):
             selected = listing.curselection()
             if not selected:
                 return
             folder = sources[selected[0]].root
-            dialog.destroy()
-            previous = getattr(self, '_settings_import_window', None)
+            close(restore=False)
             if previous is not None and previous.winfo_exists():
                 previous.destroy()
+            self._settings_import_window = None
             self._detect_local_settings(search_roots=[folder])
         self._ui_button(controls, text='使用所选来源', command=choose).pack(side=RIGHT)
-        self._ui_button(controls, text='关闭', command=dialog.destroy).pack(side=RIGHT, padx=8)
+        self._ui_button(controls, text='关闭', command=close).pack(side=RIGHT, padx=8)
+        dialog.protocol('WM_DELETE_WINDOW', close)
+        dialog.bind('<Escape>', close)
+        listing.bind('<Return>', choose)
+        listing.bind('<Double-Button-1>', choose)
+        def activate():
+            if dialog.winfo_exists():
+                dialog.grab_set()
+                listing.focus_set()
+        dialog.after_idle(activate)
 
     def _detect_local_settings(self, automatic=False, search_roots=None) -> None:
         previous = getattr(self, '_settings_import_window', None)
@@ -5911,6 +6041,11 @@ class App:
             self._set_settings_scan_status('没有找到其他版本的用户设置；请检查旧版本目录位置。')
             if not automatic:
                 messagebox.showinfo('本地设置', '没有找到其他版本的用户设置。未使用过的安装包仅含默认任务配置，会被跳过。请将用过的旧版本完整目录放在当前目录旁、下载、桌面或文档目录中。', parent=self.root)
+            return
+        if excluded_settings_source(plan.source.root, USER_SETTINGS_DIR):
+            self._set_settings_scan_status('已排除当前程序及测试／打包目录，请选择用过的其他安装目录。')
+            if not automatic:
+                messagebox.showinfo('来源不可用', '不能从当前运行目录或测试／打包目录继承设置。请重新检测或选择用过的其他安装目录。', parent=self.root)
             return
         if self.worker and self.worker.is_alive():
             self.status.set('检测已完成；请停止任务后重新检测')
@@ -6588,6 +6723,15 @@ class App:
         if self._ensure_admin_for_real_run():
             self._start_worker([task])
 
+    def _start_match3_puzzle(self) -> None:
+        task = WeeklyTask(name='无音消除', enabled=True, weekday='any', template_group='match3',
+                          description='从完整棋盘开始，逐步识别并计算交换；保留结算页面。',
+                          steps=[Step(action='match3_puzzle', label='识别棋盘并自动消除', timeout=1200)])
+        self.max_cycles = None
+        self.dry_run.set(False)
+        if self._ensure_admin_for_real_run():
+            self._start_worker([task])
+
     def _start_daily_routine(self, require_confirmation: bool = False) -> None:
         selected = self.daily_zone.get()
         if selected not in DAILY_ZONE_TEMPLATES:
@@ -6751,7 +6895,11 @@ class App:
                 order = [n for n in selected['slot_order'] if any(m['slot'] == n for m in selected['modules'])]
                 route = ' → '.join(f"{SLOT_NAMES[n]} {selected['slot_times'][str(n)]:g}秒" for n in order)
                 self._log(f"本次{COMBAT_MODES[mode]}战斗轴：{selected['name']}，运行顺序：{route}（启动时快照）。")
-        self._last_started_tasks = list(tasks)
+        self._last_started_tasks = copy.deepcopy(tasks)
+        self._last_job_options = {'max_cycles': self.max_cycles,
+            'dry_run': self.dry_run.get(),
+            'daily_zone': self.daily_zone.get() if hasattr(self, 'daily_zone') else '',
+            'boss_challenge': copy.deepcopy(getattr(self, '_boss_challenge_run', {}))}
         self._last_task_started_at = time.monotonic()
         self._manual_stop_requested = False
         if len(tasks) == 1:
@@ -6759,18 +6907,22 @@ class App:
             self.template_status.set(
                 f"当前任务 {task.name} · 模板组 {self._template_group_name(task.template_group)}"
             )
-        self.stop_event.clear()
+        self.stop_event = threading.Event()
         self._pet_feedback("running", self._event_line("task_start"))
         self._set_pet_working(True)
         self.worker = threading.Thread(target=self._run_tasks, args=(tasks,), daemon=True)
         self.worker.start()
 
     def _run_tasks(self, tasks: list[WeeklyTask]) -> None:
+        job_event = self.stop_event
         self._log(f"WWBS {APP_VERSION} 开始执行；周常使用实时页面定位。")
         target = "PC 客户端窗口" if self.target_mode.get() == "client" else "模拟器 / ADB"
         self._log("预演模式：会识别模板，但不会点击。" if self.dry_run.get() else f"真实执行模式：将操作 {target}。")
         try:
             controller = self._make_controller()
+            self._active_controller = controller
+            if callable(getattr(type(controller), 'set_cancel_event', None)):
+                controller.set_cancel_event(self.stop_event)
             if hasattr(controller, "connect"):
                 self._log(controller.connect())
             for level, message in display_findings(read_game_display(getattr(controller, 'hwnd', None))):
@@ -6805,7 +6957,10 @@ class App:
                                             if p["id"] == rotation_snapshot["modes"][mode])
                                  for mode in COMBAT_MODES},
             )
+            self._active_runner = runner
             for task in tasks:
+                if self.stop_event.is_set():
+                    break
                 runner.run_task(task)
                 if runner.weekly_rewards_pending:
                     break
@@ -6815,20 +6970,26 @@ class App:
             elif self._manual_stop_requested:
                 self._log("任务由用户手动停止，不会触发自动关机。")
             else:
-                self.root.after(0, self._handle_successful_task_completion)
+                self.root.after(0, lambda: self._handle_successful_task_completion() if self.stop_event is job_event else None)
         except Exception as exc:
-            error_text = str(exc)
-            self._log(f"执行失败: {error_text}")
-            self.root.after(0, lambda text=error_text: self._handle_task_failure(text))
+            if self._manual_stop_requested and self.stop_event.is_set():
+                self._log('任务已手动停止，后台操作已退出。')
+            else:
+                error_text = str(exc)
+                self._log(f"执行失败: {error_text}")
+                self.root.after(0, lambda text=error_text: self._handle_task_failure(text))
         finally:
+            job_event.set()
+            self._active_runner = None
+            self._active_controller = None
             self.max_cycles = None
-            self.root.after(0, lambda: self._set_pet_working(False))
+            self.root.after(0, lambda: self._set_pet_working(False) if self.stop_event is job_event else None)
 
     def _handle_successful_task_completion(self) -> None:
         self._pet_feedback("review", self._event_line("task_complete"))
-        if any(any(step.action == "tower_challenge" for step in task.steps)
+        if any(any(step.action in {"tower_challenge", "match3_puzzle"} for step in task.steps)
                for task in getattr(self, "_last_started_tasks", [])):
-            self._log("深塔挑战完成，保持结算界面，不再操作。")
+            self._log("本次任务已停止输入，保持当前／结算界面，不再操作，也不自动关机。")
             return
         if (
             not self.auto_shutdown_enabled.get()
@@ -6966,10 +7127,9 @@ class App:
             self._ensure_template_task(template_name, self._template_group_key(self.template_group.get()))
 
     def _stop(self) -> None:
-        self._manual_stop_requested = True
-        self.stop_event.set()
+        self._request_stop_now()
         self._pet_feedback("waiting", self._event_line("stop_requested"))
-        self._log("正在请求停止...")
+        self._log("已停止输入并释放按键，正在结束后台任务。")
 
     def _open_config_dir(self) -> None:
         messagebox.showinfo("程序目录", f"程序文件都在这里：\n{APP_DIR}")
@@ -6996,7 +7156,7 @@ class App:
 
     @staticmethod
     def _is_dedicated_launcher_task(task: WeeklyTask) -> bool:
-        return any(step.action in {"combat_4c", "tower_challenge"} for step in task.steps)
+        return any(step.action in {"combat_4c", "tower_challenge", "match3_puzzle"} for step in task.steps)
 
     @classmethod
     def _activate_template_group_task(

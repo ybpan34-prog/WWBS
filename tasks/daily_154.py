@@ -639,34 +639,7 @@ class Daily154Navigation:
             except Exception as exc:
                 self.log(f"    释放日常任务按键时遇到问题: {exc}")
 
-    def _select_daily_tacet_section(self) -> None:
-        screenshot = APP_DIR / "_runtime_screenshot.png"
-        for attempt in range(3):
-            _path, width, height = self._capture_size(screenshot)
-            if self._guide_tacet_section_selected(screenshot, round(height * 0.73)):
-                self.log("    已确认战斗分类中的“无音清剿”处于选中状态。")
-                return
-            match = self._find_daily_template(
-                "guide_tacet_section.png",
-                threshold=0.72,
-                region=(round(width * 0.10), round(height * 0.58),
-                        round(width * 0.36), round(height * 0.88)),
-                scales=[self._fast_scales()[0]],
-                screenshot=screenshot,
-            )
-            if match is None:
-                self._sleep_interruptible(0.4)
-                continue
-            # Click the row center, below the label. Its old hardcoded y=0.695
-            # landed on the upper edge and could leave the wrong category open.
-            click_y = min(height - 1, match.center[1] + round(height * 0.015))
-            self.log(f"    已找到“无音清剿”子菜单（相似度 {match.score:.3f}），点击并复核选中状态。")
-            self._tap_ratio(0.22, click_y / height, 0.65)
-            self._capture_for_matching(screenshot)
-            if self._guide_tacet_section_selected(screenshot, click_y):
-                return
-            self._sleep_interruptible(0.3)
-        raise RuntimeError("战斗分类中未能选中“无音清剿”，已停止以避免点击错误副本。")
+    _select_daily_tacet_section = OtherTask._select_daily_tacet_section
 
     @staticmethod
     def _sola_guide_page_ready(screenshot: Path) -> bool:

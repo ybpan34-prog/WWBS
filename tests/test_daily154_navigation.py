@@ -27,7 +27,7 @@ class Daily154Tests(unittest.TestCase):
         cls = next(n for n in module.body if isinstance(n, ast.ClassDef))
         methods = {n.name: n for n in cls.body if isinstance(n, ast.FunctionDef)}
         for name, expected in fixture['methods'].items():
-            if name == fixture['exception']:
+            if name in fixture.get('exceptions', [fixture['exception']]):
                 continue
             node = methods[name]
             for child in ast.walk(node):

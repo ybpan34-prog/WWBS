@@ -33,7 +33,7 @@ jobs:
       - name: 运行单元测试
         env:
           PYTHONPATH: ${{ github.workspace }}
-        run: python -m unittest discover -s tests -t tests -v
+        run: python scripts/run_tests.py
 
   lint:
     name: ruff
@@ -81,6 +81,8 @@ jobs:
           for item in \
             templates/menu1.png \
             templates/daily/zone_hukou_shanmai.png \
+            templates/match3/green.png \
+            templates/match3/rainbow.png \
             templates/4c/absorb_prompt.png \
             templates/群声共振模拟域/start_simulation.png \
             weekly_tasks.json \

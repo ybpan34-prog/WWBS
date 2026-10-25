@@ -417,20 +417,16 @@ class DailyRoutineTests(unittest.TestCase):
         self.assertNotIn((0.060, 0.302), [call.args[:2] for call in runner._tap_ratio.call_args_list])
         runner._select_daily_tacet_section.assert_called_once()
 
-    def test_tacet_section_click_uses_label_and_confirms_selected_row(self):
-        runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)
-        runner._capture_size = Mock(return_value=(Path("screen.png"), 1920, 1080))
-        runner._capture_for_matching = Mock()
-        runner._guide_tacet_section_selected = Mock(side_effect=(False, True))
-        runner._find_daily_template = Mock(return_value=Mock(score=0.96, center=(370, 770)))
-        runner._tap_ratio = Mock()
-
-        runner._select_daily_tacet_section()
-
-        args = runner._tap_ratio.call_args.args
-        self.assertEqual(args[0], 0.22)
-        self.assertAlmostEqual(args[1], 786 / 1080)
-        self.assertNotAlmostEqual(args[1], 0.695)
+    def test_tacet_section_click_uses_label_and_rechecks_selected_list(self):
+        runner = TaskRunner(Mock(), Mock(), dry_run=False)
+        runner._capture_size = Mock(return_value=(Path('screen.png'), 1920, 1080))
+        runner._guide_tacet_section_selected = Mock(side_effect=(False, True, True))
+        runner._find_daily_template = Mock(return_value=Mock(score=.96, center=(370, 770)))
+        runner._sleep_interruptible = Mock()
+        with patch('tasks.other.tacet_card_list_present', return_value=True):
+            runner._select_daily_tacet_section()
+        runner.controller.tap.assert_called_once_with(370, 786)
+        self.assertEqual(runner._capture_size.call_count, 3)
         runner._find_daily_template.assert_called_once()
 
     def test_tacet_section_confirmation_rejects_dark_unselected_row(self):

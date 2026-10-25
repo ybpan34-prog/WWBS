@@ -16,6 +16,7 @@ from tasks.dreamland import (DEFAULT_GROUP_NAME, WEEKLY_CLICK_INTERVAL,
                         WEEKLY_TEMPLATE_THRESHOLD, DreamlandTask)
 from tasks.models import Step, WeeklyTask
 from tasks.other import OtherTask
+from tasks.match3_task import Match3Task
 
 
 APP_DIR = Path(__file__).resolve().parent.parent
@@ -27,7 +28,7 @@ WEEKLY_CLICK_JITTER = 0.02
 WEEKLY_STABLE_INTERVAL = 0.15
 
 
-class TaskRunner(Combat4CTask, DreamlandTask, OtherTask):
+class TaskRunner(Combat4CTask, DreamlandTask, OtherTask, Match3Task):
     ATTACK_CLICK_INTERVAL = 0.150
     MAIN_ATTACK_CLICK_INTERVAL = ATTACK_CLICK_INTERVAL
     HEAVY_ATTACK_EVERY = 15
@@ -201,6 +202,8 @@ class TaskRunner(Combat4CTask, DreamlandTask, OtherTask):
             self._run_tower_challenge(step)
         elif step.action == "daily_routine":
             self._run_daily_routine(step)
+        elif step.action == "match3_puzzle":
+            self._run_match3_puzzle(step)
         elif step.action == "swipe":
             if self.dry_run:
                 self.log("    干运行：跳过滑动。")

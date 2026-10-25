@@ -128,6 +128,22 @@ class Installation:
     files: dict[str, Path]
 
 
+
+def excluded_settings_source(source: Path, current: Path) -> bool:
+    """Exclude this installation, aliases, and generated/test data at any depth."""
+    try:
+        source, current = Path(source).resolve(), Path(current).resolve()
+        if source == current:
+            return True
+        if source.exists() and current.exists() and source.samefile(current):
+            return True
+        parts = [part.casefold() for part in source.parts]
+        return any(part in {'_release-work', 'node_modules', '.git', '__pycache__', 'build', 'tests'}
+                   or part.endswith('-smoke') or '-smoke-' in part
+                   or part.startswith('.wwbs-update-') for part in parts)
+    except OSError:
+        return True
+
 def discover_latest(current: Path, current_version: str, roots: list[Path], *, cancelled=lambda: False,
                     progress=lambda checked, found: None, timeout=30, sources=lambda items: None):
     current = current.resolve()
@@ -143,14 +159,14 @@ def discover_latest(current: Path, current_version: str, roots: list[Path], *, c
             reported = now
         folder, depth = pending.popleft()
         try:
-            if folder.is_symlink():
+            if folder.is_symlink() or excluded_settings_source(folder, current):
                 continue
             resolved = folder.resolve()
             if resolved in visited:
                 continue
             visited.add(resolved)
             if (folder/'wwbs.exe').is_file():
-                if resolved != current:
+                if not excluded_settings_source(resolved, current):
                     files = settings_files(folder)
                     # Every fresh ZIP contains weekly_tasks.json. It alone is
                     # not evidence of a user's settings and must not outrank
