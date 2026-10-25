@@ -110,7 +110,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
 APP_VERSION = "1.5.6"
-APP_BUILD = 5
+APP_BUILD = 6
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -204,6 +204,10 @@ UPDATE_NOTICE = """v1.3.5 更新内容
 2. 请将游戏窗口调整为 1920*1080p 或等比例缩放。
 3. 请先完成周本的新手教程，并将速度调整至 MAX。"""
 UPDATE_HISTORY = [
+    ('v1.5.6', '''WWBS 1.5.6 正式版（构建6）
+无音消除拖动未生效时不再报错退出：重新读取棋盘，反向稍慢重试，连续无响应则换另一合法交换。
+只有一次合法交换可选时也会重新确认后继续尝试；取消程序20步限制，不按累计操作次数停止。
+短暂无法读取拖动结果时继续等待恢复；结算、剩余回合耗尽、停止快捷键和原有总时限仍生效。'''),
     ('v1.5.6', '''WWBS 1.5.6 正式版（构建5）
 无音消除遇到新棋子时按未知占位格继续，不再因少数格未识别而拒绝整盘。
 仅使用已知格计算合法交换，未知格不拖动、不假定参与同色消除；大片遮挡仍等待恢复。
@@ -3383,7 +3387,7 @@ class App:
             messagebox.showinfo('无音消除',
                 '先进入无音消除，关闭规则和新手引导，让完整7行8列棋盘显示后点击任务。\n\n'
                 '程序识别棋子、计算相邻交换，等待消除与掉落稳定后再走下一步。角色技能由游戏自动释放。\n\n'
-                '最多操作20步；随机补子可能影响结果。未知格先占位，优先走已知合法交换；无法确认可走的一步时停止。结算后不点下一关、不自动关机。\n'
+                '不设累计操作步数上限；随机补子可能影响结果。未知格先占位，优先走已知合法交换；无法确认可走的一步时停止。结算后不点下一关、不自动关机。\n'
                 f'随时按{STOP_HOTKEY_LABEL}停止；空闲时按同一快捷键重跑。', parent=self.root)
             return
         if notice_key == 'boss_challenge':

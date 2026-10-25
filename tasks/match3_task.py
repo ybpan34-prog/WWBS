@@ -62,9 +62,9 @@ class Match3Session:
             if self.ocr is not None:
                 self.ocr.close()
                 self.ocr = None
-            self.runner.log('    无法读取回合文字，仍按完整棋盘复核；最多交换20步，结算页面不操作。')
+            self.runner.log('    无法读取回合文字，继续按棋盘和结算画面复核；不按累计操作次数停止。')
 
-    def stable_board(self, timeout=18, previous=None):
+    def stable_board(self, timeout=18, previous=None, unchanged_after=None):
         deadline = time.monotonic()+timeout
         candidate = None
         stable_at = 0.
@@ -108,11 +108,29 @@ class Match3Session:
                     if time.monotonic()-stable_at >= .35:
                         if previous is None or known_change(previous, shared.tiles):
                             return shared
+                        if unchanged_after is not None and time.monotonic()-stable_at >= unchanged_after:
+                            return shared
                 else:
                     candidate, stable_at = frame, time.monotonic()
             else:
                 candidate = None  # A pending elimination breaks stability.
             self.runner._sleep_interruptible(.18)
+        return None
+
+    def await_move_result(self, before, deadline):
+        waiting_logged = False
+        while time.monotonic() < deadline and not self.runner.stop_event.is_set():
+            frame = self.stable_board(timeout=min(18, max(.1, deadline-time.monotonic())),
+                                      previous=before, unchanged_after=2.)
+            if frame is not None:
+                return frame
+            self.status(force=True)
+            if self.result or self.remaining == 0 or self.runner.stop_event.is_set():
+                return None
+            if not waiting_logged:
+                self.runner.log('    拖动后暂未读到稳定画面，继续重读；本次尚未计作有效操作。')
+                waiting_logged = True
+            self.runner._sleep_interruptible(.2)
         return None
 
     def run(self, timeout=1200):
@@ -127,16 +145,26 @@ class Match3Session:
                     return self.finish('已识别挑战成功，保留结算界面。', completed=True)
                 return self.finish('未确认完整稳定棋盘；'+self.last_read_reason+' 请检查画面后重新启动。')
             self.status(force=True)
-            budget = min(20, self.remaining) if self.remaining is not None else 20
+            expected_remaining = self.remaining
             deadline = time.monotonic()+timeout
             attempts = confirmed = 0
-            while frame is not None and attempts < budget and time.monotonic() < deadline and not runner.stop_event.is_set():
+            failed_moves = {}
+            while time.monotonic() < deadline and not runner.stop_event.is_set():
                 if self.result or self.remaining == 0:
                     break
+                if frame is None:
+                    frame = self.stable_board(timeout=min(18, max(.1, deadline-time.monotonic())))
+                    if frame is None:
+                        self.status()
+                        runner._sleep_interruptible(.2)
+                        continue
                 moves = ranked_moves(frame.tiles)
                 if not moves:
                     return self.finish('已知格中暂时没有可确认的合法交换，保留当前画面；未知格不会被盲目拖动。')
-                move = moves[0]
+                move = next((item for item in moves if failed_moves.get((item.start, item.end), 0) < 2), None)
+                if move is None:
+                    failed_moves.clear()
+                    move = moves[0]
                 if runner.dry_run:
                     runner.log(f'    预演：建议第{move.start[0]+1}行第{move.start[1]+1}列 → '
                                f'第{move.end[0]+1}行第{move.end[1]+1}列，已知可消除{move.cleared}枚；未拖动。')
@@ -149,29 +177,47 @@ class Match3Session:
                 refreshed_move = evaluate(shared.tiles, move.start, move.end) if shared is not None else None
                 if refreshed_move is None:
                     frame = self.stable_board()
+                    failed_moves.clear()
                     continue
                 frame, move = shared, refreshed_move
                 if runner.stop_event.is_set():
                     return
                 a, b = frame.centers[move.start[0]][move.start[1]], frame.centers[move.end[0]][move.end[1]]
-                runner.log(f'    第{attempts+1}步：({move.start[0]+1},{move.start[1]+1}) → '
+                runner.log(f'    第{confirmed+1}步（第{attempts+1}次尝试）：({move.start[0]+1},{move.start[1]+1}) → '
                            f'({move.end[0]+1},{move.end[1]+1})；已知消除{move.cleared}枚'
                            + ('，优先生成特殊棋子。' if move.creates else '。'))
-                runner.controller.swipe(*a, *b, 240)
+                key = move.start, move.end
+                retry = failed_moves.get(key, 0)
+                # Reverse the same logical swap and slow the retry slightly;
+                # an ignored drag must not consume the game's move budget.
+                runner.controller.swipe(*(b if retry else a), *(a if retry else b), 420 if retry else 240)
                 attempts += 1
                 runner._sleep_interruptible(.5)
                 before = frame.signature
-                frame = self.stable_board(previous=before)
+                frame = self.await_move_result(before, deadline)
                 if frame is None:
-                    # Do not burn the next turn or blindly retry an unchanged
-                    # drag. The real number of remaining turns is authoritative.
                     self.status(force=True)
                     if self.result or self.remaining == 0 or runner.stop_event.is_set():
                         break
-                    return self.finish('拖动后未确认新的稳定棋盘，已停止输入，请检查游戏画面后重跑。')
-                confirmed += 1
-                self.status()
-                runner.log(f'    已复核第{confirmed}次棋盘变化，继续计算。')
+                    continue
+                if known_change(before, frame.tiles):
+                    confirmed += 1
+                    if expected_remaining is not None:
+                        expected_remaining = max(0, expected_remaining-1)
+                    failed_moves.clear()
+                    self.status()
+                    runner.log(f'    已复核第{confirmed}次有效棋盘变化，继续计算。')
+                else:
+                    self.status(force=True)
+                    if (expected_remaining is not None and self.remaining is not None
+                            and self.remaining < expected_remaining):
+                        confirmed += expected_remaining-self.remaining
+                        expected_remaining = self.remaining
+                        failed_moves.clear()
+                        runner.log('    棋盘外观未变，但已确认剩余回合减少；按实际回合继续。')
+                    elif not self.result and self.remaining != 0 and not runner.stop_event.is_set():
+                        failed_moves[key] = retry+1
+                        runner.log('    棋盘未变化，本次拖动可能未生效；不计作有效步数，重新定位后重试或换一步。')
             if runner.stop_event.is_set():
                 return
             self.status(force=True)
@@ -179,7 +225,7 @@ class Match3Session:
                 return self.finish('已识别挑战成功，保留结算界面。', completed=True)
             if self.result == 'failure' or self.remaining == 0:
                 return self.finish('本局回合已结束，保留结算界面，可手动重开。')
-            return self.finish('已达到本次步数或时间上限，停止输入并保留当前页面；未判定为通关。')
+            return self.finish('已达到本次时间上限，停止输入并保留当前页面；未判定为通关。')
         finally:
             if self.ocr is not None:
                 self.ocr.close()

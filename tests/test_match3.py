@@ -88,11 +88,18 @@ class Match3Tests(unittest.TestCase):
         runner._capture_for_matching = Mock()
         runner.warning = Mock()
         session = Match3Session(runner)
-        session.stable_board = Mock(side_effect=[read_board(FIXTURE), None])
+        visits = [0]
+        def stable(**_kwargs):
+            visits[0] += 1
+            if visits[0] == 1:
+                return read_board(FIXTURE)
+            if visits[0] >= 3:
+                runner.stop_event.set()
+            return None
+        session.stable_board = Mock(side_effect=stable)
         session.status = Mock()
         with patch('tasks.match3_task.read_board', return_value=None):
-            with self.assertRaises(TaskNeedsReview):
-                session.run(30)
+            session.run(30)
         runner.controller.swipe.assert_not_called()
 
     def test_dry_run_and_shortcut_do_not_change_the_board_or_shutdown(self):
