@@ -11,6 +11,7 @@ from boss_rain import boss_bar_present
 from combat_rotation import BattleMonitor, IdleAttackWorker, RotationClock, SLOT_NAMES
 from image_matcher import TemplateMatcher, _match_single_scale_gray
 from tasks.echo_spiral import echo_spiral_steps
+from tasks.tacet_navigation import selected_tacet_label, tacet_card_list_present
 from tasks.models import Step
 from tasks.daily_settlement import DailySettlementVision
 from tasks.terminal_navigation import terminal_target
@@ -175,8 +176,8 @@ class OtherTask:
                 raise RuntimeError(f"深塔战斗输入失败：{idle.error}") from idle.error
 
     def _run_daily_routine(self, step: Step) -> None:
-        from tasks.daily_154 import Daily154Navigation
-        return Daily154Navigation(self)._run_daily_routine(step)
+        from tasks.daily_verified import VerifiedDailyNavigation
+        return VerifiedDailyNavigation(self)._run_daily_routine(step)
 
 
     def _capture_size(self, screenshot: Path | None = None) -> tuple[Path, int, int]:
@@ -730,7 +731,9 @@ class OtherTask:
 
     @staticmethod
     def _guide_tacet_section_selected(screenshot: Path, row_y: int) -> bool:
-        """The selected sidebar row is pale; other material rows are dark."""
+        """Require actual selected lettering, not just a pale card."""
+        if selected_tacet_label(screenshot) is not None:
+            return True
         with Image.open(screenshot) as source:
             image = np.asarray(source.convert("RGB"))
         height, width = image.shape[:2]
@@ -755,40 +758,56 @@ class OtherTask:
 
     def _select_daily_tacet_section(self) -> None:
         screenshot = APP_DIR / "_runtime_screenshot.png"
-        for attempt in range(3):
+        deadline = time.monotonic()+12
+        stable, clicks, next_click, inspected = 0, 0, 0., 0
+        while time.monotonic() < deadline and not self.stop_event.is_set():
             _path, width, height = self._capture_size(screenshot)
-            if self._guide_tacet_section_selected(screenshot, round(height * 0.73)):
-                self.log("    已确认战斗分类中的“无音清剿”处于选中状态。")
+            if self.stop_event.is_set():
                 return
-            match = self._find_daily_template(
-                "guide_tacet_section.png",
-                threshold=0.72,
-                region=(round(width * 0.10), round(height * 0.58),
-                        round(width * 0.36), round(height * 0.88)),
-                scales=[self._fast_scales()[0]],
-                screenshot=screenshot,
-            )
-            if match is None:
-                battle = self._find_daily_template('guide_battle_tab.png', threshold=.84,
-                    region=(round(width*.015), round(height*.20), round(width*.095), round(height*.45)),
-                    scales=[self._fast_scales()[0]], screenshot=screenshot)
-                if battle is not None and attempt < 2:
-                    self.log('    尚未看到无音清剿分类，重新定位挑战入口并等待页面切换。')
-                    self.controller.tap(*battle.center)
-                    self._sleep_interruptible(1.2)
-                else:
-                    self._sleep_interruptible(.4)
-                continue
-            # Click the row center, below the label. Its old hardcoded y=0.695
-            # landed on the upper edge and could leave the wrong category open.
-            click_y = min(height - 1, match.center[1] + round(height * 0.015))
-            self.log(f"    已找到“无音清剿”子菜单（相似度 {match.score:.3f}），点击并复核选中状态。")
-            self._tap_ratio(0.22, click_y / height, 0.65)
-            self._capture_for_matching(screenshot)
-            if self._guide_tacet_section_selected(screenshot, click_y):
-                return
-            self._sleep_interruptible(0.3)
-        raise RuntimeError("战斗分类中未能选中“无音清剿”，已停止以避免点击错误副本。")
+            selected = self._guide_tacet_section_selected(screenshot, round(height*.73))
+            cards = tacet_card_list_present(screenshot)
+            ready = selected and cards
+            # If the sidebar font differs, two independently located tacet zones
+            # and their action buttons also prove that this is the correct page.
+            if cards and not selected and inspected >= 2:
+                first = self._find_new_daily_zone(screenshot, 'zone_chenxin_yu.png')
+                second = self._find_new_daily_zone(screenshot, 'zone_jinxin_yu.png')
+                ready = (first is not None and second is not None and first[1] is not None
+                         and second[1] is not None and abs(first[0].center[1]-second[0].center[1]) > height*.08)
+            if ready:
+                stable += 1
+                if stable >= 2:
+                    self.log('    已复核“无音清剿”及右侧无音区列表，继续执行。')
+                    return
+                self.log('    已看到无音区列表，等待下一张截图复核，不再重复点击。')
+            else:
+                stable = 0
+                now = time.monotonic()
+                if not selected and clicks < 3 and now >= next_click:
+                    match = self._find_daily_template('guide_tacet_section.png', threshold=.78,
+                        region=(round(width*.10), round(height*.40), round(width*.36), round(height*.88)),
+                        scales=[self._fast_scales()[0]], screenshot=screenshot)
+                    if match is not None:
+                        if self.stop_event.is_set():
+                            return
+                        self.controller.tap(match.center[0], min(height-1, match.center[1]+round(height*.015)))
+                        self.log('    已定位无音清剿，点击后等待页面和列表复核。')
+                        clicks += 1
+                        next_click = now+1.8
+                    elif clicks < 2:
+                        battle = self._find_daily_template('guide_battle_tab.png', threshold=.84,
+                            region=(round(width*.015), round(height*.20), round(width*.095), round(height*.45)),
+                            scales=[self._fast_scales()[0]], screenshot=screenshot)
+                        if battle is not None:
+                            self.controller.tap(*battle.center)
+                            clicks += 1
+                            next_click = now+1.8
+                            self.log('    尚未确认挑战分类，重新进入后复核。')
+            inspected += 1
+            self._sleep_interruptible(.2)
+        if self.stop_event.is_set():
+            return
+        raise RuntimeError('已重新定位并复核多张截图，仍未确认无音清剿及右侧关卡列表；未点击其他副本。')
 
     def _find_new_daily_zone(self, screenshot: Path, template: str):
         with Image.open(screenshot) as source:

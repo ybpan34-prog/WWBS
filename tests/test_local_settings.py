@@ -38,6 +38,21 @@ class LocalSettingsTests(unittest.TestCase):
         changed = settings.ImportPlan(source, plan.payloads, {'combat-settings.json': None})
         self.assertEqual(settings.changed_settings(changed), ['combat-settings.json'])
 
+    def test_current_installation_alias_and_generated_roots_are_never_sources(self):
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            current = self.installation(parent, 'current', '1.5.6', {'combat-settings.json': {'skill_key': 'E'}})
+            generated = parent/'_release-work'
+            self.installation(generated, 'wwbs-v1.5.6-build2-smoke', '9.9.9', {'rain-settings.json': {'mode': '持续下雨'}})
+            self.installation(parent, 'other-smoke', '9.9.9', {'combat-settings.json': {'skill_key': 'T'}})
+            real = self.installation(parent, 'used-same-version', '1.5.6', {'combat-settings.json': {'skill_key': 'Q'}})
+            found = []
+            source = settings.discover_latest(current, '1.5.6', [current, generated, parent], sources=found.extend)
+            self.assertEqual(source.root, real.resolve())
+            self.assertEqual([s.root for s in found], [real.resolve()])
+            self.assertTrue(settings.excluded_settings_source(current/'..'/'current', current))
+            self.assertTrue(settings.excluded_settings_source(generated, current))
+
     def test_embedded_executable_version_beats_stale_readme(self):
         root=Path('_release-work/wwbs-v1.5.4-beta4/wwbs')
         if not (root/'wwbs.exe').exists():

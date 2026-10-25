@@ -39,5 +39,9 @@
     "_weekly_travel_page_present": "d31d987d6790ebca9d7eb2270de0e1fa907b8ebc9f921e10ac0d1f6e98f58338",
     "_yellow_claim_rows": "d00b265298ce40f109525c44585a9f9a65bdfea924e71565eb1b6eeb0516e38b"
   },
-  "exception": "_guide_tacet_section_selected"
+  "exception": "_guide_tacet_section_selected",
+  "exceptions": [
+    "_guide_tacet_section_selected",
+    "_select_daily_tacet_section"
+  ]
 }

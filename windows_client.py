@@ -3,6 +3,8 @@ from __future__ import annotations
 import ctypes
 import os
 import time
+import threading
+from contextlib import nullcontext
 from ctypes import wintypes
 from pathlib import Path
 
@@ -96,11 +98,35 @@ class ClientWindowController:
         self.title_keyword = title_keyword.strip() or "自动"
         self.title_keywords = self._expand_title_keywords(self.title_keyword)
         self.base_size = base_size
+        self._input_lock = threading.RLock()
+        self._held_keys = set()
+        self._held_mouse = set()
+        self._input_cancel_event = None
         self.hwnd = 0
         self.scale = 1.0
         self.last_capture_size: tuple[int, int] | None = None
         self.last_screen_bbox: tuple[int, int, int, int] | None = None
         self.last_capture_method = ""
+
+    def set_cancel_event(self, event):
+        self._input_cancel_event = event
+
+    def _input_stopped(self):
+        event = getattr(self, '_input_cancel_event', None)
+        return event is not None and event.is_set()
+
+    def emergency_stop(self):
+        event = getattr(self, '_input_cancel_event', None)
+        if event is not None:
+            event.set()
+        with getattr(self, '_input_lock', nullcontext()):
+            for key in list(getattr(self, '_held_keys', ())):
+                self._send_keyboard_event(key, key_up=True)
+            up_flags = {MOUSEEVENTF_LEFTDOWN: MOUSEEVENTF_LEFTUP,
+                        MOUSEEVENTF_MIDDLEDOWN: MOUSEEVENTF_MIDDLEUP,
+                        MOUSEEVENTF_XDOWN: MOUSEEVENTF_XUP}
+            for flag, data in list(getattr(self, '_held_mouse', ())):
+                self._send_mouse_button(up_flags[flag], data)
 
     def connect(self) -> str:
         self.hwnd = self._find_window()
@@ -125,11 +151,14 @@ class ClientWindowController:
 
     def press_keys(self, keys: tuple[str, ...] | list[str], duration_ms: int = 100, *, cancel_event=None) -> None:
         """Press one or more ordinary keyboard keys, then always release them."""
+        if self._input_stopped():
+            return None
         self._ensure_window()
         if user32.GetForegroundWindow() != self.hwnd:
             self._focus_window()
         if user32.GetForegroundWindow() != self.hwnd:
             raise RuntimeError("游戏窗口未获得焦点，已取消键盘操作。")
+        cancel_event = cancel_event or getattr(self, '_input_cancel_event', None)
         virtual_keys = [self._virtual_key(key) for key in keys]
         try:
             for virtual_key in virtual_keys:
@@ -157,6 +186,8 @@ class ClientWindowController:
         return active_character_slot(screenshot_path, self._role_matcher)
 
     def press_binding(self, binding: str, duration_ms: int = 80) -> None:
+        if self._input_stopped():
+            return None
         normalized = self.normalize_input_binding(binding)
         if normalized == "XBUTTON1":
             self._press_mouse_side_button(XBUTTON1, duration_ms)
@@ -166,6 +197,8 @@ class ClientWindowController:
             self.press_key(normalized, duration_ms)
 
     def left_click(self) -> None:
+        if self._input_stopped():
+            return None
         self._ensure_window()
         if user32.GetForegroundWindow() != self.hwnd:
             self._focus_window()
@@ -179,11 +212,14 @@ class ClientWindowController:
 
     def hold_left_button(self, duration_ms: int = 800, *, cancel_event=None) -> None:
         """Hold basic attack for a charged attack, always releasing the button."""
+        if self._input_stopped():
+            return None
         self._ensure_window()
         if user32.GetForegroundWindow() != self.hwnd:
             self._focus_window()
         if user32.GetForegroundWindow() != self.hwnd:
             raise RuntimeError("游戏窗口未获得焦点，已取消重击操作。")
+        cancel_event = cancel_event or getattr(self, '_input_cancel_event', None)
         try:
             self._send_mouse_button(MOUSEEVENTF_LEFTDOWN)
             duration = max(0.1, min(duration_ms, 2000) / 1000.0)
@@ -199,6 +235,8 @@ class ClientWindowController:
 
     def middle_click(self) -> None:
         """Click the middle mouse button once to lock the current combat target."""
+        if self._input_stopped():
+            return None
         self._ensure_window()
         if user32.GetForegroundWindow() != self.hwnd:
             self._focus_window()
@@ -212,6 +250,8 @@ class ClientWindowController:
 
     def wheel_at(self, x: int, y: int, delta: int) -> None:
         """Move over a client point and send a mouse-wheel scroll."""
+        if self._input_stopped():
+            return None
         self._ensure_window()
         if user32.GetForegroundWindow() != self.hwnd:
             self._focus_window()
@@ -220,15 +260,21 @@ class ClientWindowController:
         sx, sy = self._client_to_screen(x, y)
         user32.SetCursorPos(sx, sy)
         wheel_data = ctypes.c_ulong(int(delta) & 0xFFFFFFFF).value
+        if self._input_stopped():
+            return
         user32.mouse_event(MOUSEEVENTF_WHEEL, 0, 0, wheel_data, 0)
         time.sleep(0.06)
 
     def move_mouse_relative(self, dx: int, dy: int = 0) -> None:
+        if self._input_stopped():
+            return None
         self._ensure_window()
         if user32.GetForegroundWindow() != self.hwnd:
             self._focus_window()
         if user32.GetForegroundWindow() != self.hwnd:
             raise RuntimeError("游戏窗口未获得焦点，已取消镜头转动。")
+        if self._input_stopped():
+            return
         move = INPUT(
             type=INPUT_MOUSE,
             union=INPUT_UNION(mi=MOUSEINPUT(int(dx), int(dy), 0, MOUSEEVENTF_MOVE, 0, 0)),
@@ -239,6 +285,8 @@ class ClientWindowController:
         time.sleep(0.035)
 
     def _press_mouse_side_button(self, button: int, duration_ms: int) -> None:
+        if self._input_stopped():
+            return None
         self._ensure_window()
         if user32.GetForegroundWindow() != self.hwnd:
             self._focus_window()
@@ -246,7 +294,9 @@ class ClientWindowController:
             raise RuntimeError("游戏窗口未获得焦点，已取消鼠标侧键操作。")
         try:
             self._send_mouse_button(MOUSEEVENTF_XDOWN, button)
-            time.sleep(max(0.02, min(duration_ms, 1000) / 1000.0))
+            duration = max(0.02, min(duration_ms, 1000) / 1000.0)
+            event = getattr(self, '_input_cancel_event', None)
+            event.wait(duration) if event is not None else time.sleep(duration)
         finally:
             self._send_mouse_button(MOUSEEVENTF_XUP, button)
 
@@ -291,23 +341,28 @@ class ClientWindowController:
             raise ValueError(f"不支持的键盘按键: {key}")
         return ord(normalized)
 
-    @staticmethod
-    def _send_keyboard_event(virtual_key: int, key_up: bool) -> None:
-        event = INPUT(
-            type=INPUT_KEYBOARD,
-            union=INPUT_UNION(
-                ki=KEYBDINPUT(
-                    virtual_key,
-                    0,
-                    KEYEVENTF_KEYUP if key_up else 0,
-                    0,
-                    0,
-                )
-            ),
-        )
-        sent = user32.SendInput(1, ctypes.byref(event), ctypes.sizeof(event))
-        if sent != 1:
-            raise RuntimeError("键盘操作发送失败，请尝试以管理员身份运行。")
+    def _send_keyboard_event(self, virtual_key: int, key_up: bool) -> None:
+        with getattr(self, '_input_lock', nullcontext()):
+            if not key_up and self._input_stopped():
+                return
+            event = INPUT(
+                type=INPUT_KEYBOARD,
+                union=INPUT_UNION(
+                    ki=KEYBDINPUT(
+                        virtual_key,
+                        0,
+                        KEYEVENTF_KEYUP if key_up else 0,
+                        0,
+                        0,
+                    )
+                ),
+            )
+            sent = user32.SendInput(1, ctypes.byref(event), ctypes.sizeof(event))
+            if sent != 1:
+                raise RuntimeError("键盘操作发送失败，请尝试以管理员身份运行。")
+            held = getattr(self, '_held_keys', None)
+            if held is not None:
+                held.discard(virtual_key) if key_up else held.add(virtual_key)
 
     def screencap(self, target: Path, bring_to_front: bool = False, tolerate_blank: bool = False) -> str:
         self._ensure_window()
@@ -450,6 +505,8 @@ class ClientWindowController:
             return False
 
     def tap(self, x: int, y: int) -> dict[str, tuple[int, int] | bool]:
+        if self._input_stopped():
+            return {'cancelled': True}
         self._ensure_window()
         client_x, client_y = self.screenshot_to_client(x, y)
         screen_x, screen_y = self._screenshot_point_to_desktop(x, y)
@@ -523,19 +580,30 @@ class ClientWindowController:
         return self._client_to_screen(x, y)
 
     def swipe(self, x: int, y: int, x2: int, y2: int, duration_ms: int) -> None:
+        if self._input_stopped():
+            return
         self._ensure_window()
+        x, y = self.screenshot_to_client(x, y)
+        x2, y2 = self.screenshot_to_client(x2, y2)
         sx, sy = self._client_to_screen(x, y)
         ex, ey = self._client_to_screen(x2, y2)
-        user32.ShowWindow(self.hwnd, SW_RESTORE)
-        user32.SetForegroundWindow(self.hwnd)
-        user32.SetCursorPos(sx, sy)
-        user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
-        steps = max(4, int(duration_ms / 30))
-        for index in range(1, steps + 1):
-            t = index / steps
-            user32.SetCursorPos(int(sx + (ex - sx) * t), int(sy + (ey - sy) * t))
-            time.sleep(duration_ms / steps / 1000)
-        user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+        self._focus_window()
+        event = getattr(self, '_input_cancel_event', None)
+        try:
+            if self._input_stopped():
+                return
+            user32.SetCursorPos(sx, sy)
+            self._send_mouse_button(MOUSEEVENTF_LEFTDOWN)
+            steps = max(4, int(duration_ms/30))
+            for index in range(1, steps+1):
+                if self._input_stopped():
+                    break
+                fraction = index/steps
+                user32.SetCursorPos(int(sx+(ex-sx)*fraction), int(sy+(ey-sy)*fraction))
+                delay = duration_ms/steps/1000
+                event.wait(delay) if event is not None else time.sleep(delay)
+        finally:
+            self._send_mouse_button(MOUSEEVENTF_LEFTUP)
 
     def text(self, value: str) -> None:
         raise RuntimeError("PC 客户端模式暂不支持自动输入文字。")
@@ -675,6 +743,8 @@ class ClientWindowController:
         )
 
     def _set_cursor_with_dpi_fallback(self, x: int, y: int) -> tuple[bool, int, int, str]:
+        if self._input_stopped():
+            return False, x, y, 'cancelled'
         candidates = [(x, y)]
         scale = self._dpi_scale()
         if scale and abs(scale - 1.0) > 0.01:
@@ -702,6 +772,8 @@ class ClientWindowController:
         return False, x, y, "failed"
 
     def _send_absolute_move(self, x: int, y: int) -> bool:
+        if self._input_stopped():
+            return False
         left = user32.GetSystemMetrics(76)
         top = user32.GetSystemMetrics(77)
         width = user32.GetSystemMetrics(78)
@@ -745,6 +817,8 @@ class ClientWindowController:
         return point.x, point.y
 
     def _focus_window(self) -> None:
+        if self._input_stopped():
+            return None
         if user32.GetForegroundWindow() == self.hwnd and not user32.IsIconic(self.hwnd):
             return
         user32.ShowWindow(self.hwnd, SW_RESTORE)
@@ -767,14 +841,26 @@ class ClientWindowController:
             if foreground_thread:
                 user32.AttachThreadInput(current_thread, foreground_thread, False)
 
-    @staticmethod
-    def _send_mouse_button(flag: int, mouse_data: int = 0) -> None:
-        event = INPUT(type=INPUT_MOUSE, union=INPUT_UNION(mi=MOUSEINPUT(0, 0, mouse_data, flag, 0, 0)))
-        sent = user32.SendInput(1, ctypes.byref(event), ctypes.sizeof(event))
-        if sent != 1:
-            raise RuntimeError("鼠标点击发送失败。")
+    def _send_mouse_button(self, flag: int, mouse_data: int = 0) -> None:
+        with getattr(self, '_input_lock', nullcontext()):
+            down_flags = {MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_XDOWN}
+            if flag in down_flags and self._input_stopped():
+                return
+            event = INPUT(type=INPUT_MOUSE, union=INPUT_UNION(mi=MOUSEINPUT(0, 0, mouse_data, flag, 0, 0)))
+            sent = user32.SendInput(1, ctypes.byref(event), ctypes.sizeof(event))
+            if sent != 1:
+                raise RuntimeError("鼠标点击发送失败。")
+            held = getattr(self, '_held_mouse', None)
+            if held is not None:
+                inverse = {MOUSEEVENTF_LEFTUP: MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_MIDDLEUP: MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_XUP: MOUSEEVENTF_XDOWN}
+                if flag in down_flags:
+                    held.add((flag, mouse_data))
+                elif flag in inverse:
+                    held.discard((inverse[flag], mouse_data))
 
     def _post_client_click(self, x: int, y: int) -> None:
+        if self._input_stopped():
+            return None
         lparam = (int(y) << 16) | (int(x) & 0xFFFF)
         user32.PostMessageW(self.hwnd, WM_LBUTTONDOWN, 1, lparam)
         user32.PostMessageW(self.hwnd, WM_LBUTTONUP, 0, lparam)
