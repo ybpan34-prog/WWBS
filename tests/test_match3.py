@@ -122,3 +122,25 @@ class Match3Tests(unittest.TestCase):
         with patch('tasks.match3_task.read_board', return_value=frame):
             session.run(30)
         runner.controller.swipe.assert_not_called()
+
+    def test_confirmed_move_uses_two_cell_centers_and_leaves_result_untouched(self):
+        runner = app.TaskRunner(Mock(), Mock(), dry_run=False)
+        runner._capture_for_matching = Mock()
+        runner._sleep_interruptible = Mock()
+        runner.warning = Mock()
+        frame = read_board(FIXTURE)
+        session = Match3Session(runner)
+        session.stable_board = Mock(side_effect=[frame, None])
+        calls = [0]
+        def status(force=False):
+            calls[0] += 1
+            if calls[0] > 1:
+                session.result = 'success'
+        session.status = status
+        with patch('tasks.match3_task.read_board', return_value=frame):
+            session.run(30)
+        move = ranked_moves(frame.tiles)[0]
+        runner.controller.swipe.assert_called_once_with(
+            *frame.centers[move.start[0]][move.start[1]], *frame.centers[move.end[0]][move.end[1]], 240)
+        runner.controller.tap.assert_not_called()
+        self.assertIn('挑战成功', runner.warning.call_args.args[0])

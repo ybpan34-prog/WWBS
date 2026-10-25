@@ -1,5 +1,6 @@
 """Construct the real settings widgets, without opening a visible app or jobs."""
 import tempfile
+import time
 import unittest
 from contextlib import ExitStack
 from pathlib import Path
@@ -50,10 +51,16 @@ class BetaUiTests(unittest.TestCase):
             # Reordering changed the source card's screen position. Match local
             # event coordinates to the requested screen point, as real motion does.
             surface = ghost.winfo_children()[0]
-            surface.event_generate("<B1-Motion>", x=initial_x+60-surface.winfo_rootx(),
-                                y=initial_y+220-surface.winfo_rooty(),
-                                rootx=initial_x + 60, rooty=initial_y + 220)
-            root.update()
+            for _ in range(5):
+                surface.event_generate("<B1-Motion>", x=initial_x+60-surface.winfo_rootx(),
+                                    y=initial_y+220-surface.winfo_rooty(),
+                                    rootx=initial_x + 60, rooty=initial_y + 220)
+                root.update()
+                if (ghost.winfo_rootx(), ghost.winfo_rooty()) == (initial_x+40, initial_y+189):
+                    break
+                # Native toplevel mapping may complete on the next Windows
+                # message turn. Repeat the same physical target, not an offset.
+                time.sleep(.03)
             self.assertEqual(ghost.winfo_rootx(), initial_x + 40)
             self.assertEqual(ghost.winfo_rooty(), initial_y + 189)
             card.event_generate("<ButtonRelease-1>", x=20, y=31)

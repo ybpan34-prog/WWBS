@@ -101,3 +101,20 @@ class FastStopTests(unittest.TestCase):
         ui._hotkey_triggered.set()
         ui._poll_stop_hotkey()
         ui._stop_from_hotkey.assert_called_once()
+
+    def test_drag_maps_capture_coordinates_and_moves_before_pressing_mouse(self):
+        controller = ClientWindowController()
+        controller._ensure_window = Mock()
+        controller._focus_window = Mock()
+        controller.screenshot_to_client = Mock(side_effect=lambda x, y: (x//2, y//2))
+        controller._client_to_screen = Mock(side_effect=lambda x, y: (x+100, y+50))
+        moved = []
+        def inject(flag):
+            if flag == MOUSEEVENTF_LEFTDOWN:
+                self.assertEqual(moved[-1], (300, 250))
+                controller.emergency_stop()
+        controller._send_mouse_button = Mock(side_effect=inject)
+        with patch.object(windows_client.user32, 'SetCursorPos', side_effect=lambda x, y: moved.append((x, y))):
+            controller.swipe(400, 400, 600, 400, 900)
+        self.assertEqual(moved, [(300, 250)])
+        self.assertEqual(controller._send_mouse_button.call_count, 2)
