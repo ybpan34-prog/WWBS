@@ -29,14 +29,16 @@ class Match3Tests(unittest.TestCase):
                 self.assertLess(abs(frame.centers[0][0][0]-773*width/1600), 2)
                 self.assertTrue(ranked_moves(frame.tiles))
 
-    def test_dim_overlay_unrelated_page_and_unreadable_cell_are_rejected(self):
+    def test_dim_overlay_and_unrelated_page_rejected_but_one_unknown_cell_tolerated(self):
         with tempfile.TemporaryDirectory() as directory, Image.open(FIXTURE) as image:
             path = Path(directory)/'screen.png'
             ImageEnhance.Brightness(image).enhance(.35).save(path)
             self.assertIsNone(read_board(path))
             image.paste((40, 40, 40), (740, 130, 810, 200))
             image.save(path)
-            self.assertIsNone(read_board(path))
+            partial = read_board(path)
+            self.assertIsNotNone(partial)
+            self.assertEqual(partial.tiles[0][0], UNKNOWN)
         self.assertIsNone(read_board(Path(__file__).parent/'fixtures/daily-tacet-selected-reported.png'))
 
     def test_solver_creates_special_and_does_not_invent_refills(self):
