@@ -31,7 +31,7 @@ class LocalSettingsTests(unittest.TestCase):
             self.assertEqual(result.root,same.resolve())
 
     def test_noop_preview_ignores_json_format_and_reports_missing_files(self):
-        source = settings.Installation(Path('old'), '1.5.5', {})
+        source = settings.Installation(Path(tempfile.gettempdir())/'wwbs-old-installation-fixture', '1.5.5', {})
         plan = settings.ImportPlan(source, {'combat-settings.json': b'{"skill_key":"E"}'},
                                    {'combat-settings.json': b'{ "skill_key": "E" }'})
         self.assertEqual(settings.changed_settings(plan), [])
@@ -264,7 +264,7 @@ class LocalSettingsTests(unittest.TestCase):
             commands[text]=command
             return Mock()
         ui._ui_button=button
-        source=settings.Installation(Path('fixture'),'1.5.3',{})
+        source=settings.Installation(Path(tempfile.gettempdir())/'wwbs-import-cancel-fixture','1.5.3',{})
         plan=settings.ImportPlan(source,{'theme-settings.json':b'{}'},{'theme-settings.json':None})
         with patch.object(app,'apply_import') as apply, patch.object(app,'Label',return_value=Mock()):
             ui._offer_local_settings(plan,False)
