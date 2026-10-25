@@ -187,7 +187,7 @@ class BetaUiTests(unittest.TestCase):
                                     for row in daily_card.winfo_children() for child in row.winfo_children()))
                 self.assertEqual(
                     instance._normalize_start_action_order(["daily", "daily", "unknown"]),
-                    ["daily", "weekly_rewards", "weekly_astrite", "combat_4c_10", "combat_4c_custom", "boss_challenge", "tower"],
+                    ["daily", "weekly_rewards", "weekly_astrite", "combat_4c_10", "combat_4c_custom", "boss_challenge", "tower", "match3"],
                 )
                 second = instance._start_action_cards["weekly_astrite"]
                 third = instance._start_action_cards["daily"]

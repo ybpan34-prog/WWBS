@@ -117,8 +117,9 @@ class ClientWindowController:
 
     def emergency_stop(self):
         event = getattr(self, '_input_cancel_event', None)
-        if event is not None:
-            event.set()
+        if event is None:
+            event = self._input_cancel_event = threading.Event()
+        event.set()
         with getattr(self, '_input_lock', nullcontext()):
             for key in list(getattr(self, '_held_keys', ())):
                 self._send_keyboard_event(key, key_up=True)
