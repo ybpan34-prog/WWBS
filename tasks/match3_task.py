@@ -62,7 +62,7 @@ class Match3Session:
             if self.ocr is not None:
                 self.ocr.close()
                 self.ocr = None
-            self.runner.log('    无法读取回合文字，仍按完整棋盘复核；最多交换20步，结算页面不操作。')
+            self.runner.log('    无法读取回合文字，继续按棋盘和结算画面复核；不按累计操作次数停止。')
 
     def stable_board(self, timeout=18, previous=None, unchanged_after=None):
         deadline = time.monotonic()+timeout
@@ -145,12 +145,11 @@ class Match3Session:
                     return self.finish('已识别挑战成功，保留结算界面。', completed=True)
                 return self.finish('未确认完整稳定棋盘；'+self.last_read_reason+' 请检查画面后重新启动。')
             self.status(force=True)
-            budget = min(20, self.remaining) if self.remaining is not None else 20
             expected_remaining = self.remaining
             deadline = time.monotonic()+timeout
             attempts = confirmed = 0
             failed_moves = {}
-            while confirmed < budget and time.monotonic() < deadline and not runner.stop_event.is_set():
+            while time.monotonic() < deadline and not runner.stop_event.is_set():
                 if self.result or self.remaining == 0:
                     break
                 if frame is None:
@@ -226,7 +225,7 @@ class Match3Session:
                 return self.finish('已识别挑战成功，保留结算界面。', completed=True)
             if self.result == 'failure' or self.remaining == 0:
                 return self.finish('本局回合已结束，保留结算界面，可手动重开。')
-            return self.finish('已达到本次步数或时间上限，停止输入并保留当前页面；未判定为通关。')
+            return self.finish('已达到本次时间上限，停止输入并保留当前页面；未判定为通关。')
         finally:
             if self.ocr is not None:
                 self.ocr.close()

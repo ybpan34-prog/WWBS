@@ -70,6 +70,22 @@ class IgnoredDragTests(unittest.TestCase):
         self.assertEqual(runner.controller.swipe.call_count, 23)
         self.assertFalse(any('已复核第' in str(call.args[0]) for call in runner.log.call_args_list))
 
+    def test_more_than_twenty_confirmed_moves_continue_until_real_success(self):
+        session, runner, now, frame = self.session()
+        current = [frame]
+        session.remaining = 40
+        session.stable_board = Mock(side_effect=lambda **_kwargs: current[0])
+        runner.controller.swipe.side_effect = lambda *_args: current.__setitem__(0, self.changed(current[0]))
+        def status(force=False):
+            if runner.controller.swipe.call_count == 23:
+                session.result = 'success'
+        session.status = status
+        with patch('tasks.match3_task.time.monotonic', side_effect=lambda: now[0]), \
+                patch('tasks.match3_task.read_board', side_effect=lambda _path: current[0]):
+            session.run(120)
+        self.assertEqual(runner.controller.swipe.call_count, 23)
+        self.assertEqual(session.result, 'success')
+
     def test_only_one_legal_option_keeps_retrying_instead_of_stopping(self):
         session, runner, now, frame = self.session()
         only_move = ranked_moves(frame.tiles)[0]
