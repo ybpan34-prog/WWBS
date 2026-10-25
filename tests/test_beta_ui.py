@@ -163,7 +163,8 @@ class BetaUiTests(unittest.TestCase):
                     return None
                 weekly_card = card_with_title(instance.start_tab, "周常拿满奖励")
                 self.assertIsNotNone(weekly_card)
-                self.assertEqual(len(instance._start_action_cards), 7)
+                self.assertEqual(len(instance._start_action_cards), 8)
+                self.assertIn('match3', instance._start_action_cards)
                 self.assertIn('4C刷取（10次）',start_texts)
                 self.assertIn('4C刷取（自定义次数）',start_texts)
                 self.assertIn('战歌重奏自动刷取',start_texts)
