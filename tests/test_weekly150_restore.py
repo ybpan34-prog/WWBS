@@ -57,7 +57,8 @@ class Weekly150RestoreTests(unittest.TestCase):
         isolated = from_host(host)
         self.assertEqual(isolated.max_cycles, 13)
         self.assertIs(isolated.stop_event, host.stop_event)
-        self.assertEqual(type(isolated).__bases__, (object,))
+        self.assertEqual(OriginalRunner.__bases__, (object,))
+        self.assertIsInstance(isolated, OriginalRunner)
         self.assertNotIsInstance(isolated.matcher, type(host.matcher))
 
     def test_other_tasks_keep_current_dispatch(self):
