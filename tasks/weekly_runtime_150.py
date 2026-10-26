@@ -86,6 +86,12 @@ class WeeklyRuntime(OriginalRunner):
         except WeeklyCapReached:
             self._stop_at_cap()
 
+    def _start_weekly_travel_from_selected_page(self):
+        try:
+            return super()._start_weekly_travel_from_selected_page()
+        except WeeklyCapReached:
+            self._stop_at_cap()
+
     def _stop_at_cap(self):
         self.stop_event.set()
         self.log('    本周游历值已达到上限，本次周常已结束；不再重新挑战，保留当前结算页面。')

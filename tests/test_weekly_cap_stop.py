@@ -62,13 +62,14 @@ class WeeklyCapStopTests(unittest.TestCase):
         runner.controller.tap.assert_not_called()
 
     def test_standalone_and_daily_entry_finish_normally_and_keep_result(self):
-        for method,original in (('run_task','run_task'),('_run_default_weekly_from_daily','_run_default_weekly_from_daily')):
+        for method,original in (('run_task','run_task'),('_run_default_weekly_from_daily','_run_default_weekly_from_daily'),
+                                ('_start_weekly_travel_from_selected_page','_start_weekly_travel_from_selected_page')):
             runner=self.runner()
             with patch('tasks.weekly_150.TaskRunner.'+original,side_effect=WeeklyCapReached):
                 if method=='run_task':
                     runner.run_task(original_task())
                 else:
-                    runner._run_default_weekly_from_daily()
+                    getattr(runner,method)()
             self.assertTrue(runner.stop_event.is_set())
             runner.notice.assert_called_once()
             runner.controller.tap.assert_not_called()
