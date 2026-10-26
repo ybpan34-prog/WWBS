@@ -5,6 +5,7 @@ shop before the original sequence searches/clicks background exit controls.
 """
 from pathlib import Path
 import time
+from dataclasses import replace
 
 from PIL import Image
 
@@ -69,6 +70,7 @@ class WeeklyRuntime(OriginalRunner):
         self.matcher = SessionMatcher(self.template_root, self.log)
         self._last_frame = None
         self._expected_template = None
+        self._exit_click_at = None
 
     def _fast_scales(self):
         if self._last_frame is not None:
@@ -97,6 +99,67 @@ class WeeklyRuntime(OriginalRunner):
             return super()._find_image(step)
         finally:
             self._expected_template = previous
+
+    def _random_click_point(self, match, offset_x, offset_y):
+        if self._expected_template in ('menu96.png', 'menu97.png'):
+            # These are irregular star/circle buttons. The rectangle's corners
+            # include transparent/noninteractive pixels, so do not jitter here.
+            return match.center
+        return super()._random_click_point(match, offset_x, offset_y)
+
+    def _click_cycle_template(self, step, x, y, recovery=False):
+        if self.stop_event.is_set():
+            return
+        result = super()._click_cycle_template(step, x, y, recovery)
+        if step.template == 'menu96.png':
+            self._exit_click_at = time.monotonic()
+        return result
+
+    def _wait_for_cycle_template(self, step, previous_step=None):
+        if (self.dry_run or step.template != 'menu97.png' or previous_step is None
+                or previous_step.template != 'menu96.png'):
+            return super()._wait_for_cycle_template(step, previous_step)
+        self.log('    退出步骤单独复核：等待退出过渡与menu97，未响应时重新定位按钮中心补点。')
+        started = time.monotonic()
+        deadline, retries = started+18, 0
+        next_retry = max(started, self._exit_click_at or started)+2
+        probe = replace(step, timeout=.15)
+        previous_probe = replace(previous_step, timeout=.15)
+        last_error = None
+        while not self.stop_event.is_set() and time.monotonic() < deadline:
+            try:
+                found = self._find_image(probe)
+                if self.stop_event.is_set():
+                    break
+                self.log('    已确认menu97出现，退出点击已生效，继续原流程。')
+                return found
+            except (FileNotFoundError, OSError):
+                raise
+            except RuntimeError as error:
+                last_error = error
+            if self.stop_event.is_set():
+                break
+            if retries < 3 and time.monotonic() >= next_retry:
+                # Fresh capture and recognition; never reuse the prior position
+                # while the shop, exit overlay or a fade can change the page.
+                try:
+                    x,y,_score = self._find_image(previous_probe)
+                except (FileNotFoundError, OSError):
+                    raise
+                except RuntimeError:
+                    pass  # Button absent during transition: wait, do not click.
+                else:
+                    if self.stop_event.is_set():
+                        break
+                    retries += 1
+                    self.log(f'    menu97尚未出现，重新识别menu96中心后补点（第{retries}/3次）。')
+                    self._click_cycle_template(previous_step, x, y, recovery=True)
+                next_retry = time.monotonic()+3
+            self._sleep_interruptible(.15)
+        if self.stop_event.is_set():
+            raise RuntimeError('周常已停止。')
+        raise RuntimeError(f'退出步骤已等待过渡并复核18秒，重新定位中心补点{retries}次后仍未出现menu97；'
+                           f'未当作退出成功，请检查当前页面。最后识别：{last_error}')
 
     def _capture_for_matching(self, target):
         super()._capture_for_matching(target)
