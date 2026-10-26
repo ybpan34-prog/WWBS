@@ -627,7 +627,8 @@ def original_task():
 
 
 def from_host(host):
-    runner = TaskRunner(host.controller, host.log, dry_run=host.dry_run,
+    from tasks.weekly_runtime_150 import WeeklyRuntime
+    runner = WeeklyRuntime(host.controller, host.log, dry_run=host.dry_run,
                         stop_event=host.stop_event, max_cycles=host.max_cycles, notice=host.notice)
     runner.debug_matches = host.debug_matches
     return runner

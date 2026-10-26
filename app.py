@@ -110,7 +110,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
 APP_VERSION = "1.5.7"
-APP_BUILD = 1
+APP_BUILD = 2
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -204,6 +204,7 @@ UPDATE_NOTICE = """v1.3.5 更新内容
 2. 请将游戏窗口调整为 1920*1080p 或等比例缩放。
 3. 请先完成周本的新手教程，并将速度调整至 MAX。"""
 UPDATE_HISTORY = [
+    ('v1.5.7', 'WWBS 1.5.7 正式版（构建2）\n修复乐园商店遮挡时，误点后方退出图标并卡在menu97的问题。先确认商店标题和关闭按钮，关闭后复核，再接续原版周常流程。\n周常按实际截图分辨率锁定缩放比例，后续只测该比例；窗口改变大小时自动重新确定。缓存缩放模板，每帧截图仍保持更新。'),
     ('v1.5.7', 'WWBS 1.5.7 正式版\n周常任务完整恢复1.5.0原版流程、识别器、模板与步骤，其他任务保持当前逻辑。\n日常找光球达到所选置信度即前往，取消固定80%门槛和整圈方向比较；保留12次未命中后的螺旋搜索与战斗复核。\n电台领取后返回索拉指南，连续截图检查周度游历，未完成时接入原版周常，完成勾明确后才跳过。\n无音消除优先消除更低位置的棋子，同等位置再比较收益；保留漏拖重试与换步，不设20步上限。'),
     ('v1.5.6', '''WWBS 1.5.6 正式版（构建6）
 无音消除拖动未生效时不再报错退出：重新读取棋盘，反向稍慢重试，连续无响应则换另一合法交换。
@@ -3243,9 +3244,9 @@ class App:
         action_list.pack(fill=X)
         self._start_action_cards = {}
         self._start_action_order = self._load_start_action_order()
-        self._make_start_action_card(action_list, "weekly_rewards", "周常拿满奖励", "按1.5.0原版执行15轮周常",
+        self._make_start_action_card(action_list, "weekly_rewards", "周常拿满奖励", "完成周常并领取可用奖励",
                                      lambda: self._start_enabled_real(15), "weekly")
-        self._make_start_action_card(action_list, "weekly_astrite", "周常拿满星声", "按1.5.0原版执行13轮周常",
+        self._make_start_action_card(action_list, "weekly_astrite", "周常拿满星声", "完成本周星声目标",
                                      lambda: self._start_enabled_real(13), "weekly")
         self._make_start_action_card(
             action_list, "daily", "一键日常（2轮双倍）", "先选择无音区，再运行两轮挑战",
