@@ -3244,9 +3244,9 @@ class App:
         action_list.pack(fill=X)
         self._start_action_cards = {}
         self._start_action_order = self._load_start_action_order()
-        self._make_start_action_card(action_list, "weekly_rewards", "周常拿满奖励", "按1.5.0原版执行15轮周常",
+        self._make_start_action_card(action_list, "weekly_rewards", "周常拿满奖励", "完成周常并领取可用奖励",
                                      lambda: self._start_enabled_real(15), "weekly")
-        self._make_start_action_card(action_list, "weekly_astrite", "周常拿满星声", "按1.5.0原版执行13轮周常",
+        self._make_start_action_card(action_list, "weekly_astrite", "周常拿满星声", "完成本周星声目标",
                                      lambda: self._start_enabled_real(13), "weekly")
         self._make_start_action_card(
             action_list, "daily", "一键日常（2轮双倍）", "先选择无音区，再运行两轮挑战",
