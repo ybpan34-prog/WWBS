@@ -8,6 +8,7 @@ from PIL import Image
 from tasks.daily_154 import (Daily154Navigation, DAILY_ZONE_BUTTON_Y_OFFSETS)
 from tasks.daily_checks import DailyStepChecks
 from tasks.daily_radio import DailyRadioVision
+from tasks.weekly_rewards import WeeklyRewardsVision
 from tasks.terminal_navigation import terminal_target
 from tasks.tacet_navigation import tacet_card_list_present
 from tasks.combat_4c_entrance import EntranceFrame
@@ -290,6 +291,49 @@ class VerifiedDailyNavigation(Daily154Navigation):
     def _wait_daily_battlepass_tab(self, tab):
         # Reuse its existing selected-icon + page-title confirmation.
         return self._runner._wait_daily_battlepass_tab(tab)
+
+    def _continue_daily_into_weekly_travel(self):
+        self.log('    电台领取结束，返回索拉指南复核周常完成情况。')
+        if self.stop_event.is_set() or not self._open_terminal_destination('索拉指南'):
+            return
+        self._continue_daily_from_open_guide_page()
+
+    def _continue_daily_from_open_guide_page(self):
+        state = ['']
+        def classify(screen):
+            if not self._panel(screen):
+                state[0] = ''
+                return False
+            current = ('completed' if self._weekly_completion_confirmed(screen) else
+                       'pending' if self._weekly_travel_page_present(screen) else '')
+            stable = bool(current) and state[0] == current
+            state[0] = current
+            return stable
+        # Reopen the activity entry if the guide remembered its material page.
+        # Only an explicit completed check, never an unknown page, skips weekly.
+        def select_progress(screen):
+            if not state[0] and self._panel(screen):
+                return self._tap(self._ratio_point(screen, .039, .174))
+            return False
+        if not self._checks.transition('周常完成状态', classify, select_progress):
+            return
+        if self.stop_event.is_set():
+            return
+        if state[0] == 'completed':
+            self.log('    已复核周度游历完成勾，本周周常已完成。')
+            self._close_page()
+        else:
+            self.log('    已复核周度游历仍未完成，接入1.5.0周常流程。')
+            self._start_weekly_travel_from_selected_page()
+
+    def _start_weekly_travel_from_selected_page(self):
+        from tasks.weekly_150 import continue_from_daily
+        return continue_from_daily(self._runner)
+
+    def _weekly_completion_confirmed(self, screen):
+        # A light patch on a material card is not a completion check.
+        return self._weekly_travel_completed(screen) and WeeklyRewardsVision(ROOT/'templates/weekly').matches(
+            screen, 'weekly_tab.png', (540, 105, 745, 195), threshold=.78)
 
 
     def _open_daily_tacet_field(self, zone_template: str) -> bool:

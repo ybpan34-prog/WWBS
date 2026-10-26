@@ -116,6 +116,9 @@ class TaskRunner(Combat4CTask, DreamlandTask, OtherTask, Match3Task):
         self._weekly_click_at = 0.
 
     def run_task(self, task: WeeklyTask) -> None:
+        if task.template_group == 'default' and task.name == DEFAULT_GROUP_NAME:
+            from tasks.weekly_150 import run_weekly
+            return run_weekly(self)
         self._weekly_monitoring = task.template_group == "default" and task.name == DEFAULT_GROUP_NAME
         try:
             if self._weekly_monitoring and not self.dry_run:
