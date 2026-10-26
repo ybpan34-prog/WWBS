@@ -16,7 +16,7 @@ from tasks.models import Step
 from tasks.daily_settlement import DailySettlementVision
 from tasks.daily_radio import DailyRadioVision
 from tasks.terminal_navigation import terminal_target
-from tasks.reward_orb_scan import ORB_DIRECT_CONFIDENCE, ORB_SCAN_STEP, OrbDirectionSweep
+from tasks.reward_orb_scan import ORB_SCAN_STEP
 from tasks.weekly_rewards import WeeklyRewardsVision
 
 
@@ -1191,16 +1191,13 @@ class OtherTask:
         counts = white[:usable_h, :usable_w].reshape(usable_h // block, block, usable_w // block, block).sum(axis=(1, 3))
         cell_y, cell_x = np.unravel_index(np.argmax(counts), counts.shape)
         density = float(counts[cell_y, cell_x] / (block * block))
-        if density <= DAILY_REWARD_ORB_MIN_CONFIDENCE:
+        if density < DAILY_REWARD_ORB_MIN_CONFIDENCE:
             return None, None, density
         return left + cell_x * block + block // 2, top + cell_y * block + block // 2, density
 
     def _collect_daily_reward(self, cycle_index: int) -> bool:
         screenshot = APP_DIR / "_runtime_screenshot.png"
         deadline = time.monotonic() + 75.0
-        previous_forward_confidence: float | None = None
-        sweep = None
-        approaching = False
         threshold = getattr(self, 'daily_orb_confidence', .45)
         missed_turns = 0
         route = None
@@ -1228,7 +1225,6 @@ class OtherTask:
                 return False
             with Image.open(screenshot) as captured:
                 width, height = captured.size
-                scan_image = captured.copy()
             if self.stop_event.is_set():
                 break
             if prompt is not None:
@@ -1250,10 +1246,9 @@ class OtherTask:
                 if interactions >= 2:
                     raise RuntimeError('重新寻找光球并再次按F后，仍未确认进入领取界面；未当作领取成功。')
                 self.log('    按F后未进入领取界面，可能提示闪过未按到；重新寻找一次光球并接近后重试。')
-                previous_forward_confidence = None
-                sweep, route, approaching, missed_turns = None, None, False, 0
+                route, missed_turns = None, 0
                 continue
-            valid = target_x is not None and density > threshold
+            valid = target_x is not None and density >= threshold
             if valid:
                 missed_turns = 0
             if route is None and missed_turns >= 12 and not valid:
@@ -1272,39 +1267,15 @@ class OtherTask:
                 continue
             if route is not None and valid:
                 route = None
-                approaching, sweep = True, None
-            stalled = self._daily_reward_movement_stalled(previous_forward_confidence, density)
-            if valid and density > max(ORB_DIRECT_CONFIDENCE, threshold):
-                approaching, sweep = True, None
-                self.log(f"    光球置信度 {density:.2f} 超过阈值 {max(ORB_DIRECT_CONFIDENCE, threshold):.0%}，直接前往。")
-            elif not valid or stalled:
-                approaching = False
-            if not approaching:
-                if sweep is None:
-                    sweep = OrbDirectionSweep()
-                    self.log(f"    开始水平扫描，记录各方向光球置信度；超过{max(ORB_DIRECT_CONFIDENCE, threshold):.0%}时直接前往。")
-                sweep.observe(scan_image, target_x if valid else None, density)
-                previous_forward_confidence = None
-                if sweep.complete:
-                    if sweep.best is not None:
-                        self.log(f"    已转满一圈，选择最高置信度 {sweep.best.confidence:.2f} 的方向。")
-                        self._turn_daily_reward_camera(sweep.return_delta())
-                        approaching = True
-                    else:
-                        self.log("    已转满一圈，未找到有效光球，重新扫描。")
-                    sweep = None
-                    continue  # Fresh screenshot at the selected direction before moving.
+            if not valid:
                 self.controller.move_mouse_relative(ORB_SCAN_STEP, 0)
-                sweep.advance(ORB_SCAN_STEP)
-                if not valid:
-                    missed_turns += 1
+                missed_turns += 1
             else:
                 offset = target_x - width * 0.5
                 if abs(offset) > width * 0.05:
                     self.controller.move_mouse_relative(int(max(-300, min(300, offset * 0.40))), 0)
                 self.controller.press_keys(("W",), 500)
                 self.log(f"    已定位白色奖励光球（核心密度 {density:.2f}），正在靠近。")
-                previous_forward_confidence = density
             self._sleep_interruptible(0.22)
         raise RuntimeError("奖励阶段未找到“领取奖励”提示，已停止以避免误操作。")
 

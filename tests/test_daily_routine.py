@@ -71,7 +71,7 @@ class DailyRoutineTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "未显示活跃度或周度游历"):
             runner._open_daily_tacet_field("zone.png")
 
-    def test_two_round_daily_settlement_does_not_start_weekly_on_material_page(self):
+    def test_two_round_daily_settlement_checks_weekly_after_radio(self):
         controller = Mock()
         controller.normalize_input_binding.side_effect = lambda value: value
         log = Mock()
@@ -85,12 +85,14 @@ class DailyRoutineTests(unittest.TestCase):
         runner._open_daily_tacet_field = Mock(return_value=True)
         runner._collect_daily_reward = Mock(return_value=True)
         runner._click_optional_daily_template = Mock(return_value=False)
+        runner._continue_daily_into_weekly_travel = Mock()
         with tempfile.TemporaryDirectory() as tmp, patch("tasks.other.APP_DIR", Path(tmp)), patch("tasks.daily_154.APP_DIR", Path(tmp)):
             self.material_guide_image().save(Path(tmp) / "_runtime_screenshot.png")
             runner._run_daily_routine(app.Step(action="daily_routine"))
         self.assertEqual(runner._run_daily_battle.call_count, 2)
         runner._collect_daily_activity_rewards.assert_called_once()
         runner._collect_daily_battlepass_rewards.assert_called_once()
+        runner._continue_daily_into_weekly_travel.assert_called_once()
         runner._start_weekly_travel_from_selected_page.assert_not_called()
         log.assert_any_call("    一键日常与自动周常流程完成。")
         runner._click_daily_template.assert_any_call("exit_instance.png", "退出副本", timeout=20.0)
@@ -341,7 +343,7 @@ class DailyRoutineTests(unittest.TestCase):
             self.assertFalse(TaskRunner._weekly_skill_slot_empty(screenshot))
             self.assertTrue(TaskRunner._weekly_skill_equipped(screenshot))
 
-    def test_standalone_weekly_run_does_not_force_start_page_before_dynamic_flow(self):
+    def test_standalone_weekly_run_uses_original_150_instead_of_dynamic_flow(self):
         runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)
         runner._check_weekly_cap = Mock()
         runner._wait_for_daily_template = Mock()
@@ -357,11 +359,13 @@ class DailyRoutineTests(unittest.TestCase):
             steps=[app.Step(action="tap_image_cycle", templates=['menu2.png', 'menu99.png'])],
         )
 
-        runner.run_task(task)
+        with patch('tasks.weekly_150.run_weekly') as original:
+            runner.run_task(task)
+        original.assert_called_once_with(runner)
 
         runner._wait_for_daily_template.assert_not_called()
         runner._ensure_weekly_skill_selected.assert_not_called()
-        runner._run_weekly_dynamic.assert_called_once()
+        runner._run_weekly_dynamic.assert_not_called()
 
     def test_daily_skips_tacet_field_when_activity_page_was_auto_skipped(self):
         runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)

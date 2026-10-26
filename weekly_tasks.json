@@ -16,7 +16,7 @@
           "templates": [],
           "loop": false,
           "skip_missing": true,
-          "threshold": 0.5,
+          "threshold": 0.82,
           "timeout": 8,
           "offset_x": 80,
           "offset_y": 0,
@@ -25,7 +25,7 @@
           "x2": null,
           "y2": null,
           "duration_ms": 300,
-          "seconds": 0.3,
+          "seconds": 0.15,
           "text": ""
         },
         {
@@ -53,7 +53,7 @@
           ],
           "loop": true,
           "skip_missing": true,
-          "threshold": 0.5,
+          "threshold": 0.82,
           "timeout": 1,
           "offset_x": 0,
           "offset_y": 0,
@@ -62,7 +62,7 @@
           "x2": null,
           "y2": null,
           "duration_ms": 300,
-          "seconds": 0.3,
+          "seconds": 0.15,
           "text": ""
         }
       ]

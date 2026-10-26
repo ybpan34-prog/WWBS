@@ -21,6 +21,7 @@ class Move:
     value: float
     cleared: int
     creates: str = ''
+    depth: tuple[float, float] = (-1, -1)
 
 
 def runs(board):
@@ -112,7 +113,11 @@ def evaluate(board, start, end):
     cascades = runs(fallen)
     if cascades:
         value += len(set().union(*cascades))*7
-    return Move(start, end, value, count, special)
+    rows = [r for r, c in cleared if changed[r][c].color >= 0 and changed[r][c].special != 'target']
+    # Actual eliminated tiles determine depth, including special effects.
+    # Swap position alone can point below a match which actually clears above.
+    depth = (max(rows), sum(rows)/len(rows)) if rows else (-1, -1)
+    return Move(start, end, value, count, special, depth)
 
 
 def ranked_moves(board, excluded=()):
@@ -129,4 +134,4 @@ def ranked_moves(board, excluded=()):
                 move = evaluate(board, (row, col), end)
                 if move is not None:
                     result.append(move)
-    return sorted(result, key=lambda m: (-m.value, m.start, m.end))
+    return sorted(result, key=lambda m: (-m.depth[0], -m.depth[1], -m.value, m.start, m.end))
