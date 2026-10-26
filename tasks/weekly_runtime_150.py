@@ -13,6 +13,7 @@ from tasks.weekly_150 import TaskRunner as OriginalRunner
 from tasks.weekly_matcher_150 import (
     TemplateMatcher, _gray_array, _scaled_template_gray, _match_single_scale_gray,
 )
+from tasks.weekly_rewards import WeeklyRewardsVision
 
 
 class SessionMatcher(TemplateMatcher):
@@ -71,6 +72,31 @@ class WeeklyRuntime(OriginalRunner):
         self._last_frame = None
         self._expected_template = None
         self._exit_click_at = None
+        self._cap_vision = WeeklyRewardsVision(Path(__file__).resolve().parent.parent/'templates/weekly')
+
+    def run_task(self, task):
+        try:
+            return super().run_task(task)
+        except WeeklyCapReached:
+            self._stop_at_cap()
+
+    def _run_default_weekly_from_daily(self):
+        try:
+            return super()._run_default_weekly_from_daily()
+        except WeeklyCapReached:
+            self._stop_at_cap()
+
+    def _stop_at_cap(self):
+        self.stop_event.set()
+        self.log('    本周游历值已达到上限，本次周常已结束；不再重新挑战，保留当前结算页面。')
+        self.notice('本周游历值已达到上限，已停止周常，保留结算页面。')
+
+    def _cap_result(self, path):
+        try:
+            return (self._cap_vision.matches(path, 'cap_result.png', (1380,580,1640,680))
+                    and self._cap_vision.matches(path, 'return_home.png', (1170,865,1390,975)))
+        except OSError:
+            return False
 
     def _fast_scales(self):
         if self._last_frame is not None:
@@ -164,7 +190,18 @@ class WeeklyRuntime(OriginalRunner):
     def _capture_for_matching(self, target):
         super()._capture_for_matching(target)
         self._last_frame = target
-        if self.stop_event.is_set() or self._expected_template is None:
+        if self.stop_event.is_set():
+            return
+        # Check the actual result before any restart/exit input. Both a win and
+        # a loss use this same weekly-cap row and return-home button.
+        if self._cap_result(target):
+            self._sleep_interruptible(.15)
+            if self.stop_event.is_set():
+                return
+            super()._capture_for_matching(target)
+            if self._cap_result(target):
+                raise WeeklyCapReached()
+        if self._expected_template is None:
             return
         close = self._shop_close(target)
         if close is None or self._expected_template == 'menu95.png':
@@ -196,3 +233,7 @@ class WeeklyRuntime(OriginalRunner):
 
 class ShopNotClosed(RuntimeError):
     pass
+
+
+class WeeklyCapReached(BaseException):
+    """Intentional end signal, outside the original broad click-retry handlers."""
