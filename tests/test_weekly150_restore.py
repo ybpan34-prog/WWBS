@@ -31,7 +31,10 @@ class Weekly150RestoreTests(unittest.TestCase):
             if isinstance(node, ast.FunctionDef):
                 self.assertEqual(hashlib.sha256(json.dumps(structure(node), sort_keys=True).encode()).hexdigest(),
                                  provenance['methods'][node.name], node.name)
-        self.assertEqual(hashlib.sha256((ROOT/'tasks/weekly_matcher_150.py').read_bytes()).hexdigest(), provenance['matcher_sha256'])
+        # Git's Windows checkout can translate LF to CRLF. Verify the original
+        # text while allowing that encoding-only checkout transformation.
+        self.assertEqual(hashlib.sha256((ROOT/'tasks/weekly_matcher_150.py').read_text(encoding='utf-8').encode()).hexdigest(),
+                         provenance['matcher_text_sha256'])
         for name, digest in provenance['templates'].items():
             self.assertEqual(hashlib.sha256((ROOT/'templates/weekly150'/name).read_bytes()).hexdigest(), digest, name)
         from dataclasses import asdict
