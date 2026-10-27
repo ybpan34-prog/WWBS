@@ -8,6 +8,7 @@ from PIL import Image
 from tasks.daily_154 import (Daily154Navigation, DAILY_ZONE_BUTTON_Y_OFFSETS)
 from tasks.daily_checks import DailyStepChecks
 from tasks.daily_radio import DailyRadioVision
+from tasks.daily_team import team_start_target
 from tasks.weekly_rewards import WeeklyRewardsVision
 from tasks.terminal_navigation import terminal_target
 from tasks.tacet_navigation import tacet_card_list_present
@@ -44,6 +45,10 @@ class VerifiedDailyNavigation(Daily154Navigation):
 
     def _world(self, path):
         if not self._runner._overworld_hud_ready(path):
+            return False
+        # Team portraits and the pale action buttons can satisfy the coarse HUD
+        # brightness checks, regardless of which characters occupy the slots.
+        if team_start_target(path) is not None:
             return False
         # Radio weapon art/menu icons can satisfy the coarse HUD brightness
         # check. A known open menu must not acknowledge "returned to world".
@@ -107,6 +112,9 @@ class VerifiedDailyNavigation(Daily154Navigation):
                                        lambda p: self._terminal(p) or self._world(p), action)
 
     def _start_target(self, path):
+        target = team_start_target(path)
+        if target is not None:
+            return target
         if self._world(path) or self._battle(path) or self._runner._read_daily_settlement(path) is not None:
             return None
         with Image.open(path) as source:

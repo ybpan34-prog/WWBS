@@ -6,10 +6,54 @@ from unittest.mock import Mock, patch
 from PIL import Image
 
 from tasks.daily_verified import VerifiedDailyNavigation
+from tasks.daily_team import team_start_target
 from tasks.runner import TaskRunner
 
 
 class DailyVerifiedTests(unittest.TestCase):
+    def test_reported_team_page_is_confirmed_then_start_button_is_clicked(self):
+        nav, runner = self.navigation()
+        fixture = Path(__file__).parent/'fixtures/daily-team-start-reported.png'
+        now = [0.]
+        runner._sleep_interruptible = lambda seconds: now.__setitem__(0, now[0]+seconds)
+        runner._capture_for_matching = Mock()
+        runner._battle = lambda _: runner.controller.tap.called
+        with tempfile.TemporaryDirectory() as directory:
+            screen = Path(directory)/'screen.png'
+            with Image.open(fixture) as source:
+                source.save(screen)
+            nav._checks.screenshot = screen
+            with patch('tasks.daily_checks.time.monotonic', side_effect=lambda: now[0]):
+                self.assertTrue(nav._checks.transition('进入队伍页', lambda p: nav._start_target(p) is not None))
+                self.assertTrue(nav._tap_ratio(.86, .92))
+        runner.controller.tap.assert_called_once_with(363, 219)
+
+    def test_reported_team_page_is_not_world_and_start_ignores_character_art(self):
+        fixture = Path(__file__).parent/'fixtures/daily-team-start-reported.png'
+        nav, runner = self.navigation()
+        with tempfile.TemporaryDirectory() as directory, Image.open(fixture) as original:
+            path = Path(directory)/'team.png'
+            for width in (424, 1280, 1600, 1920, 2560):
+                for replace_party in (False, True):
+                    image = original.resize((width, round(width*239/424)), Image.Resampling.BILINEAR)
+                    if replace_party:
+                        image.paste((30, 35, 45), (round(width*.14), round(image.height*.14),
+                                                 round(width*.96), round(image.height*.84)))
+                    image.save(path)
+                    with self.subTest(width=width, replace_party=replace_party):
+                        target = nav._start_target(path)
+                        self.assertIsNotNone(target)
+                        self.assertLess(abs(target[0]/width-.85), .025)
+                        self.assertLess(abs(target[1]/image.height-.92), .025)
+                        self.assertFalse(nav._world(path))
+
+    def test_team_buttons_are_absent_on_world_menus_and_settlement(self):
+        for name in ('tower-scene.png', 'tower-prompt.png', 'tower-result.png',
+                     'daily-activity-zero.png', 'daily-radio-tasks.png',
+                     'daily-terminal-menu.png', 'daily-settlement-reported.png'):
+            with self.subTest(frame=name):
+                self.assertIsNone(team_start_target(Path(__file__).parent/'fixtures'/name))
+
     def navigation(self):
         runner = TaskRunner(Mock(), Mock(), dry_run=False)
         nav = VerifiedDailyNavigation(runner)
@@ -34,7 +78,7 @@ class DailyVerifiedTests(unittest.TestCase):
     def test_start_button_detector_rejects_world_and_tacet_list(self):
         nav, runner = self.navigation()
         runner._world = Mock(return_value=True)
-        self.assertIsNone(nav._start_target('not-opened.png'))
+        self.assertIsNone(nav._start_target(Path(__file__).parent/'fixtures/tower-scene.png'))
         self.assertIsNone(nav._ocr)
 
     def test_stable_battle_does_not_wait_five_seconds_for_absent_optional_dialog(self):

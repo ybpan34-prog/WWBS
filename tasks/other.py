@@ -9,6 +9,7 @@ from PIL import Image
 
 from boss_rain import boss_bar_present
 from combat_rotation import BattleMonitor, IdleAttackWorker, RotationClock, SLOT_NAMES
+from combat_vision import enemy_health_bar_present
 from image_matcher import TemplateMatcher, _match_single_scale_gray
 from tasks.echo_spiral import echo_spiral_steps
 from tasks.tacet_navigation import selected_tacet_label, tacet_card_list_present
@@ -68,8 +69,12 @@ class OtherTask:
         return (self._tower_template_present(screenshot, "success_title.png", (.35, .18, .65, .40))
                 and self._tower_template_present(screenshot, "confirm_score.png", (.35, .76, .66, .94)))
 
+    def _tower_combat_visible(self, screenshot: Path) -> bool:
+        with Image.open(screenshot) as image:
+            return boss_bar_present(image) or enemy_health_bar_present(image)
+
     def _approach_tower_start(self, screenshot: Path) -> bool:
-        """Return True only if the challenge was started; never press F blindly."""
+        """Start at the orb, or resume a battle when enemies are already visible."""
         deadline = time.monotonic() + 45
         while not self.stop_event.is_set() and time.monotonic() < deadline:
             self._capture_for_matching(screenshot)
@@ -85,6 +90,12 @@ class OtherTask:
                 self._sleep_interruptible(.4)
                 return not self.stop_event.is_set()
             target_x, _target_y, _confidence = self._daily_reward_orb_location(screenshot)
+            if target_x is None and self._tower_combat_visible(screenshot):
+                if self.stop_event.is_set():
+                    return False
+                self.controller.release_keys()
+                self.log("    未发现光球，已识别敌方血条，直接进入深塔战斗。")
+                return True
             with Image.open(screenshot) as source:
                 width = source.width
             keys = ("W",)
@@ -96,7 +107,7 @@ class OtherTask:
             self._sleep_interruptible(.08)
         if self.stop_event.is_set():
             return False
-        raise RuntimeError("靠近深塔光球后未识别到“开始挑战”，请从塔内光球前的画面启动。")
+        raise RuntimeError("未识别到深塔开始提示或敌方血条，请从塔内光球前或已出现怪物的战斗画面启动。")
 
     def _run_tower_challenge(self, step: Step) -> None:
         required = ("press_keys", "press_key", "press_binding", "left_click", "hold_left_button",
@@ -104,7 +115,7 @@ class OtherTask:
         if any(not hasattr(self.controller, name) for name in required):
             raise RuntimeError("深塔挑战目前只支持 PC 客户端窗口。")
         if self.dry_run:
-            self.log("    干运行：靠近光球，识别开始挑战后按 F，按深塔预设持续战斗至挑战成功。")
+            self.log("    干运行：靠近光球并识别开始挑战后按 F；无光球且检测到敌方血条时直接战斗，持续至挑战成功。")
             return
         screenshot = APP_DIR / "_runtime_screenshot.png"
         try:
