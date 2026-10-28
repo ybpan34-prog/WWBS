@@ -1,0 +1,36 @@
+{
+  "seed": "【次数与处决】WWBS5.AAgEUWud2ENynmnUZAAEAB4ADwAEAwpbAANsAAJU_xBb",
+  "axis": {
+    "name": "次数与处决",
+    "order": [
+      3,
+      1,
+      2
+    ],
+    "times": [
+      30,
+      15,
+      4
+    ],
+    "modules": [
+      [
+        "execute",
+        1,
+        1,
+        0
+      ],
+      [
+        "skill_count",
+        2,
+        3,
+        0
+      ],
+      [
+        "ultimate_count",
+        3,
+        2,
+        0
+      ]
+    ]
+  }
+}

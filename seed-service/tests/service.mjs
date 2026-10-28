@@ -5,6 +5,11 @@ import { readSeed } from '../lib/seed-wire.mjs';
 import { handle } from '../netlify/functions/seeds.mjs';
 
 const fixtures=JSON.parse(fs.readFileSync(new URL('./wire-fixtures.json',import.meta.url),'utf8'));
+test('WWBS5 finite casts and F execution restore exact values without changing WWBS4',()=>{
+  const fixture=JSON.parse(fs.readFileSync(new URL('../../tests/fixtures/counted-casts-seed.json',import.meta.url),'utf8'));
+  assert.deepEqual(readSeed(fixture.seed).axis,fixture.axis);
+  assert.throws(()=>readSeed(fixture.seed.replace('】WWBS5.','】WWBS4.')));
+});
 class Store {
   values=new Map();
   async setJSON(key,value,{onlyIfNew}={}) {

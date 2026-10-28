@@ -87,7 +87,6 @@ class OtherTask:
                 self.controller.release_keys()
                 self.controller.press_key("F", 100)
                 self.log("    已识别“开始挑战”，按 F 开始深塔挑战。")
-                self._sleep_interruptible(.4)
                 return not self.stop_event.is_set()
             target_x, _target_y, _confidence = self._daily_reward_orb_location(screenshot)
             if target_x is None and self._tower_combat_visible(screenshot):

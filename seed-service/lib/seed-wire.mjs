@@ -8,6 +8,7 @@ const ACTIONS = [
   ['ultimate',1,15,1,1,true], ['echo',1,20,1,1,true], ['approach',.09,.75,.05,3,false], ['wait',1,0,.2,30,false],
 ];
 const ORDERS = [[1,2,3],[1,3,2],[2,1,3],[2,3,1],[3,1,2],[3,2,1]];
+const ACTIONS_V5 = [...ACTIONS, ['execute',1,0,1,1,true], ['skill_count',1,0,1,20,true], ['ultimate_count',1,0,1,20,true]];
 
 export function crc32(buffer) {
   let crc = 0xffffffff;
@@ -20,8 +21,9 @@ export function crc32(buffer) {
 
 export function readSeed(seed) {
   if (typeof seed !== 'string' || seed.length > 24000) throw new Error('种子过长或格式错误');
-  const match = /^【([^【】\r\n]+)】(?:WWBS)?4\.([A-Za-z0-9_-]+)$/.exec(seed.trim());
+  const match = /^【([^【】\r\n]+)】(?:WWBS5|(?:WWBS)?4)\.([A-Za-z0-9_-]+)$/.exec(seed.trim());
   if (!match) throw new Error('请上传当前版本生成的完整种子');
+  const actions = seed.trim().includes('】WWBS5.') ? ACTIONS_V5 : ACTIONS;
   const name = match[1];
   if (name.trim() !== name || Array.from(name).length > 10 || /[\u0000-\u001f]/.test(name)) throw new Error('种子名称须为1到10个字');
   const packet = Buffer.from(match[2], 'base64url');
@@ -62,8 +64,8 @@ export function readSeed(seed) {
   const modules=[], idleSlots=new Set();
   for(let i=0;i<count;i++) {
     const header=take(1)[0], index=header&15, slot=((header>>>4)&3)+1;
-    if(index>=ACTIONS.length||slot>3)throw new Error('模块类型错误');
-    const [kind,defaultValue,defaultInterval,low,high,integer]=ACTIONS[index];
+    if(index>=actions.length||slot>3)throw new Error('模块类型错误');
+    const [kind,defaultValue,defaultInterval,low,high,integer]=actions[index];
     const value=header&64?number():defaultValue, interval=header&128?number():defaultInterval;
     if(!Number.isFinite(value)||!Number.isFinite(interval)||value<low||value>high||interval<0||interval>120||
        (integer&&!Number.isInteger(value))||(['skill','ultimate','echo','approach'].includes(kind)&&interval<.2))throw new Error('模块参数错误');

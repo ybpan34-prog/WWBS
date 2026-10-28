@@ -73,6 +73,17 @@ class TowerVisionTests(unittest.TestCase):
 
 
 class TowerFlowTests(unittest.TestCase):
+    def test_f_starts_battle_immediately_without_fixed_wait_or_more_approach_scans(self):
+        runner = self.runner()
+        runner._tower_success_present = Mock(return_value=False)
+        runner._tower_template_present = Mock(return_value=True)
+        runner._run_tower_battle = Mock()
+        runner._run_tower_challenge(Mock(timeout=1200))
+        runner.controller.press_key.assert_called_once_with('F', 100)
+        runner._sleep_interruptible.assert_not_called()
+        runner._capture_for_matching.assert_called_once()
+        runner._run_tower_battle.assert_called_once()
+
     def runner(self):
         controller = Mock()
         controller.normalize_input_binding = lambda value: value

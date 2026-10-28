@@ -11,6 +11,45 @@ from tasks.runner import TaskRunner
 
 
 class DailyVerifiedTests(unittest.TestCase):
+    def test_confirmed_restart_skips_redundant_stamina_prompt_even_if_hud_fades(self):
+        nav, runner = self.navigation()
+        nav._checks.transition = Mock(return_value=True)
+        runner._capture_for_matching = Mock(side_effect=AssertionError('must not rescan optional prompt after confirmed battle'))
+        runner._normal = Mock(return_value=False)
+        self.assertTrue(nav._click_daily_template('restart_challenge.png', '重新挑战'))
+        self.assertTrue(runner._daily_restart_confirmed)
+        self.assertFalse(nav._click_optional_daily_template('insufficient_continue.png', '体力不足继续提示的确认', timeout=5))
+        self.assertFalse(runner._daily_restart_confirmed)
+        runner.controller.tap.assert_not_called()
+
+    def test_cancelled_restart_cannot_acknowledge_the_stamina_prompt(self):
+        nav, runner = self.navigation()
+        nav._checks.transition = Mock(return_value=False)
+        self.assertFalse(nav._click_daily_template('restart_challenge.png', '重新挑战'))
+        self.assertFalse(runner._daily_restart_confirmed)
+
+    def test_full_reported_frame_clicks_button_center_at_window_scales(self):
+        nav, runner = self.navigation()
+        fixture = Path(__file__).parent/'fixtures/daily-team-start-full-reported.png'
+        with tempfile.TemporaryDirectory() as directory, Image.open(fixture) as source:
+            path = Path(directory)/'team.png'
+            for titlebar in (0, 38):
+                original = source.crop((0, titlebar, source.width, source.height))
+                for scale in (.6, 1, 1.5):
+                    original.resize((round(original.width*scale), round(original.height*scale)), Image.Resampling.BILINEAR).save(path)
+                    with self.subTest(titlebar=titlebar, scale=scale):
+                        runner.controller.tap.reset_mock()
+                        self.assertTrue(nav._tap_start(path))
+                        x, y = runner.controller.tap.call_args.args
+                        self.assertLess(abs(x/scale-1375), 12)
+                        self.assertLess(abs(y/scale-(865-titlebar)), 8)
+
+    def test_start_click_rejects_a_target_on_third_portrait(self):
+        nav, runner = self.navigation()
+        runner._start_target = Mock(return_value=(1375, 650))
+        self.assertFalse(nav._tap_start(Path(__file__).parent/'fixtures/daily-team-start-full-reported.png'))
+        runner.controller.tap.assert_not_called()
+
     def test_reported_team_page_is_confirmed_then_start_button_is_clicked(self):
         nav, runner = self.navigation()
         fixture = Path(__file__).parent/'fixtures/daily-team-start-reported.png'
