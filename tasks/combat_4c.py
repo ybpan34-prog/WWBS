@@ -414,6 +414,8 @@ class Combat4CTask:
                 self.controller.hold_left_button(duration)
         elif kind == "jump":
             self.controller.press_key("SPACE", 50)
+        elif kind == "execute":
+            self.controller.press_key("F", 65)
         elif kind in {"skill", "ultimate", "echo"}:
             if self.stop_event.is_set():
                 return False

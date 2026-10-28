@@ -4,16 +4,43 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 import app
 from combat_rotation import default_store, load_store, new_module, validate_store
+from combat_vision import enemy_health_bar_present
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
 class TowerVisionTests(unittest.TestCase):
+    def test_tower_enemy_detection_accepts_floating_bar_and_rejects_idle_and_result(self):
+        runner = app.TaskRunner(Mock(), Mock())
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/'enemy.png'
+            with Image.open(FIXTURES/'tower-scene.png') as source:
+                image = source.convert('RGB')
+            ImageDraw.Draw(image).rectangle((800, 350, 940, 354), fill=(225, 60, 55))
+            image.save(path)
+            self.assertTrue(runner._tower_combat_visible(path))
+        for label in ('scene', 'prompt', 'result'):
+            self.assertFalse(runner._tower_combat_visible(FIXTURES/f'tower-{label}.png'))
+
+    def test_floating_enemy_bars_at_multiple_resolutions_exclude_red_art_and_hud(self):
+        for width in (960, 1280, 1920, 2560):
+            height = round(width*9/16)
+            def scene(box):
+                image = Image.new('RGB', (width, height), (20, 25, 30))
+                ImageDraw.Draw(image).rectangle(tuple(round(v*(width if i%2 == 0 else height))
+                                                      for i, v in enumerate(box)), fill=(225, 60, 55))
+                return image
+            with self.subTest(width=width):
+                self.assertTrue(enemy_health_bar_present(scene((.4, .3, .47, .304))))
+                self.assertFalse(enemy_health_bar_present(scene((.4, .3, .47, .5))))
+                self.assertFalse(enemy_health_bar_present(scene((.87, .3, .94, .304))))
+                self.assertFalse(enemy_health_bar_present(scene((.4, .9, .47, .904))))
+
     def test_provided_start_and_success_frames_at_multiple_resolutions(self):
         runner = app.TaskRunner(Mock(), Mock())
         with tempfile.TemporaryDirectory() as directory:
@@ -46,6 +73,17 @@ class TowerVisionTests(unittest.TestCase):
 
 
 class TowerFlowTests(unittest.TestCase):
+    def test_f_starts_battle_immediately_without_fixed_wait_or_more_approach_scans(self):
+        runner = self.runner()
+        runner._tower_success_present = Mock(return_value=False)
+        runner._tower_template_present = Mock(return_value=True)
+        runner._run_tower_battle = Mock()
+        runner._run_tower_challenge(Mock(timeout=1200))
+        runner.controller.press_key.assert_called_once_with('F', 100)
+        runner._sleep_interruptible.assert_not_called()
+        runner._capture_for_matching.assert_called_once()
+        runner._run_tower_battle.assert_called_once()
+
     def runner(self):
         controller = Mock()
         controller.normalize_input_binding = lambda value: value
@@ -71,6 +109,41 @@ class TowerFlowTests(unittest.TestCase):
         runner._run_tower_battle.assert_not_called()
         runner.controller.press_keys.assert_not_called()
         runner.controller.press_key.assert_not_called()
+
+    def test_no_orb_with_enemies_enters_battle_without_moving_or_pressing_f(self):
+        runner = self.runner()
+        runner._tower_success_present = Mock(return_value=False)
+        runner._tower_template_present = Mock(return_value=False)
+        runner._daily_reward_orb_location = Mock(return_value=(None, None, .1))
+        runner._tower_combat_visible = Mock(return_value=True)
+        runner._run_tower_battle = Mock()
+        step = Mock(timeout=1200)
+        runner._run_tower_challenge(step)
+        runner._run_tower_battle.assert_called_once()
+        runner.controller.press_keys.assert_not_called()
+        runner.controller.press_key.assert_not_called()
+
+    def test_orb_keeps_approach_even_if_enemy_detector_matches(self):
+        runner = self.runner()
+        runner._tower_success_present = Mock(return_value=False)
+        runner._tower_template_present = Mock(return_value=False)
+        runner._daily_reward_orb_location = Mock(return_value=(960, 400, .9))
+        runner._tower_combat_visible = Mock(return_value=True)
+        runner.controller.press_keys.side_effect = lambda *_: runner.stop_event.set()
+        self.assertFalse(runner._approach_tower_start(FIXTURES/'tower-scene.png'))
+        runner._tower_combat_visible.assert_not_called()
+        runner.controller.press_keys.assert_called_once_with(('W',), 300)
+
+    def test_cancel_during_enemy_detection_does_not_enter_battle(self):
+        runner = self.runner()
+        runner._tower_success_present = Mock(return_value=False)
+        runner._tower_template_present = Mock(return_value=False)
+        runner._daily_reward_orb_location = Mock(return_value=(None, None, 0))
+        runner._tower_combat_visible = Mock(side_effect=lambda _: (runner.stop_event.set(), True)[1])
+        runner._run_tower_battle = Mock()
+        runner._run_tower_challenge(Mock(timeout=1200))
+        runner._run_tower_battle.assert_not_called()
+        runner.controller.press_keys.assert_not_called()
 
     def test_missing_start_prompt_does_not_press_f_blindly(self):
         runner = self.runner()

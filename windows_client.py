@@ -505,7 +505,10 @@ class ClientWindowController:
         except OSError:
             return False
 
-    def tap(self, x: int, y: int) -> dict[str, tuple[int, int] | bool]:
+    def tap_precise(self, x: int, y: int) -> dict[str, tuple[int, int] | bool]:
+        return self.tap(x, y, precise=True)
+
+    def tap(self, x: int, y: int, *, precise: bool = False) -> dict[str, tuple[int, int] | bool]:
         if self._input_stopped():
             return {'cancelled': True}
         self._ensure_window()
@@ -517,6 +520,10 @@ class ClientWindowController:
         moved, input_x, input_y, move_method = self._set_cursor_with_dpi_fallback(screen_x, screen_y)
         time.sleep(0.08)
         after_move = self.cursor_position()
+        if precise and (not moved or abs(after_move[0]-screen_x) > 4 or abs(after_move[1]-screen_y) > 4):
+            raise RuntimeError('光标未落在目标中心，未发送点击。')
+        if precise and self._input_stopped():
+            return {'cancelled': True}
         self._send_mouse_button(MOUSEEVENTF_LEFTDOWN)
         time.sleep(0.08)
         self._send_mouse_button(MOUSEEVENTF_LEFTUP)
