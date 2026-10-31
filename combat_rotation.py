@@ -21,6 +21,9 @@ ACTION_SPECS = {
     "echo": ("施放声骸 Q", "施放当前角色的声骸技能，按间隔循环触发", 1, 1),
     "approach": ("向前靠近", "按住 W 靠近目标", 0.05, 3),
     "wait": ("等待 N 秒", "按顺序等待，仍检查战斗结束", 0.2, 30),
+    "execute": ("点击F键处决", "按排轴顺序点击一次 F 键", 1, 1),
+    "skill_count": ("施放技能（按次数）", "每次驻场按顺序施放指定次数，默认一次，不循环触发", 1, 20),
+    "ultimate_count": ("施放大招（按次数）", "每次驻场按顺序施放指定次数，默认一次，不循环触发", 1, 20),
 }
 
 DEFAULT_VALUES = {
@@ -28,11 +31,13 @@ DEFAULT_VALUES = {
     "attack_seconds": (3, 0), "heavy_count": (1, 0),
     "skill": (1, 5), "ultimate": (1, 15), "echo": (1, 20),
     "approach": (0.09, 0.75), "wait": (1, 0),
+    "execute": (1, 0), "skill_count": (1, 0), "ultimate_count": (1, 0),
 }
 COMBAT_MODES = {"combat_4c": "4C 刷取", "daily": "一键日常", "tower": "深塔挑战"}
 SLOT_NAMES = {1: "一号位", 2: "二号位", 3: "三号位"}
 MAX_PRESET_NAME = 64
 PERIODIC_ACTIONS = frozenset({"skill", "ultimate", "echo"})
+COUNTED_CASTS = {"skill_count": "skill", "ultimate_count": "ultimate"}
 
 
 def new_module(kind: str, slot: int = 1) -> dict:
@@ -141,7 +146,7 @@ def validate_store(raw) -> dict:
                 raise ValueError(f"{ACTION_SPECS[kind][0]}参数超出范围")
             if kind in {"skill", "ultimate", "echo", "approach"} and interval < 0.2:
                 raise ValueError(f"{ACTION_SPECS[kind][0]}的执行间隔至少为 0.2 秒")
-            if kind in {"idle_attack", "attack_count", "jump_attack", "heavy_count", "skill", "ultimate", "echo"} and not value.is_integer():
+            if kind in {"idle_attack", "attack_count", "jump_attack", "heavy_count", "skill", "ultimate", "echo", "execute", *COUNTED_CASTS} and not value.is_integer():
                 raise ValueError(f"{ACTION_SPECS[kind][0]}次数必须为整数")
             slot = entry.get("slot", 1)
             if isinstance(slot, bool) or slot not in SLOT_NAMES:
@@ -286,6 +291,8 @@ class RotationClock:
         self.cast_ready_at = min(self.visit_deadline, now+max(0, delay))
 
     def has_following_wait(self, now):
+        if self.active and self.active[0]['kind'] in COUNTED_CASTS and self.remaining > 0:
+            return False
         column = self.columns[self.slot]
         if self.cursor >= len(column):
             return False
@@ -309,6 +316,12 @@ class RotationClock:
         if self.active:
             item, deadline = self.active
             kind = item["kind"]
+            if kind in COUNTED_CASTS and self.remaining > 0:
+                if now < self.next_attack:
+                    return None
+                self.remaining -= 1
+                self.next_attack = now + self.attack_interval
+                return {"kind": COUNTED_CASTS[kind], "module": item}
             if kind == "wait" and now < deadline:
                 return None
             if kind == "attack_seconds" and now < deadline:
@@ -332,6 +345,11 @@ class RotationClock:
             if now - self.last_run[item["id"]] < float(item["interval"]):
                 continue
             self.last_run[item["id"]] = now
+            if kind in COUNTED_CASTS:
+                self.active = (item, self.visit_deadline)
+                self.remaining = int(item["value"])-1
+                self.next_attack = now + self.attack_interval
+                return {"kind": COUNTED_CASTS[kind], "module": item}
             if kind in {"attack_count", "jump_attack", "attack_seconds", "heavy_count", "wait"}:
                 self.active = (item, min(self.visit_deadline, now + float(item["value"])))
                 self.remaining = int(item["value"])

@@ -109,8 +109,8 @@ DEFAULT_CONFIG = USER_SETTINGS_DIR / "weekly_tasks.json"
 TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
-APP_VERSION = "1.5.7"
-APP_BUILD = 3
+APP_VERSION = "1.5.9"
+APP_BUILD = 2
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -204,6 +204,8 @@ UPDATE_NOTICE = """v1.3.5 更新内容
 2. 请将游戏窗口调整为 1920*1080p 或等比例缩放。
 3. 请先完成周本的新手教程，并将速度调整至 MAX。"""
 UPDATE_HISTORY = [
+    ('v1.5.9', 'WWBS 1.5.9 正式版（构建2）\n修复进入队伍页时沿用上一页坐标误点三号位：点击前重新截图核对页面、窗口位置和按钮，仅允许点击开启挑战。\n排轴新增“点击F键处决”：轮到该模块时点击一次 F。\n新增“施放技能（按次数）”与“施放大招（按次数）”，每次驻场执行指定次数，默认一次，可设置1–20次；保留原有按间隔循环模块。\n含新模块的种子使用WWBS5格式，继续兼容所有旧种子。'),
+    ('v1.5.8', 'WWBS 1.5.8 正式版\n修复一键日常进入队伍页后卡住：优先识别右下角快速编队与开启挑战按钮，不依赖角色头像，使用当前任意队伍继续挑战。\n深塔挑战新增战斗入口判断：无光球且识别到敌方血条时直接执行深塔排轴；挑战成功后仍保留结算页面。'),
     ('v1.5.7', 'WWBS 1.5.7 正式版（构建3）\n每轮结算复核本周游历值，连续截图确认“已达到上限”后停止，不再重新挑战，保留当前结算页。\n周常menu96／menu97的不规则退出按钮改为中心点击，避免随机落在无效边缘。\n退出后单独等待并复核，过渡期间按钮消失时不盲点；点击未生效时重新定位中心，最多补点3次，最长等待18秒，识别到下一页立即继续。其他周常步骤与单一缩放比例缓存保持不变。'),
     ('v1.5.7', 'WWBS 1.5.7 正式版（构建2）\n修复乐园商店遮挡时，误点后方退出图标并卡在menu97的问题。先确认商店标题和关闭按钮，关闭后复核，再接续原版周常流程。\n周常按实际截图分辨率锁定缩放比例，后续只测该比例；窗口改变大小时自动重新确定。缓存缩放模板，每帧截图仍保持更新。'),
     ('v1.5.7', 'WWBS 1.5.7 正式版\n周常任务完整恢复1.5.0原版流程、识别器、模板与步骤，其他任务保持当前逻辑。\n日常找光球达到所选置信度即前往，取消固定80%门槛和整圈方向比较；保留12次未命中后的螺旋搜索与战斗复核。\n电台领取后返回索拉指南，连续截图检查周度游历，未完成时接入原版周常，完成勾明确后才跳过。\n无音消除优先消除更低位置的棋子，同等位置再比较收益；保留漏拖重试与换步，不设20步上限。'),
@@ -3265,7 +3267,7 @@ class App:
                 ("次数", self.boss_challenge_count, None, self._save_boss_challenge_settings),
             ),
         )
-        self._make_start_action_card(action_list, "tower", "深塔挑战", "靠近光球后开战，挑战成功后停止",
+        self._make_start_action_card(action_list, "tower", "深塔挑战", "靠近光球开战，已有怪物时直接战斗",
                                      self._start_tower_challenge, "tower")
         self._make_start_action_card(action_list, "match3", "无音消除", "打开棋盘后启动，自动计算交换；每步重读，结算后停止",
                                      self._start_match3_puzzle, "match3")
@@ -4045,12 +4047,13 @@ class App:
         kind = item["kind"]
         caption = {"idle_attack": "每多少下普攻穿插一次重击", "attack_count": "普攻次数",
                    "jump_attack": "跳跃后普攻次数", "attack_seconds": "普攻秒数",
-                   "heavy_count": "重击次数", "wait": "等待秒数", "approach": "向前移动秒数"}.get(kind, "执行次数")
+                   "heavy_count": "重击次数", "wait": "等待秒数", "approach": "向前移动秒数",
+                   "skill_count": "技能施放次数", "ultimate_count": "大招施放次数"}.get(kind, "执行次数")
         Label(body, text=ACTION_SPECS[kind][1], fg=COLORS["muted"], bg=COLORS["panel"],
               wraplength=380, justify=LEFT).pack(anchor="w", pady=(0, 12))
         Label(body, text="角色位", bg=COLORS["panel"], fg=COLORS["text"]).pack(anchor="w")
         self._rounded_picker(body, slot, list(SLOT_NAMES.values()), lambda: None).pack(fill=X, pady=(4, 10))
-        for title, variable in ([] if kind in {"skill", "ultimate", "echo"} else [(caption, value)]) + ([("循环间隔（秒）", interval)]
+        for title, variable in ([] if kind in {"skill", "ultimate", "echo", "execute"} else [(caption, value)]) + ([("循环间隔（秒）", interval)]
                                                     if kind in {"skill", "ultimate", "echo", "approach"} else []):
             Label(body, text=title, bg=COLORS["panel"], fg=COLORS["text"],
                   wraplength=380, justify=LEFT).pack(anchor="w")
@@ -4141,6 +4144,9 @@ class App:
         detail = {"idle_attack": f"空闲普攻；每 {value:g} 下重击一次", "attack_count": f"普攻 {value:g} 次",
                   "jump_attack": f"跳跃后普攻 {value:g} 次", "heavy_count": f"长按重击 {value:g} 次",
                   "attack_seconds": f"普攻 {value:g} 秒", "wait": f"等待 {value:g} 秒",
+                  "execute": "按顺序点击 F 一次",
+                  "skill_count": f"每次驻场施放技能 {value:g} 次，不循环",
+                  "ultimate_count": f"每次驻场施放大招 {value:g} 次，不循环",
                   "approach": f"前进 {value:g} 秒"}.get(kind, f"每 {item['interval']:g} 秒循环触发")
 
         def paint(target, width, height, hover=False, placeholder=False):
@@ -4428,7 +4434,7 @@ class App:
     def _build_rotation_tab(self) -> None:
         Label(self.rotation_tab, text="战斗排轴", font=(FONT_FAMILY, 15, "bold"),
               bg=COLORS["panel"], fg=COLORS["text"]).pack(anchor="w")
-        help_text = Label(self.rotation_tab, text="角色卡从左到右循环，空列跳过；开战先切到首个角色。离场继续计时，技能、大招与声骸到间隔按模块顺序触发。",
+        help_text = Label(self.rotation_tab, text="角色卡从左到右循环，空列跳过；技能、大招可选按次数施放（默认一次）或按间隔循环，F键处决按顺序点击一次。",
                           bg=COLORS["panel"], fg=COLORS["muted"], wraplength=700, justify=LEFT, anchor="w")
         help_text.pack(anchor="w", fill=X, pady=(4, 10))
         help_text.bind("<Configure>", lambda e: help_text.configure(wraplength=max(180, e.width-4)))
@@ -6729,8 +6735,8 @@ class App:
             messagebox.showerror("模式不支持", "深塔挑战目前只支持 PC 客户端窗口。", parent=self.root)
             return
         task = WeeklyTask(name="深塔挑战", enabled=True, weekday="any", template_group="tower",
-                          description="从塔内光球前开始，按分配的排轴战斗至挑战成功，保持结算界面。",
-                          steps=[Step(action="tower_challenge", label="靠近光球并挑战", timeout=1200)])
+                          description="从塔内光球前或已有怪物的画面开始，按分配的排轴战斗至挑战成功，保持结算界面。",
+                          steps=[Step(action="tower_challenge", label="识别光球或怪物并挑战", timeout=1200)])
         self.max_cycles = None
         self.dry_run.set(False)
         if self._ensure_admin_for_real_run():
@@ -7414,7 +7420,7 @@ class App:
         if step.action == "combat_4c":
             return f"{label}持续战斗，击败后寻找并吸收金色目标，再点击重新挑战；支持10次或自定义次数循环"
         if step.action == "tower_challenge":
-            return f"{label}靠近光球，开始挑战后按深塔排轴战斗；出现挑战成功即停止并保留结算页面"
+            return f"{label}靠近光球开始挑战；无光球且识别到敌方血条时直接按深塔排轴战斗，挑战成功后停止并保留结算页面"
         if step.action == "tap":
             return f"{label}点击固定位置 ({step.x}, {step.y})"
         if step.action == "swipe":

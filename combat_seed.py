@@ -26,6 +26,7 @@ SHORT_PREFIX = "WWBS2"
 COMPACT_PREFIX = "WWBS3"
 NAMED_PREFIX = 'WWBS4.'
 LEGACY_NAMED_PREFIX = '4.'
+EXTENDED_NAMED_PREFIX = 'WWBS5.'
 MAX_SEED_NAME = 10
 # Frozen WWBS4 data layout: name flag, order, times and action headers.
 NAMED_DICT = bytes.fromhex('00000019000f00050f00050607086901232569011422292269011e27690150600064')
@@ -41,6 +42,7 @@ SHORT_ACTIONS = (
     ("ultimate", 1, 15), ("echo", 1, 20), ("approach", .09, .75), ("wait", 1, 0),
 )
 SHORT_ORDERS = tuple(itertools.permutations((1, 2, 3)))
+EXTENDED_ACTIONS = SHORT_ACTIONS + (("execute", 1, 0), ("skill_count", 1, 0), ("ultimate_count", 1, 0))
 
 
 def _checked_preset(preset: dict) -> dict:
@@ -111,6 +113,8 @@ def validate_seed_name(name: str) -> str:
 
 def export_seed(preset: dict, *, seed_name: str | None = None) -> str:
     checked = _checked_preset(preset)
+    extended = any(item['kind'] in {'execute', 'skill_count', 'ultimate_count'} for item in checked['modules'])
+    actions = EXTENDED_ACTIONS if extended else SHORT_ACTIONS
     automatic_name = re.sub(r'[【】\x00-\x1f]', '', checked['name']).strip()[:MAX_SEED_NAME] or '战斗轴'
     alias = validate_seed_name(seed_name if seed_name is not None else automatic_name)
     # Keep the original preset name when it differs from the short display name.
@@ -123,10 +127,10 @@ def export_seed(preset: dict, *, seed_name: str | None = None) -> str:
     for slot in (1, 2, 3):
         raw.extend(_number(checked['slot_times'][str(slot)]))
     raw.extend(_uint(len(checked['modules'])))
-    kinds = [row[0] for row in SHORT_ACTIONS]
+    kinds = [row[0] for row in actions]
     for item in checked['modules']:
         index = kinds.index(item['kind'])
-        _, value, interval = SHORT_ACTIONS[index]
+        _, value, interval = actions[index]
         header = index | ((item['slot']-1) << 4)
         header |= 64 if item['value'] != value else 0
         header |= 128 if item['interval'] != interval else 0
@@ -143,10 +147,10 @@ def export_seed(preset: dict, *, seed_name: str | None = None) -> str:
     mode, data = min(choices, key=lambda item: len(item[1]))
     body = bytes([mode])+uuid.uuid4().bytes[:12]+data
     packet = body+struct.pack('<I', zlib.crc32(alias.encode('utf-8')+body))
-    return f'【{alias}】'+NAMED_PREFIX+base64.urlsafe_b64encode(packet).decode().rstrip('=')
+    return f'【{alias}】'+(EXTENDED_NAMED_PREFIX if extended else NAMED_PREFIX)+base64.urlsafe_b64encode(packet).decode().rstrip('=')
 
 
-def _decode_named(name: str, content: str) -> dict:
+def _decode_named(name: str, content: str, actions=SHORT_ACTIONS) -> dict:
     name = validate_seed_name(name)
     if not re.fullmatch(r'[A-Za-z0-9_-]+', content):
         raise ValueError('种子格式错误')
@@ -190,9 +194,9 @@ def _decode_named(name: str, content: str) -> dict:
     for _ in range(count):
         header = reader.take(1)[0]
         index, slot = header & 15, ((header >> 4) & 3)+1
-        if index >= len(SHORT_ACTIONS) or slot > 3:
+        if index >= len(actions) or slot > 3:
             raise ValueError('种子模块类型或角色位无效')
-        kind, value, interval = SHORT_ACTIONS[index]
+        kind, value, interval = actions[index]
         modules.append({'id': uuid.uuid4().hex, 'kind': kind, 'slot': slot,
                         'value': reader.number() if header & 64 else value,
                         'interval': reader.number() if header & 128 else interval})
@@ -310,15 +314,16 @@ def decode_seed(seed: str) -> dict:
                 raise ValueError('种子名称不完整')
             name = seed[1:end].replace('\r', '').replace('\n', '').replace('\t', '')
             body = re.sub(formatting, '', ''.join(seed[end+1:].split()))
-            for prefix in (NAMED_PREFIX, LEGACY_NAMED_PREFIX):
+            for prefix, actions in ((EXTENDED_NAMED_PREFIX, EXTENDED_ACTIONS),
+                                    (NAMED_PREFIX, SHORT_ACTIONS), (LEGACY_NAMED_PREFIX, SHORT_ACTIONS)):
                 if body.startswith(prefix):
                     try:
-                        return _decode_named(name, body[len(prefix):])
+                        return _decode_named(name, body[len(prefix):], actions)
                     except ValueError:
                         cleaned_name = re.sub(formatting, '', name)
                         if cleaned_name == name:
                             raise
-                        return _decode_named(cleaned_name, body[len(prefix):])
+                        return _decode_named(cleaned_name, body[len(prefix):], actions)
             raise ValueError('不支持这个种子版本，请升级程序')
         seed = re.sub(formatting, '', "".join(seed.split()))
         if len(seed) > MAX_SEED_CHARS:

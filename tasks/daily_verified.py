@@ -8,6 +8,7 @@ from PIL import Image
 from tasks.daily_154 import (Daily154Navigation, DAILY_ZONE_BUTTON_Y_OFFSETS)
 from tasks.daily_checks import DailyStepChecks
 from tasks.daily_radio import DailyRadioVision
+from tasks.daily_team import team_start_target
 from tasks.weekly_rewards import WeeklyRewardsVision
 from tasks.terminal_navigation import terminal_target
 from tasks.tacet_navigation import tacet_card_list_present
@@ -45,6 +46,10 @@ class VerifiedDailyNavigation(Daily154Navigation):
     def _world(self, path):
         if not self._runner._overworld_hud_ready(path):
             return False
+        # Team portraits and the pale action buttons can satisfy the coarse HUD
+        # brightness checks, regardless of which characters occupy the slots.
+        if team_start_target(path) is not None:
+            return False
         # Radio weapon art/menu icons can satisfy the coarse HUD brightness
         # check. A known open menu must not acknowledge "returned to world".
         if self._panel(path, '先约电台') or self._panel(path) or self._terminal(path):
@@ -59,6 +64,13 @@ class VerifiedDailyNavigation(Daily154Navigation):
     def _tap(self, point):
         if self.stop_event.is_set():
             return False
+        if callable(getattr(type(self.controller), 'tap_team_guarded', None)):
+            try:
+                self.controller.tap_team_guarded(*point)
+            except RuntimeError as error:
+                self.log(f'    点击前复核未通过，重新定位：{error}')
+                return False
+            return not self.stop_event.is_set()
         self.controller.tap(*point)
         return True
 
@@ -107,12 +119,16 @@ class VerifiedDailyNavigation(Daily154Navigation):
                                        lambda p: self._terminal(p) or self._world(p), action)
 
     def _start_target(self, path):
+        target = team_start_target(path)
+        if target is not None:
+            return target
         if self._world(path) or self._battle(path) or self._runner._read_daily_settlement(path) is not None:
             return None
         with Image.open(path) as source:
             image = source.convert('RGB')
         width, height = image.size
-        left, top = round(width*.55), round(height*.72)
+        # The third character's portrait/name ends above this bottom strip.
+        left, top = round(width*.76), round(height*.86)
         cropped = image.crop((left, top, round(width*.99), round(height*.99)))
         if not self._ocr_unavailable:
             try:
@@ -134,7 +150,7 @@ class VerifiedDailyNavigation(Daily154Navigation):
         if tacet_card_list_present(path) or self._terminal(path):
             return None
         rgb = np.asarray(image)
-        x1, x2, y1, y2 = round(width*.72), round(width*.98), round(height*.83), round(height*.97)
+        x1, x2, y1, y2 = round(width*.76), round(width*.98), round(height*.86), round(height*.97)
         area = rgb[y1:y2, x1:x2]
         pale = (area.min(axis=2) > 155) & (area.max(axis=2)-area.min(axis=2) < 100)
         rows = np.flatnonzero(pale.mean(axis=1) > .55)
@@ -153,8 +169,29 @@ class VerifiedDailyNavigation(Daily154Navigation):
                 return x1+int((columns[0]+columns[-1])//2), y1+int((group[0]+group[-1])//2)
         return None
 
+    def _tap_start(self, path):
+        point = self._start_target(path)
+        if point is None:
+            return False
+        with Image.open(path) as source:
+            width, height = source.size
+        if not (width*.78 <= point[0] <= width*.98 and height*.86 <= point[1] <= height*.97):
+            return False
+        if self.stop_event.is_set():
+            return False
+        if callable(getattr(type(self.controller), 'tap_precise', None)):
+            try:
+                self.controller.tap_precise(*point)
+            except RuntimeError as error:
+                self.log(f'    开启挑战点击未确认，重新截图定位：{error}')
+                return False
+            return not self.stop_event.is_set()
+        return self._tap(point)
+
     def _enter_zone(self, zone_template):
         def source_action(path):
+            if team_start_target(path) is not None or not tacet_card_list_present(path):
+                return False
             if not self._runner._guide_tacet_section_selected(path, self._ratio_point(path, 0, .73)[1]):
                 return False
             if zone_template in ('zone_chenxin_yu.png', 'zone_jinxin_yu.png'):
@@ -175,7 +212,7 @@ class VerifiedDailyNavigation(Daily154Navigation):
     def _tap_ratio(self, x_ratio, y_ratio, pause=1.):
         if abs(x_ratio-.86) < .005 and abs(y_ratio-.92) < .005:
             return self._checks.transition('开启挑战并进入战斗', self._battle,
-                lambda p: self._tap(point) if (point := self._start_target(p)) is not None else False,
+                self._tap_start,
                 timeout=60)
         if abs(x_ratio-.957) < .005 and abs(y_ratio-.058) < .005:
             return self._close_page()
@@ -245,11 +282,14 @@ class VerifiedDailyNavigation(Daily154Navigation):
                 self._runner._guide_tacet_section_selected(p, self._ratio_point(p, 0, .73)[1]) and tacet_card_list_present(p))
         elif template_name == 'restart_challenge.png':
             self._runner._daily_restart_pending = True
+            self._runner._daily_restart_confirmed = False
             def recover(path):
                 prompt = self._match(path, 'insufficient_continue.png', .82)
                 return self._tap(prompt.center) if prompt is not None else False
-            return self._checks.transition('重开后进入下一轮战斗', self._battle, source_action,
-                                           timeout=60, recovery=recover)
+            confirmed = self._checks.transition('重开后进入下一轮战斗', self._battle, source_action,
+                                                 timeout=60, recovery=recover)
+            self._runner._daily_restart_confirmed = bool(confirmed)
+            return confirmed
         elif template_name == 'exit_instance.png':
             def recover(path):
                 return self._tap(self._ratio_point(path, .657, .628)) if self._daily_exit_confirmation_present(path) else False
@@ -264,6 +304,15 @@ class VerifiedDailyNavigation(Daily154Navigation):
                 if template_name == 'one_click_claim.png' and not self._normal(p) else False)
 
     def _click_optional_daily_template(self, template_name, label, *, timeout=3., threshold=.72):
+        if self.stop_event.is_set():
+            return False
+        if template_name == 'insufficient_continue.png' and getattr(self._runner, '_daily_restart_confirmed', False):
+            # Restart recovery already handles this dialog before confirming two
+            # battle frames. Looking for it again can reject an active battle as
+            # skill effects briefly hide the HUD.
+            self._runner._daily_restart_confirmed = False
+            self.log('    重开已连续截图确认进入战斗，无需再次等待体力不足继续提示，立即接续战斗。')
+            return False
         missing = 0
         deadline = time.monotonic()+timeout
         while time.monotonic() < deadline and not self.stop_event.is_set():
