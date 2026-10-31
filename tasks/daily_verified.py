@@ -64,6 +64,13 @@ class VerifiedDailyNavigation(Daily154Navigation):
     def _tap(self, point):
         if self.stop_event.is_set():
             return False
+        if callable(getattr(type(self.controller), 'tap_team_guarded', None)):
+            try:
+                self.controller.tap_team_guarded(*point)
+            except RuntimeError as error:
+                self.log(f'    点击前复核未通过，重新定位：{error}')
+                return False
+            return not self.stop_event.is_set()
         self.controller.tap(*point)
         return True
 
@@ -183,6 +190,8 @@ class VerifiedDailyNavigation(Daily154Navigation):
 
     def _enter_zone(self, zone_template):
         def source_action(path):
+            if team_start_target(path) is not None or not tacet_card_list_present(path):
+                return False
             if not self._runner._guide_tacet_section_selected(path, self._ratio_point(path, 0, .73)[1]):
                 return False
             if zone_template in ('zone_chenxin_yu.png', 'zone_jinxin_yu.png'):

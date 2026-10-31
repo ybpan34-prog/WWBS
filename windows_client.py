@@ -395,6 +395,7 @@ class ClientWindowController:
         self.last_capture_size = image.size
         self.last_capture_method = method
         image.save(target)
+        self.last_capture_path = Path(target)
         return method
 
     def _requires_foreground_capture(self) -> bool:
@@ -506,12 +507,46 @@ class ClientWindowController:
             return False
 
     def tap_precise(self, x: int, y: int) -> dict[str, tuple[int, int] | bool]:
-        return self.tap(x, y, precise=True)
+        return self.tap(x, y, precise=True, guard_team=True)
 
-    def tap(self, x: int, y: int, *, precise: bool = False) -> dict[str, tuple[int, int] | bool]:
+    def tap_team_guarded(self, x: int, y: int):
+        return self.tap(x, y, guard_team=True)
+
+    def _verify_team_click(self, x, y, *, precise=False):
+        """Reject stale guide coordinates before they can hit a party portrait."""
+        previous = getattr(self, 'last_capture_path', None)
+        if previous is None:
+            return
+        from tasks.daily_team import team_start_target
+        with Image.open(previous) as source:
+            size = source.size
+            before = source.convert('RGB').resize((80, 45))
+        bounds = self.last_screen_bbox
+        previous_team = team_start_target(previous)
+        fresh = Path(previous).with_name('_team_click_guard.png')
+        self.screencap(fresh, bring_to_front=True)
+        with Image.open(fresh) as source:
+            if source.size != size or self.last_screen_bbox != bounds:
+                raise RuntimeError('窗口位置或尺寸已变化，取消旧坐标点击，需重新截图定位。')
+            after = source.convert('RGB').resize((80, 45))
+        target = team_start_target(fresh)
+        if target is not None:
+            if abs(x-target[0]) > size[0]*.045 or abs(y-target[1]) > size[1]*.02:
+                raise RuntimeError('已进入队伍页，拒绝旧页面坐标及角色区域点击；只允许开启挑战。')
+        elif previous_team is not None or precise:
+            raise RuntimeError('当前新截图未确认开启挑战按钮，未发送点击。')
+        elif sum(ImageStat.Stat(ImageChops.difference(before, after)).mean)/3 > 18:
+            raise RuntimeError('点击前页面已变化，取消旧坐标点击，需重新定位。')
+        return target is not None
+
+    def tap(self, x: int, y: int, *, precise: bool = False, guard_team: bool = False) -> dict[str, tuple[int, int] | bool]:
         if self._input_stopped():
             return {'cancelled': True}
         self._ensure_window()
+        if guard_team:
+            precise = self._verify_team_click(x, y, precise=precise) or precise
+            if self._input_stopped():
+                return {'cancelled': True}
         client_x, client_y = self.screenshot_to_client(x, y)
         screen_x, screen_y = self._screenshot_point_to_desktop(x, y)
         screen_x, screen_y = self._clamp_to_virtual_screen(screen_x, screen_y)

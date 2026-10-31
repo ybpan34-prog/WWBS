@@ -207,6 +207,12 @@ class BossChallengeEntrance:
         return bool(self._row_button(frame,runner))
 
     def _tap(self, runner, _frame, box):
+        if callable(getattr(type(runner.controller), 'tap_team_guarded', None)):
+            try:
+                runner.controller.tap_team_guarded(*box.center)
+            except RuntimeError as error:
+                runner.log(f'    战歌重奏点击前页面变化，等待重新定位：{error}')
+            return
         runner.controller.tap(*box.center)
 
     def _find_row(self, runner):
