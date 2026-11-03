@@ -51,6 +51,10 @@ def _enable_dpi_awareness() -> None:
 _enable_dpi_awareness()
 
 
+class BlankGameCapture(RuntimeError):
+    """The focused game returned only blank frames."""
+
+
 class POINT(ctypes.Structure):
     _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
 
@@ -487,7 +491,7 @@ class ClientWindowController:
             image = ImageGrab.grab(bbox=bbox, all_screens=True).convert("RGB")
             if self._capture_has_content(image) or tolerate_blank:
                 return image, bbox
-        raise RuntimeError("游戏窗口已置前，但连续获取到空白画面。请确认游戏未最小化后重试。")
+        raise BlankGameCapture("游戏窗口已置前，但连续获取到空白画面。请确认游戏未最小化后重试。")
 
     @staticmethod
     def _capture_has_content(image: Image.Image) -> bool:

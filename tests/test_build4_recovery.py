@@ -93,7 +93,8 @@ class OrbInteractionTests(unittest.TestCase):
     def test_missed_f_relocates_and_approaches_before_second_interaction(self):
         with tempfile.TemporaryDirectory() as directory, patch('tasks.other.APP_DIR', Path(directory)):
             runner = self.runner(directory)
-            runner._find_daily_reward_prompt = Mock(side_effect=[Mock(), None, Mock()])
+            runner._find_daily_reward_prompt = Mock(side_effect=[Mock(), None, None, Mock()])
+            runner._daily_reward_marker_direction = Mock(return_value=None)
             runner._daily_reward_marker_location = Mock(return_value=(960, 300, .95))
             runner._wait_daily_reward_dialog = Mock(side_effect=['', 'claim'])
             self.assertTrue(runner._collect_daily_reward(1))

@@ -73,23 +73,24 @@ def reward_marker_direction(screenshot, x, y):
     best = (0., None)
     for direction, box in boxes.items():
         left, top, right, bottom = (round(value) for value in box)
-        region = rgb[max(0, top):min(height, bottom), max(0, left):min(width, right)]
+        left, top = max(0, left), max(0, top)
+        region = rgb[top:max(0, bottom), left:max(0, right)]
         if not region.size:
             continue
         scene = ((region.min(axis=2) > 210) & (np.ptp(region, axis=2) < 70)).astype(np.float64)
         template = _arrow_templates()[direction]
-        for factor in (.75, 1., 1.25, 1.5):
+        threshold = .80 if direction.startswith('down_') else .82
+        for factor in (.75, .9, 1., 1.1, 1.25, 1.5):
             size = (max(4, round(template.width*width/1600*factor)),
                     max(4, round(template.height*width/1600*factor)))
             if size[0] >= scene.shape[1] or size[1] >= scene.shape[0]:
                 continue
             patch = np.asarray(template.resize(size, Image.Resampling.NEAREST), dtype=np.float64)/255
             match = _match_single_scale_gray(scene, patch)
-            if match.score > best[0]:
+            # A corner glyph on either side of the ring must turn horizontally.
+            if direction == 'down' and abs(left+match.center[0]-x) >= side*.49:
+                continue
+            if match.score >= threshold and match.score > best[0]:
                 best = (match.score, direction)
-    score, direction = best
-    if direction is None:
-        return None
-    # The small corner glyph loses more white pixels when scaled than a chevron.
-    threshold = .80 if direction.startswith('down_') else .82
-    return direction.removeprefix('down_') if score >= threshold else None
+    direction = best[1]
+    return direction.removeprefix('down_') if direction else None

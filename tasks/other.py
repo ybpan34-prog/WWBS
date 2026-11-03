@@ -1217,12 +1217,13 @@ class OtherTask:
 
     def _collect_daily_reward(self, cycle_index: int) -> bool:
         screenshot = APP_DIR / "_runtime_screenshot.png"
-        deadline = time.monotonic() + 75.0
+        deadline = time.monotonic() + 120.0
         threshold = getattr(self, 'daily_orb_confidence', .45)
         missed_turns = 0
         route = None
         interactions = 0
-        self.log(f'    光球达到设置置信度{threshold:.0%}时直接靠近，否则按奖励标志箭头转动视角；转动12次未找到时改为螺旋搜索。')
+        marker_without_arrow = False
+        self.log(f'    最多搜索120秒。先找奖励标志，有箭头就按方向转动；连续确认标志无箭头后，才寻找置信度至少{threshold:.0%}的光球。')
         while not self.stop_event.is_set():
             self._capture_for_matching(screenshot)
             if self._daily_reward_dialog_present(screenshot):
@@ -1277,14 +1278,11 @@ class OtherTask:
                 self.log('    按F后未进入领取界面，可能提示闪过未按到；重新寻找一次光球并接近后重试。')
                 deadline = max(deadline, time.monotonic() + 12.0)
                 route, missed_turns = None, 0
+                marker_without_arrow = False
                 continue
-            target_x, _target_y, density = self._daily_reward_orb_location(screenshot)
-            direct_orb = target_x is not None and density >= threshold
-            direction = None
-            if not direct_orb:
-                target_x, _target_y, density = self._daily_reward_marker_location(screenshot)
-                if target_x is not None and density >= .82:
-                    direction = self._daily_reward_marker_direction(screenshot, target_x, _target_y)
+            target_x, target_y, density = self._daily_reward_marker_location(screenshot)
+            marker_visible = target_x is not None and density >= .82
+            direction = self._daily_reward_marker_direction(screenshot, target_x, target_y) if marker_visible else None
             if self.stop_event.is_set():
                 break
             if direction:
@@ -1292,15 +1290,29 @@ class OtherTask:
                 self.controller.move_mouse_relative(*turns[direction])
                 self.log('    奖励标志箭头方向：'+{'left':'左', 'right':'右', 'up':'上', 'down':'下'}[direction]+'；先转动视角，再重新定位。')
                 route, missed_turns = None, 0
+                marker_without_arrow = False
                 self._sleep_interruptible(.15)
                 continue
-            valid = direct_orb or (target_x is not None and density >= .82)
-            if valid:
+            direct_orb = False
+            if marker_visible:
                 missed_turns = 0
-            if route is None and missed_turns >= 12 and not valid:
+                route = None
+                if not marker_without_arrow:
+                    marker_without_arrow = True
+                    self._sleep_interruptible(.15)
+                    continue
+                orb_x, _orb_y, confidence = self._daily_reward_orb_location(screenshot)
+                if self.stop_event.is_set():
+                    break
+                if orb_x is not None and confidence >= threshold:
+                    target_x, density = orb_x, confidence
+                    direct_orb = True
+            else:
+                marker_without_arrow = False
+            if route is None and missed_turns >= 12 and not marker_visible:
                 route = echo_spiral_steps()
-                self.log('    视角转动12次仍未达到所选置信度，开始向外螺旋移动搜索。')
-            if route is not None and not valid:
+                self.log('    视角转动12次仍未找到奖励标志，开始向外螺旋移动搜索。')
+            if route is not None:
                 turn, duration = next(route)
                 self.controller.move_mouse_relative(turn, 0)
                 if self.stop_event.is_set():
@@ -1311,9 +1323,7 @@ class OtherTask:
                     self.controller.press_keys(('W',), duration)
                 self._sleep_interruptible(.06)
                 continue
-            if route is not None and valid:
-                route = None
-            if not valid:
+            if not marker_visible:
                 self.controller.move_mouse_relative(ORB_SCAN_STEP, 0)
                 missed_turns += 1
             else:

@@ -15,6 +15,7 @@ from tasks.weekly_matcher_150 import (
     TemplateMatcher, _gray_array, _scaled_template_gray, _match_single_scale_gray,
 )
 from tasks.weekly_rewards import WeeklyRewardsVision
+from windows_client import BlankGameCapture
 
 
 def weekly_neighbor_names(anchor):
@@ -265,8 +266,22 @@ class WeeklyRuntime(OriginalRunner):
         deadline, next_click = time.monotonic()+15, 0.
         attempts, visible, stable = 0, 0, 0
         baseline, previous_state = None, None
+        waiting_on_blank = False
         while not self.stop_event.is_set() and time.monotonic() < deadline:
-            self._capture_for_matching(path)  # Includes the weekly-cap check.
+            try:
+                self._capture_for_matching(path)  # Includes the weekly-cap check.
+            except BlankGameCapture:
+                if not attempts:
+                    raise
+                if not waiting_on_blank:
+                    self.log('    menu99点击后暂时截到空白画面，继续等待重开过渡，复核新截图。')
+                waiting_on_blank = True
+                visible, stable, previous_state = 0, 0, None
+                self._sleep_interruptible(.15)
+                continue
+            if self.stop_event.is_set():
+                break
+            waiting_on_blank = False
             current = thumbnail(path)
             try:
                 target = restart_match(path)
@@ -278,7 +293,15 @@ class WeeklyRuntime(OriginalRunner):
                 stable, previous_state = 0, None
                 if visible >= 2 and attempts < 3 and time.monotonic() >= next_click:
                     if callable(getattr(type(self.controller), 'tap_weekly_restart', None)):
-                        result = self.controller.tap_weekly_restart()
+                        try:
+                            result = self.controller.tap_weekly_restart()
+                        except BlankGameCapture:
+                            if not attempts:
+                                raise
+                            waiting_on_blank, visible = True, 0
+                            self.log('    menu99补点前暂时截到空白画面，取消补点并继续复核。')
+                            self._sleep_interruptible(.15)
+                            continue
                         if isinstance(result, dict) and result.get('cancelled'):
                             raise RuntimeError('周常已停止。')
                     else:
@@ -299,6 +322,10 @@ class WeeklyRuntime(OriginalRunner):
                     return state
             self._sleep_interruptible(.15)
         self._failed_template = 'menu99.png'
+        if self.stop_event.is_set():
+            raise RuntimeError('周常已停止。')
+        if waiting_on_blank:
+            raise RuntimeError('menu99点击后等待重开超时，最新截图仍为空白，未计为完成。')
         raise RuntimeError('menu99点击后未确认离开结算并进入下一轮，未计为完成，保留当前画面。')
 
     def _verify_final_cycle_click(self, final_step):

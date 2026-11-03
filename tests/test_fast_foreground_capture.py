@@ -49,6 +49,17 @@ class ForegroundCaptureTests(unittest.TestCase):
         self.assertEqual(grab.call_count, 2)
         self.assertEqual([call.args[0] for call in sleep.call_args_list], [.03, .12])
 
+    def test_persistent_blank_has_distinct_exception(self):
+        controller = self.controller()
+        controller._capture_has_content.return_value = False
+        with patch.object(client, 'user32') as api, patch.object(client.time, 'sleep'), \
+                patch.object(client.ImageGrab, 'grab', return_value=Image.new('RGB', (1920, 1080))) as grab:
+            api.GetForegroundWindow.return_value = 123
+            api.IsIconic.return_value = False
+            with self.assertRaises(client.BlankGameCapture):
+                controller._capture_foreground_client()
+        self.assertEqual(grab.call_count, 4)
+
 
 if __name__ == '__main__':
     unittest.main()

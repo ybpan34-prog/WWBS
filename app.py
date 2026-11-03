@@ -110,7 +110,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
 APP_VERSION = "1.6.0beta"
-APP_BUILD = 1
+APP_BUILD = 3
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -204,7 +204,7 @@ UPDATE_NOTICE = """v1.3.5 更新内容
 2. 请将游戏窗口调整为 1920*1080p 或等比例缩放。
 3. 请先完成周本的新手教程，并将速度调整至 MAX。"""
 UPDATE_HISTORY = [
-    ('v1.6.0beta', 'WWBS 1.6.0beta\n合入日常光球及标志箭头导航、幻梦游园顺序复核与精确点击、分辨率提醒、报错截图和窗口恢复重绘。\n测试版可从右上角检查后续测试版及正式版。'),
+    ('v1.6.0beta', 'WWBS 1.6.0beta\n合入日常光球及标志箭头导航、幻梦游园顺序复核与精确点击、分辨率提醒、报错截图和窗口恢复重绘。\n日常先按奖励标志箭头转向，连续确认无箭头后才寻找光球。搜索上限由75秒延长到120秒。\n测试版可从右上角检查后续测试版及正式版。'),
     ('v1.5.9', 'WWBS 1.5.9 本地测试包（构建8）\nmenu2每轮仅识别一次，后续邻近复核不再反复寻找menu2。\n主窗口最小化恢复后重新绘制整窗与子控件，保留当前页面、预设和滚动位置。\n日常按奖励标志箭头方向转动视角；光球达到设置置信度时优先直接靠近光球，低于阈值才使用标志导航。'),
     ('v1.5.9', 'WWBS 1.5.9 本地测试包（构建7）\nmenu99只在底部识别重新挑战，并独立复核按钮文字；点击后必须确认截图变化、结算按钮消失及连续两张下一轮页面，才计为完成。\nmenu4增加文字校验，跨轮复核同时检查menu99；第二轮按已确认的实际入口继续，不强制重复已跳过的起始页面。\n点击无效重新定位补点，最多3次，未确认成功不开始下一轮。'),
     ('v1.5.9', 'WWBS 1.5.9 本地测试包（构建6）\nmenu96改为仅在右上角退出按钮区域精确识别，避开宝石和感叹号。\n点击前连续两次新截图确认退出中心，复核窗口位置和实际光标；偏移、窗口移动或目标超出屏幕时不发送点击。\n保留此前按顺序接续、奖励标志、分辨率提醒和截图显示修复。'),
@@ -4682,7 +4682,7 @@ class App:
                               values=tuple(f'{v}%' for v in range(45, 100, 5)), state='readonly', width=12)
         picker.pack(anchor='w')
         picker.bind('<<ComboboxSelected>>', self._save_daily_zone)
-        Label(daily_box, text='转动12次仍未超过阈值时，向外螺旋移动搜索；出现领取提示立即领取。',
+        Label(daily_box, text='最多搜索120秒。先按奖励标志箭头转向，连续确认标志无箭头后才寻找光球。',
               bg=COLORS['panel_alt'], fg=COLORS['muted'], wraplength=600, justify=LEFT).pack(anchor='w', pady=6)
         weekly_box = self._card_body(self.settings_tab)
         weekly_box.pack(fill=X, pady=(0, 14))

@@ -9,6 +9,7 @@ from PIL import Image
 from tasks.models import Step
 from tasks.weekly_restart import restart_match, skip_match
 from tasks.weekly_runtime_150 import WeeklyRuntime, WeeklyRoundRestarted, WeeklyCapReached, weekly_neighbor_names
+from windows_client import BlankGameCapture
 
 
 ROOT = Path(__file__).parents[1]
@@ -84,6 +85,64 @@ class RestartAckTests(unittest.TestCase):
         self.assertEqual(state, 'menu4.png')
         self.assertEqual(frames, [blank, skip, skip])
         self.assertEqual(runner.controller.tap.call_count, 1)
+
+    def test_native_blank_capture_retries_and_breaks_the_entry_confirmation_streak(self):
+        runner = self.runner()
+        transition = iter([None, None, BOARD, None, BOARD, BOARD])
+        frames = []
+
+        def capture(path, **_kwargs):
+            source = next(transition) if runner.controller.tap.call_count else RESULT
+            if runner.controller.tap.call_count:
+                frames.append(source)
+            if source is None:
+                raise BlankGameCapture('blank foreground')
+            shutil.copy2(source, path)
+
+        runner.controller.screencap.side_effect = capture
+        with tempfile.TemporaryDirectory() as folder, patch('tasks.weekly_runtime_150.APP_DIR', Path(folder)), patch(
+                'tasks.weekly_runtime_150.time.monotonic', side_effect=lambda: self.now):
+            self.assertEqual(runner._restart_and_confirm(), 'menu3.png')
+        self.assertEqual(frames, [None, None, BOARD, None, BOARD, BOARD])
+        runner.controller.tap.assert_called_once()
+        self.assertIn('menu99.png', runner._completed_templates)
+
+    def test_persistent_post_click_blank_times_out_without_reclicking_the_stale_result(self):
+        runner = self.runner()
+
+        def capture(path, **_kwargs):
+            if runner.controller.tap.call_count:
+                raise BlankGameCapture('blank foreground')
+            shutil.copy2(RESULT, path)
+
+        runner.controller.screencap.side_effect = capture
+        with tempfile.TemporaryDirectory() as folder, patch('tasks.weekly_runtime_150.APP_DIR', Path(folder)), patch(
+                'tasks.weekly_runtime_150.time.monotonic', side_effect=lambda: self.now):
+            with self.assertRaisesRegex(RuntimeError, '最新截图仍为空白'):
+                runner._restart_and_confirm()
+            self.assertEqual((Path(folder)/'_runtime_screenshot.png').read_bytes(), RESULT.read_bytes())
+        runner.controller.tap.assert_called_once()
+        self.assertGreaterEqual(self.now, 15)
+        self.assertNotIn('menu99.png', runner._completed_templates)
+
+    def test_initial_blank_and_post_click_focus_failure_are_reported_directly(self):
+        with tempfile.TemporaryDirectory() as folder, patch('tasks.weekly_runtime_150.APP_DIR', Path(folder)):
+            runner = self.runner()
+            runner.controller.screencap.side_effect = BlankGameCapture('initial blank')
+            with self.assertRaisesRegex(BlankGameCapture, 'initial blank'):
+                runner._restart_and_confirm()
+            runner.controller.tap.assert_not_called()
+
+            def capture(path, **_kwargs):
+                if runner.controller.tap.call_count:
+                    raise RuntimeError('未获得焦点')
+                shutil.copy2(RESULT, path)
+
+            runner.controller.screencap.side_effect = capture
+            with self.assertRaisesRegex(RuntimeError, '未获得焦点'):
+                runner._restart_and_confirm()
+            runner.controller.tap.assert_called_once()
+            self.assertNotIn('menu99.png', runner._completed_templates)
 
     def test_menu4_cross_round_review_includes_and_recovers_menu99(self):
         self.assertIn('menu99.png', weekly_neighbor_names('menu4.png'))

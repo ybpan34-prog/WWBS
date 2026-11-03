@@ -47,17 +47,23 @@ class OrbDirectionTests(unittest.TestCase):
         runner._wait_daily_reward_dialog=Mock(return_value='claim')
         return runner
 
+    def show_arrow_free_marker(self, runner, x=960):
+        runner._daily_reward_marker_location.return_value = (x, 300, .9)
+        runner._daily_reward_marker_direction = Mock(return_value=None)
+
     def test_above_point_eight_goes_directly_without_starting_a_scan(self):
         with tempfile.TemporaryDirectory() as directory, patch('tasks.other.APP_DIR',Path(directory)):
-            runner=self.runner(directory,[(960,300,.81),(960,300,.81)],[None,Mock()])
+            runner=self.runner(directory,[(960,300,.81)],[None,None,Mock()])
+            self.show_arrow_free_marker(runner)
             self.assertTrue(runner._collect_daily_reward(1))
             runner.controller.press_keys.assert_called_once_with(('W',),500)
             runner.controller.move_mouse_relative.assert_not_called()
 
-    def test_selected_threshold_is_the_only_approach_gate_including_exact_boundary(self):
+    def test_arrow_free_marker_allows_orb_at_selected_threshold(self):
         with tempfile.TemporaryDirectory() as directory, patch('tasks.other.APP_DIR',Path(directory)):
             for confidence in (.45, .6, .8):
-                runner=self.runner(directory,[(960,300,confidence)]*2,[None,Mock()])
+                runner=self.runner(directory,[(960,300,confidence)],[None,None,Mock()])
+                self.show_arrow_free_marker(runner)
                 runner.daily_orb_confidence = confidence
                 self.assertTrue(runner._collect_daily_reward(1))
                 runner.controller.press_keys.assert_called_once_with(('W',),500)
@@ -76,11 +82,12 @@ class OrbDirectionTests(unittest.TestCase):
 
     def test_selected_confidence_rejects_lower_orb_and_accepts_above_threshold(self):
         with tempfile.TemporaryDirectory() as directory, patch('tasks.other.APP_DIR', Path(directory)):
-            runner = self.runner(directory, [(960, 300, .81), (960, 300, .91), (960, 300, .91)], [None, None, Mock()])
+            runner = self.runner(directory, [(1600, 300, .81), (960, 300, .91)], [None, None, None, Mock()])
+            self.show_arrow_free_marker(runner, x=460)
             runner.daily_orb_confidence = .9
             self.assertTrue(runner._collect_daily_reward(1))
-            runner.controller.move_mouse_relative.assert_called_once_with(300, 0)
-            runner.controller.press_keys.assert_called_once_with(('W',), 500)
+            runner.controller.move_mouse_relative.assert_called_once_with(-200, 0)
+            self.assertEqual(runner.controller.press_keys.call_count, 2)
 
     def test_combat_return_during_spiral_stops_without_claiming_or_moving_again(self):
         with tempfile.TemporaryDirectory() as directory, patch('tasks.other.APP_DIR', Path(directory)):
