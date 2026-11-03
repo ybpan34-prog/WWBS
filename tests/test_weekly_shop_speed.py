@@ -29,9 +29,12 @@ class WeeklyShopTests(unittest.TestCase):
         self.assertTrue(1260 < close.center[0] < 1370)
         self.assertTrue(25 < close.center[1] < 90)
         # Reproduce the old false match on the dimmed exit behind the shop.
-        behind = runner.matcher.find(SHOP, 'menu96.png', .82, [1, .9, .8])
+        from tasks.weekly_matcher_150 import TemplateMatcher as OldMatcher
+        behind = OldMatcher(runner.template_root).find(SHOP, 'menu96.png', .82, [1, .9, .8])
         self.assertGreater(behind.center[0], 1450)
         self.assertNotEqual(close.center, behind.center)
+        with self.assertRaises(RuntimeError):
+            runner.matcher.find(SHOP, 'menu96.png', .82)
 
     def test_shop_recognition_scales_and_does_not_match_main_board(self):
         runner = self.runner()
@@ -98,7 +101,9 @@ class WeeklyShopTests(unittest.TestCase):
             raise RuntimeError('not on this page')
         runner.matcher.find = Mock(side_effect=find)
         runner._random_click_point = lambda match, *_: match.center
-        with tempfile.TemporaryDirectory() as folder, patch('tasks.weekly_150.APP_DIR', Path(folder)):
+        with tempfile.TemporaryDirectory() as folder, patch('tasks.weekly_150.APP_DIR', Path(folder)), patch(
+                'tasks.weekly_runtime_150.APP_DIR', Path(folder)), patch(
+                'tasks.weekly_exit.weekly_exit_match', return_value=MatchResult(1500,40,34,44,.99)):
             result = runner._wait_for_cycle_template(Step(action='tap_image',template='menu97.png',timeout=.01),
                                                      Step(action='tap_image',template='menu96.png',timeout=.01))
         self.assertEqual(result, (1440,640,.99))

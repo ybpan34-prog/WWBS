@@ -109,8 +109,8 @@ DEFAULT_CONFIG = USER_SETTINGS_DIR / "weekly_tasks.json"
 TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
-APP_VERSION = "1.5.9"
-APP_BUILD = 2
+APP_VERSION = "1.6.0beta"
+APP_BUILD = 1
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -204,6 +204,13 @@ UPDATE_NOTICE = """v1.3.5 更新内容
 2. 请将游戏窗口调整为 1920*1080p 或等比例缩放。
 3. 请先完成周本的新手教程，并将速度调整至 MAX。"""
 UPDATE_HISTORY = [
+    ('v1.6.0beta', 'WWBS 1.6.0beta\n合入日常光球及标志箭头导航、幻梦游园顺序复核与精确点击、分辨率提醒、报错截图和窗口恢复重绘。\n测试版可从右上角检查后续测试版及正式版。'),
+    ('v1.5.9', 'WWBS 1.5.9 本地测试包（构建8）\nmenu2每轮仅识别一次，后续邻近复核不再反复寻找menu2。\n主窗口最小化恢复后重新绘制整窗与子控件，保留当前页面、预设和滚动位置。\n日常按奖励标志箭头方向转动视角；光球达到设置置信度时优先直接靠近光球，低于阈值才使用标志导航。'),
+    ('v1.5.9', 'WWBS 1.5.9 本地测试包（构建7）\nmenu99只在底部识别重新挑战，并独立复核按钮文字；点击后必须确认截图变化、结算按钮消失及连续两张下一轮页面，才计为完成。\nmenu4增加文字校验，跨轮复核同时检查menu99；第二轮按已确认的实际入口继续，不强制重复已跳过的起始页面。\n点击无效重新定位补点，最多3次，未确认成功不开始下一轮。'),
+    ('v1.5.9', 'WWBS 1.5.9 本地测试包（构建6）\nmenu96改为仅在右上角退出按钮区域精确识别，避开宝石和感叹号。\n点击前连续两次新截图确认退出中心，复核窗口位置和实际光标；偏移、窗口移动或目标超出屏幕时不发送点击。\n保留此前按顺序接续、奖励标志、分辨率提醒和截图显示修复。'),
+    ('v1.5.9', 'WWBS 1.5.9 本地测试包（构建5）\n修复商店已关闭后卡在menu94的问题：通过进入商店确认94完成，通过连续截图确认95关闭，按顺序接续96。\n前后模板匹配仅供复核，较早的常驻按钮不阻止已确认的顺序进度；未确认完成的步骤不会跳过。\n保留此前本地构建的日常、截图、分辨率和阶段弹窗修复。'),
+    ('v1.5.9', 'WWBS 1.5.9 本地测试包（构建4）\n修复menu2已点击却未确认完成：用连续新截图确认menu3后更新步骤，避免回退重复点击。\n周常识别失败时检查当前模板及前后各2个模板，重新运行可按确认后的相邻状态接续；诊断不再只查menu1。\n保留构建3的阶段目标弹窗、奖励标志、分辨率提醒和报错截图修复。'),
+    ('v1.5.9', 'WWBS 1.5.9 本地测试包（构建3）\n日常先按奖励标志寻找领取位置，避免追逐环境亮光。\n周常反复出现的阶段目标弹窗自动确认，连续截图复核关闭后继续。\n非1920×1080时提示分辨率，等比缩放仍可使用。\n识别报错后仍显示截图，并保存报错时画面。'),
     ('v1.5.9', 'WWBS 1.5.9 正式版（构建2）\n修复进入队伍页时沿用上一页坐标误点三号位：点击前重新截图核对页面、窗口位置和按钮，仅允许点击开启挑战。\n排轴新增“点击F键处决”：轮到该模块时点击一次 F。\n新增“施放技能（按次数）”与“施放大招（按次数）”，每次驻场执行指定次数，默认一次，可设置1–20次；保留原有按间隔循环模块。\n含新模块的种子使用WWBS5格式，继续兼容所有旧种子。'),
     ('v1.5.8', 'WWBS 1.5.8 正式版\n修复一键日常进入队伍页后卡住：优先识别右下角快速编队与开启挑战按钮，不依赖角色头像，使用当前任意队伍继续挑战。\n深塔挑战新增战斗入口判断：无光球且识别到敌方血条时直接执行深塔排轴；挑战成功后仍保留结算页面。'),
     ('v1.5.7', 'WWBS 1.5.7 正式版（构建3）\n每轮结算复核本周游历值，连续截图确认“已达到上限”后停止，不再重新挑战，保留当前结算页。\n周常menu96／menu97的不规则退出按钮改为中心点击，避免随机落在无效边缘。\n退出后单独等待并复核，过渡期间按钮消失时不盲点；点击未生效时重新定位中心，最多补点3次，最长等待18秒，识别到下一页立即继续。其他周常步骤与单一缩放比例缓存保持不变。'),
@@ -1042,7 +1049,8 @@ class App:
         except (OSError, ValueError, AttributeError):
             orb_value = .45
         self.daily_orb_confidence = StringVar(value=f'{orb_confidence(orb_value):.0%}')
-        self.auto_shutdown_enabled = BooleanVar(value=self._load_auto_shutdown_enabled())
+        self.auto_shutdown_enabled = BooleanVar(value=self._load_app_flag("shutdown_after_task"))
+        self.weekly_test_mode = BooleanVar(value=self._load_app_flag("weekly_test_mode"))
         self.pet_size = StringVar(value=f"{self._load_pet_size_percent()}%")
         self.pet_visible = self._load_pet_visible()
         self.pet_supports_look_controls = self.pet_id in {"jingran", "cartethyia"}
@@ -1947,21 +1955,22 @@ class App:
             return "R"
 
     @staticmethod
-    def _load_auto_shutdown_enabled() -> bool:
+    def _load_app_flag(name: str) -> bool:
         try:
             saved = json.loads(APP_SETTINGS_CONFIG.read_text(encoding="utf-8"))
-            return saved.get("shutdown_after_task") is True
-        except (OSError, ValueError, json.JSONDecodeError):
+            return isinstance(saved, dict) and saved.get(name) is True
+        except (OSError, ValueError):
             return False
 
-    def _save_auto_shutdown_setting(self) -> None:
+    @staticmethod
+    def _save_app_flag(name: str, enabled: bool) -> None:
         try:
             saved = json.loads(APP_SETTINGS_CONFIG.read_text(encoding="utf-8"))
             if not isinstance(saved, dict):
                 saved = {}
         except (OSError, ValueError):
             saved = {}
-        saved["shutdown_after_task"] = bool(self.auto_shutdown_enabled.get())
+        saved[name] = enabled
         APP_SETTINGS_CONFIG.write_text(
             json.dumps(
                 saved,
@@ -1970,6 +1979,16 @@ class App:
             ),
             encoding="utf-8",
         )
+
+    def _save_auto_shutdown_setting(self) -> None:
+        self._save_app_flag("shutdown_after_task", self.auto_shutdown_enabled.get())
+
+    def _save_weekly_test_mode(self) -> None:
+        try:
+            self._save_app_flag("weekly_test_mode", self.weekly_test_mode.get())
+        except OSError:
+            self.weekly_test_mode.set(self._load_app_flag("weekly_test_mode"))
+            messagebox.showerror("保存失败", "无法保存周常测试模式，请检查程序目录权限。", parent=self.root)
 
     def _start_custom_4c(self) -> None:
         try:
@@ -4665,6 +4684,13 @@ class App:
         picker.bind('<<ComboboxSelected>>', self._save_daily_zone)
         Label(daily_box, text='转动12次仍未超过阈值时，向外螺旋移动搜索；出现领取提示立即领取。',
               bg=COLORS['panel_alt'], fg=COLORS['muted'], wraplength=600, justify=LEFT).pack(anchor='w', pady=6)
+        weekly_box = self._card_body(self.settings_tab)
+        weekly_box.pack(fill=X, pady=(0, 14))
+        Checkbutton(weekly_box, text='周常测试模式', variable=self.weekly_test_mode,
+                    command=self._save_weekly_test_mode, bg=COLORS['panel_alt'],
+                    activebackground=COLORS['panel_alt'], fg=COLORS['text']).pack(anchor='w')
+        Label(weekly_box, text='下次启动幻梦游园时生效。忽略本周游历值上限与轮数限制，直到手动停止或流程报错。',
+              bg=COLORS['panel_alt'], fg=COLORS['muted'], wraplength=600, justify=LEFT).pack(anchor='w', pady=6)
         self._build_rain_settings()
         theme_box = self._card_body(self.settings_tab)
         theme_box.pack(fill=X, pady=(0, 14))
@@ -5343,6 +5369,10 @@ class App:
                     controller = ClientWindowController(window_title, base_size)
                     connection_message = controller.connect()
                     findings.append(("ok", connection_message + "。"))
+                    resolution_notice = getattr(controller, 'resolution_notice', '')
+                    if isinstance(resolution_notice, str) and resolution_notice:
+                        findings.append(('warning', resolution_notice))
+                        self._warn_nonstandard_resolution(controller)
                     findings.extend(display_findings(read_game_display(controller.hwnd)))
                     preview = APP_DIR / "_diagnostic_preview.png"
                     recent_runtime_preview = APP_DIR / "_runtime_screenshot.png"
@@ -5359,6 +5389,8 @@ class App:
                         capture_method = controller.screencap(preview)
                         capture_size = controller.last_capture_size or controller.client_size()
                     findings.append(("ok", f"游戏截图成功：{capture_size[0]}x{capture_size[1]}，方式 {capture_method}。"))
+                    # Keep the captured image visible even if a later template check fails.
+                    self.root.after(0, lambda path=preview: self._show_preview(path, "诊断截图"))
                     if combat_task is not None:
                         required_templates = (
                             "absorb_prompt_dark.png",
@@ -5436,9 +5468,22 @@ class App:
                     else:
                         from tasks.weekly_150 import TEMPLATES_DIR as weekly_templates
                         from tasks.weekly_matcher_150 import TemplateMatcher as Weekly150Matcher
-                        match = Weekly150Matcher(weekly_templates).find(preview, 'menu1.png', .78, controller.template_scales())
-                        findings.append(('ok', f'已识别1.5.0周常开始页面（{match.score:.3f}），从原版起点执行。'))
-                    self.root.after(0, lambda: self._show_preview(preview, "诊断截图"))
+                        from tasks.weekly_runtime_150 import weekly_neighbor_names
+                        anchor = getattr(self, '_last_weekly_template', None) or 'menu2.png'
+                        names = weekly_neighbor_names(anchor)
+                        findings.append(('info', f'按最后执行位置{anchor}复核前后各2个模板：'+', '.join(names)))
+                        matched = []
+                        matcher = Weekly150Matcher(weekly_templates)
+                        for name in names:
+                            try:
+                                match = matcher.find(preview, name, .82, [controller.scale])
+                                matched.append(f'{name}（{match.score:.3f}）')
+                            except RuntimeError:
+                                pass
+                        if matched:
+                            findings.append(('ok', '当前画面识别到：'+', '.join(matched)+'；按当前状态复核接续，不再仅检查menu1。'))
+                        else:
+                            findings.append(('warning', '当前及前后相邻模板均未确认，保留截图供检查。'))
             except Exception as exc:
                 error_text = str(exc)
                 if "等比例缩放" in error_text:
@@ -5743,7 +5788,9 @@ class App:
 
         def work() -> None:
             try:
-                for url in (UPDATE_API_URL, UPDATE_API_URL.replace('/latest', '?per_page=10')):
+                release_list = UPDATE_API_URL.replace('/latest', '?per_page=10')
+                urls = (release_list, UPDATE_API_URL) if self._version_tuple(APP_VERSION)[3] < 3 else (UPDATE_API_URL, release_list)
+                for index, url in enumerate(urls):
                     try:
                         request = urllib.request.Request(url,
                             headers={"User-Agent": f"wwbs/{APP_VERSION}", 'Cache-Control':'no-cache'})
@@ -5757,7 +5804,7 @@ class App:
                         asset = dict(asset, _wwbs_verified_at=time.monotonic())
                         break
                     except (OSError, ValueError, RuntimeError):
-                        if url != UPDATE_API_URL:
+                        if index == len(urls) - 1:
                             raise
                 self.root.after(0, lambda: self._show_available_update(tag, release, asset))
             except Exception as exc:
@@ -5773,32 +5820,46 @@ class App:
         return int(match[1]) if match else 1
 
     @classmethod
-    def _release_is_newer(cls, tag: str, release: dict) -> bool:
-        remote, current = cls._version_tuple(tag), cls._version_tuple(APP_VERSION)
-        if release.get('prerelease') or remote[3] < 3:
-            return False
-        return remote > current or (remote == current and cls._release_build(release) > APP_BUILD)
+    def _update_version(cls, tag: str, release: dict) -> tuple[int, ...] | None:
+        version = cls._version_tuple(tag)
+        if version == (0, 0, 0, 0, 0) or release.get("draft"):
+            return None
+        if "<!-- WWBS_LEGACY_UPDATE -->" in str(release.get("body", "")):
+            return None
+        if release.get("prerelease") or version[3] < 3:
+            if cls._version_tuple(APP_VERSION)[3] == 3 or version[3] == 3:
+                return None
+        return version
 
-    @staticmethod
-    def _select_update_release(releases: list) -> tuple[str, dict, dict]:
-        """Select installable stable releases, ranked by version."""
+    @classmethod
+    def _release_is_newer(cls, tag: str, release: dict) -> bool:
+        remote = cls._update_version(tag, release)
+        current = cls._version_tuple(APP_VERSION)
+        return remote is not None and (
+            remote > current or (remote == current and cls._release_build(release) > APP_BUILD)
+        )
+
+    @classmethod
+    def _select_update_release(cls, releases: list) -> tuple[str, dict, dict]:
         if not isinstance(releases, list):
             raise RuntimeError("无法读取版本列表，请稍后重新检查。")
         candidates = []
         for release in releases:
-            if not isinstance(release, dict) or release.get("draft") or release.get('prerelease'):
+            if not isinstance(release, dict):
                 continue
             tag = str(release.get("tag_name", "")).strip()
-            if App._version_tuple(tag) == (0, 0, 0, 0, 0) or App._version_tuple(tag)[3] < 3:
+            version = cls._update_version(tag, release)
+            if version is None:
                 continue
             asset = next((item for item in release.get("assets", [])
                           if item.get("name") == UPDATE_ASSET_NAME
                           and item.get("state", "uploaded") == "uploaded"), None)
             if asset:
-                candidates.append((tag, release, asset))
+                candidates.append((version, cls._release_build(release), tag, release, asset))
         if not candidates:
-            raise RuntimeError("没有找到包含完整安装包的正式版本。")
-        return max(candidates, key=lambda item: App._version_tuple(item[0]))
+            raise RuntimeError("没有找到包含完整安装包的可用版本。")
+        _, _, tag, release, asset = max(candidates, key=lambda item: item[:2])
+        return tag, release, asset
 
     def _update_work_area(self) -> tuple[int, int, int, int]:
         """Use the owner's monitor and exclude its taskbar."""
@@ -6125,7 +6186,7 @@ class App:
     def _show_available_update(self, tag: str, release: dict, asset: dict) -> None:
         self.status.set("远程更新检查完成")
         if not self._release_is_newer(tag, release):
-            messagebox.showinfo("检查更新", f"暂未发现比 wwbs {APP_VERSION} 更新的正式版。", parent=self.root)
+            messagebox.showinfo("检查更新", f"暂未发现比 wwbs {APP_VERSION} 更新的可用版本。", parent=self.root)
             return
         previous = getattr(self, "_update_offer_window", None)
         if previous is not None and previous.winfo_exists():
@@ -6842,6 +6903,7 @@ class App:
             try:
                 controller = ClientWindowController(window_title, base_size)
                 controller.connect()
+                self._warn_nonstandard_resolution(controller)
                 preview = APP_DIR / "_runtime_screenshot.png"
                 controller.screencap(preview)
                 TemplateMatcher(template_dir).find_fast(
@@ -6852,6 +6914,7 @@ class App:
                 )
             except Exception as exc:
                 elapsed = time.perf_counter() - started
+                self._preserve_failure_preview(locals().get('controller'))
                 self.root.after(0, lambda text=str(exc), seconds=elapsed: finish_failure(text, seconds))
                 return
             elapsed = time.perf_counter() - started
@@ -6944,6 +7007,7 @@ class App:
                 controller.set_cancel_event(self.stop_event)
             if hasattr(controller, "connect"):
                 self._log(controller.connect())
+                self._warn_nonstandard_resolution(controller)
             for level, message in display_findings(read_game_display(getattr(controller, 'hwnd', None))):
                 if level != 'ok':
                     self._log(f"识别环境提醒：{message}")
@@ -6966,6 +7030,7 @@ class App:
                     0, lambda text=message: self._pet_feedback('waiting', text, 12000),
                 ),
                 daily_orb_confidence=orb_confidence(self.daily_orb_confidence.get()),
+                weekly_test_mode=self.weekly_test_mode.get(),
                 boss_challenge=(BossChallengeEntrance(**self._boss_challenge_run)
                                 if any(task.name == "战歌重奏自动刷取" for task in tasks) else None),
                 rotation_presets={mode: active_modules(rotation_snapshot, mode) for mode in COMBAT_MODES},
@@ -6977,6 +7042,7 @@ class App:
                                  for mode in COMBAT_MODES},
             )
             self._active_runner = runner
+            runner.weekly_resume_template = getattr(self, '_last_weekly_template', None)
             for task in tasks:
                 if self.stop_event.is_set():
                     break
@@ -7001,6 +7067,10 @@ class App:
             else:
                 error_text = str(exc)
                 self._log(f"执行失败: {error_text}")
+                active = getattr(self, '_active_runner', None)
+                weekly = getattr(active, '_weekly_runtime', None)
+                self._last_weekly_template = getattr(weekly, '_failed_template', None)
+                self._preserve_failure_preview(locals().get('controller'))
                 self.root.after(0, lambda text=error_text: self._handle_task_failure(text))
         finally:
             job_event.set()
@@ -7072,6 +7142,27 @@ class App:
     def _make_controller(self):
         return ClientWindowController("自动", (1920, 1080))
 
+    def _warn_nonstandard_resolution(self, controller):
+        message = getattr(controller, 'resolution_notice', '')
+        if not isinstance(message, str) or not message:
+            return
+        self._log('分辨率提醒：'+message)
+        self.root.after(0, lambda text=message: self._pet_feedback('waiting', text, 12000))
+
+    def _preserve_failure_preview(self, controller=None):
+        path = getattr(controller, 'last_capture_path', None)
+        source = Path(path) if isinstance(path, (str, Path)) else APP_DIR/'_runtime_screenshot.png'
+        try:
+            if not source.exists() or time.time()-source.stat().st_mtime > 120:
+                return
+            with Image.open(source) as image:
+                image.verify()
+            target = APP_DIR/'_failure_preview.png'
+            shutil.copy2(source, target)
+            self.root.after(0, lambda: self._show_preview(target, '报错时的游戏画面'))
+        except (OSError, ValueError) as error:
+            self._log(f'报错截图无法保存：{error}')
+
     def _parse_resolution(self) -> tuple[int, int]:
         return (1920, 1080)
 
@@ -7093,6 +7184,7 @@ class App:
                 else:
                     controller = ClientWindowController(self.window_title.get(), self._parse_resolution())
                     message = controller.connect()
+                    self._warn_nonstandard_resolution(controller)
                     preview = APP_DIR / "_target_preview.png"
                     capture_method = controller.screencap(preview)
                     self.device_status.set("已找到 PC 窗口")
@@ -7396,6 +7488,13 @@ class App:
                 fill=COLORS["muted"], font=(FONT_FAMILY, 10), justify="center",
             )
 
+    def _refresh_after_restore(self):
+        self._preview_render_key = None
+        if hasattr(self, 'preview_canvas'):
+            self._resize_preview_canvas(None)
+        for index in range(len(getattr(self, '_nav_buttons', ()))):
+            self._draw_nav_button(index)
+
     def _preview_canvas_size(self) -> tuple[int, int]:
         parent_width = max(180, self.preview_canvas.master.winfo_width() - 28)
         available_height = min(PREVIEW_MAX_HEIGHT, max(PREVIEW_MIN_HEIGHT, int(self.root.winfo_height() * 0.29)))
@@ -7529,7 +7628,7 @@ def main() -> None:
     root = Tk()
     root.withdraw()
     ui = App(root)
-    show_ready_main_window(root, ui._on_main_window_ready)
+    show_ready_main_window(root, ui._on_main_window_ready, ui._refresh_after_restore)
     root.mainloop()
 
 

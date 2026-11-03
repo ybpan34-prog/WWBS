@@ -80,12 +80,14 @@ class TaskRunner(Combat4CTask, DreamlandTask, OtherTask, Match3Task):
         boss_challenge: BossChallengeEntrance | None = None,
         warning=None,
         daily_orb_confidence=.45,
+        weekly_test_mode: bool = False,
     ):
         self.controller = controller
         self.log = log
         self.dry_run = dry_run
         self.stop_event = stop_event or threading.Event()
         self.max_cycles = max_cycles
+        self.weekly_test_mode = weekly_test_mode
         self.combat_skill_key = combat_skill_key
         self.combat_ultimate_key = combat_ultimate_key
         from tasks.reward_orb_scan import orb_confidence

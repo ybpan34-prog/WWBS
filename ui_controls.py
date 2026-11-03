@@ -92,9 +92,75 @@ class ParentDialogs:
         return invoke
 
 
-def show_ready_main_window(root, on_ready=lambda: None):
+def _redraw_native_window(root):
+    """Invalidate the complete native window, including all Tk child surfaces."""
+    try:
+        user32 = ctypes.windll.user32
+        user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+        user32.GetAncestor.restype = wintypes.HWND
+        hwnd = user32.GetAncestor(root.winfo_id(), 2) or root.winfo_id()
+        user32.RedrawWindow.argtypes = [wintypes.HWND, ctypes.c_void_p, ctypes.c_void_p, wintypes.UINT]
+        user32.RedrawWindow.restype = wintypes.BOOL
+        # INVALIDATE | ERASE | ALLCHILDREN | UPDATENOW | FRAME
+        return bool(user32.RedrawWindow(hwnd, None, None, 0x585))
+    except (AttributeError, OSError, TypeError, tk.TclError):
+        return False
+
+
+class RestoreRedraw:
+    """Repaint after a real minimize/restore, without rebuilding UI or task state."""
+    def __init__(self, root, on_restore=lambda: None):
+        self.root = root
+        self.on_restore = on_restore
+        self.unmapped = False
+        self.generation = 0
+        self.paint_count = 0
+        root.bind('<Unmap>', self._unmap, add='+')
+        root.bind('<Map>', self._map, add='+')
+
+    def _unmap(self, event):
+        if event.widget is self.root:
+            self.generation += 1
+            self.unmapped = bool(getattr(self.root, '_main_frame_ready', False))
+
+    def _map(self, event):
+        if event.widget is not self.root or not self.unmapped:
+            return
+        self.unmapped = False
+        generation = self.generation
+        self.root.after_idle(lambda: self._paint(generation))
+        self.root.after(140, lambda: self._paint(generation))
+
+    def _paint(self, generation):
+        try:
+            if generation != self.generation or not self.root.winfo_exists() or not self.root.winfo_ismapped():
+                return
+            if self.root.state() in ('iconic', 'withdrawn'):
+                return
+            # Tk's retained Canvas content and PhotoImages stay intact. Ask Tk
+            # and Win32 to expose every visible child instead of reloading tabs.
+            pending = [self.root]
+            while pending:
+                widget = pending.pop()
+                if widget.winfo_ismapped():
+                    widget.event_generate('<Expose>', when='tail')
+                    pending.extend(widget.winfo_children())
+            self.root.update_idletasks()
+            _redraw_native_window(self.root)
+            try:
+                self.on_restore()
+            except (tk.TclError, OSError):
+                pass  # A preview file may be getting replaced by the worker.
+            self.paint_count += 1
+        except tk.TclError:
+            return
+
+
+def show_ready_main_window(root, on_ready=lambda: None, on_restore=lambda: None):
     """Finish layout and paint while invisible, then expose the first complete frame."""
     root.update_idletasks()
+    if not hasattr(root, '_restore_redraw'):
+        root._restore_redraw = RestoreRedraw(root, on_restore)
     root.attributes('-alpha', 0.0)
     root.deiconify()
     # Mapping delivers native Map/Expose events as well as Tk idle redraws.

@@ -94,7 +94,7 @@ class OrbInteractionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch('tasks.other.APP_DIR', Path(directory)):
             runner = self.runner(directory)
             runner._find_daily_reward_prompt = Mock(side_effect=[Mock(), None, Mock()])
-            runner._daily_reward_orb_location = Mock(return_value=(960, 300, .95))
+            runner._daily_reward_marker_location = Mock(return_value=(960, 300, .95))
             runner._wait_daily_reward_dialog = Mock(side_effect=['', 'claim'])
             self.assertTrue(runner._collect_daily_reward(1))
         self.assertEqual(runner.controller.press_key.call_args_list[0].args, ('F', 100))
@@ -106,7 +106,7 @@ class OrbInteractionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch('tasks.other.APP_DIR', Path(directory)):
             runner = self.runner(directory)
             runner._find_daily_reward_prompt = Mock(return_value=Mock())
-            runner._daily_reward_orb_location = Mock(return_value=(960, 300, .95))
+            runner._daily_reward_marker_location = Mock(return_value=(960, 300, .95))
             runner._wait_daily_reward_dialog = Mock(return_value='')
             with self.assertRaisesRegex(RuntimeError, '未当作领取成功'):
                 runner._collect_daily_reward(1)
@@ -131,7 +131,7 @@ class OrbInteractionTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as directory, patch('tasks.other.APP_DIR', Path(directory)):
                 runner = self.runner(directory)
                 runner._find_daily_reward_prompt = Mock(return_value=Mock())
-                runner._daily_reward_orb_location = Mock(return_value=(960, 300, .95))
+                runner._daily_reward_marker_location = Mock(return_value=(960, 300, .95))
                 def wait():
                     if not combat:
                         runner.stop_event.set()

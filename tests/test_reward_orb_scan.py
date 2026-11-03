@@ -39,6 +39,7 @@ class OrbDirectionTests(unittest.TestCase):
         runner=app.TaskRunner(Mock(),Mock(),dry_run=False)
         runner._capture_for_matching=Mock()
         runner._daily_reward_orb_location=Mock(side_effect=locations)
+        runner._daily_reward_marker_location=Mock(return_value=(None, None, 0.))
         runner._find_daily_reward_prompt=Mock(side_effect=prompts)
         runner._daily_battle_task_present=Mock(return_value=False)
         runner._sleep_interruptible=Mock()

@@ -134,6 +134,7 @@ class ClientWindowController:
         title = self._window_title(self.hwnd)
         width, height = self.client_size()
         size_text = f"{width}x{height}"
+        self.resolution_notice = self.resolution_warning(width, height)
         if self.base_size:
             base_width, base_height = self.base_size
             width_scale = width / base_width
@@ -146,6 +147,16 @@ class ClientWindowController:
             return f"已找到窗口：{title}，当前 {size_text}，按 {base} 的 {self.scale:.3f} 倍识别"
         self.scale = 1.0
         return f"已找到窗口：{title}，分辨率 {size_text}"
+
+    @staticmethod
+    def resolution_warning(width: int, height: int) -> str:
+        if (width, height) == (1920, 1080):
+            return ''
+        if abs(width/1920-height/1080) <= .03:
+            return (f'当前游戏分辨率为 {width}×{height}，推荐 1920×1080。'
+                    '当前为推荐分辨率的等比缩放，仍可正常使用，将按缩放比例识别；若识别不稳定，请调整为推荐分辨率。')
+        return (f'当前游戏分辨率为 {width}×{height}，与推荐的 1920×1080 比例不一致，'
+                '请调整为 1920×1080 或相同比例的分辨率后重试。')
 
     def template_scales(self) -> list[float]:
         return [self.scale, self.scale * 0.97, self.scale * 1.03, self.scale * 0.94, self.scale * 1.06]
@@ -512,6 +523,33 @@ class ClientWindowController:
     def tap_team_guarded(self, x: int, y: int):
         return self.tap(x, y, guard_team=True)
 
+    def tap_weekly_exit(self):
+        from tasks.weekly_exit import weekly_exit_match
+        return self._tap_verified_weekly(weekly_exit_match, '_weekly_exit_guard.png', '退出')
+
+    def tap_weekly_restart(self):
+        from tasks.weekly_restart import restart_match
+        return self._tap_verified_weekly(restart_match, '_weekly_restart_guard.png', '重新挑战')
+
+    def _tap_verified_weekly(self, find_target, guard_name, label):
+        previous = getattr(self, 'last_capture_path', None)
+        if previous is None:
+            raise RuntimeError(f'{label}点击前缺少截图，需重新定位。')
+        fresh = Path(previous).with_name(guard_name)
+        geometry = None
+        center = None
+        for _ in range(2):
+            if self._input_stopped():
+                return {'cancelled': True}
+            self.screencap(fresh, bring_to_front=True)
+            current_geometry = (self.last_capture_size, self.last_screen_bbox)
+            match = find_target(fresh)
+            if geometry is not None and (current_geometry != geometry
+                    or abs(center[0]-match.center[0]) > 3 or abs(center[1]-match.center[1]) > 3):
+                raise RuntimeError(f'{label}按钮或窗口位置变化，取消点击，重新定位。')
+            geometry, center = current_geometry, match.center
+        return self.tap(*center, precise=True, verify_bounds=True)
+
     def _verify_team_click(self, x, y, *, precise=False):
         """Reject stale guide coordinates before they can hit a party portrait."""
         previous = getattr(self, 'last_capture_path', None)
@@ -539,7 +577,7 @@ class ClientWindowController:
             raise RuntimeError('点击前页面已变化，取消旧坐标点击，需重新定位。')
         return target is not None
 
-    def tap(self, x: int, y: int, *, precise: bool = False, guard_team: bool = False) -> dict[str, tuple[int, int] | bool]:
+    def tap(self, x: int, y: int, *, precise: bool = False, guard_team: bool = False, verify_bounds: bool = False) -> dict[str, tuple[int, int] | bool]:
         if self._input_stopped():
             return {'cancelled': True}
         self._ensure_window()
@@ -549,7 +587,10 @@ class ClientWindowController:
                 return {'cancelled': True}
         client_x, client_y = self.screenshot_to_client(x, y)
         screen_x, screen_y = self._screenshot_point_to_desktop(x, y)
-        screen_x, screen_y = self._clamp_to_virtual_screen(screen_x, screen_y)
+        clamped = self._clamp_to_virtual_screen(screen_x, screen_y)
+        if precise and clamped != (screen_x, screen_y):
+            raise RuntimeError('精确点击目标超出屏幕范围，未发送点击。')
+        screen_x, screen_y = clamped
         before = self.cursor_position()
         self._focus_window()
         moved, input_x, input_y, move_method = self._set_cursor_with_dpi_fallback(screen_x, screen_y)
@@ -559,6 +600,8 @@ class ClientWindowController:
             raise RuntimeError('光标未落在目标中心，未发送点击。')
         if precise and self._input_stopped():
             return {'cancelled': True}
+        if verify_bounds and self._client_bbox() != self.last_screen_bbox:
+            raise RuntimeError('点击前窗口已移动，未发送点击。')
         self._send_mouse_button(MOUSEEVENTF_LEFTDOWN)
         time.sleep(0.08)
         self._send_mouse_button(MOUSEEVENTF_LEFTUP)

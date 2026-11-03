@@ -15,6 +15,8 @@ class WeeklyExitRecoveryTests(unittest.TestCase):
         runner = WeeklyRuntime(Mock(), Mock(), dry_run=False)
         self.now = 0.
         runner._sleep_interruptible = lambda seconds: setattr(self, 'now', self.now+seconds)
+        # Isolate response timing here; the native click guard has its own tests.
+        runner._click_cycle_template = Mock(side_effect=lambda _step, x, y, **_kwargs: runner.controller.tap(x, y))
         self.current = Step(action='tap_image', template='menu97.png', timeout=1)
         self.previous = Step(action='tap_image', template='menu96.png', timeout=1)
         return runner
@@ -30,9 +32,13 @@ class WeeklyExitRecoveryTests(unittest.TestCase):
             runner._expected_template = name
             for _ in range(30):
                 self.assertEqual(runner._random_click_point(match,20,20), match.center)
-        fixture = ROOT/'tests/fixtures/weekly-exit-board-reported.png'
+        # The old reference has a card-selection overlay; its dimmed exit must
+        # now be rejected rather than clicked through the overlay.
+        with self.assertRaises(RuntimeError):
+            runner.matcher.find(ROOT/'tests/fixtures/weekly-exit-board-reported.png', 'menu96.png', .82)
+        fixture = ROOT/'tests/fixtures/weekly-after-shop-reported.png'
         found = runner.matcher.find(fixture, 'menu96.png', .82)
-        self.assertTrue(1480 < found.center[0] < 1530)
+        self.assertTrue(1780 < found.center[0] < 1830)
         self.assertTrue(25 < found.center[1] < 80)
         self.assertIsNone(runner._shop_close(fixture))
 
@@ -91,9 +97,9 @@ class WeeklyExitRecoveryTests(unittest.TestCase):
             self.wait(runner)
         runner.controller.tap.assert_not_called()
 
-    def test_other_weekly_steps_keep_original_retry_sequence(self):
+    def test_other_weekly_steps_use_ordered_neighbor_recovery(self):
         runner = self.runner()
         step = Step(action='tap_image', template='menu5.png')
-        with patch('tasks.weekly_150.TaskRunner._wait_for_cycle_template', return_value=(1,2,.99)) as original:
+        with patch.object(runner, '_wait_with_neighbors', return_value=(1,2,.99)) as original:
             self.assertEqual(runner._wait_for_cycle_template(step,self.previous),(1,2,.99))
         original.assert_called_once_with(step,self.previous)

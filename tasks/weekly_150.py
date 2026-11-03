@@ -629,8 +629,11 @@ def original_task():
 def from_host(host):
     from tasks.weekly_runtime_150 import WeeklyRuntime
     runner = WeeklyRuntime(host.controller, host.log, dry_run=host.dry_run,
-                        stop_event=host.stop_event, max_cycles=host.max_cycles, notice=host.notice)
+                           stop_event=host.stop_event, max_cycles=host.max_cycles, notice=host.notice,
+                           weekly_test_mode=getattr(host, 'weekly_test_mode', False) is True)
     runner.debug_matches = host.debug_matches
+    host._weekly_runtime = runner
+    runner._resume_template = getattr(host, 'weekly_resume_template', None)
     return runner
 
 

@@ -1205,6 +1205,16 @@ class OtherTask:
             return None, None, density
         return left + cell_x * block + block // 2, top + cell_y * block + block // 2, density
 
+    @staticmethod
+    def _daily_reward_marker_location(screenshot):
+        from tasks.daily_reward_marker import reward_marker_location
+        return reward_marker_location(screenshot)
+
+    @staticmethod
+    def _daily_reward_marker_direction(screenshot, x, y):
+        from tasks.daily_reward_marker import reward_marker_direction
+        return reward_marker_direction(screenshot, x, y)
+
     def _collect_daily_reward(self, cycle_index: int) -> bool:
         screenshot = APP_DIR / "_runtime_screenshot.png"
         deadline = time.monotonic() + 75.0
@@ -1212,27 +1222,36 @@ class OtherTask:
         missed_turns = 0
         route = None
         interactions = 0
-        self.log(f'    光球置信度阈值 {threshold:.0%}；转动12次未达到时改为螺旋搜索。')
-        while time.monotonic() < deadline and not self.stop_event.is_set():
+        self.log(f'    光球达到设置置信度{threshold:.0%}时直接靠近，否则按奖励标志箭头转动视角；转动12次未找到时改为螺旋搜索。')
+        while not self.stop_event.is_set():
             self._capture_for_matching(screenshot)
+            if self._daily_reward_dialog_present(screenshot):
+                self.controller.release_keys()
+                state = self._wait_daily_reward_dialog()
+                if self.stop_event.is_set():
+                    return False
+                if state == 'claim':
+                    self._claim_daily_double_reward(cycle_index)
+                    return True
+                if state == 'settlement':
+                    return True
+                if state == 'combat':
+                    return False
+                if time.monotonic() >= deadline:
+                    raise RuntimeError('已看到领取奖励界面，但未能连续确认双倍领取按钮。')
+                continue
             if self._read_daily_settlement(screenshot) is not None:
                 self.controller.release_keys()
                 self.log(f'    第{cycle_index}轮已在挑战成功结算页，跳过找光球和再次领取。')
                 return True
-            if interactions and self._daily_reward_dialog_present(screenshot):
-                if self._wait_daily_reward_dialog() == 'claim' and not self.stop_event.is_set():
-                    self._claim_daily_double_reward(cycle_index)
-                    return True
-                continue
-            prompt = self._find_daily_reward_prompt(screenshot)
-            target_x, _target_y, density = self._daily_reward_orb_location(screenshot)
-            # A white object must never override evidence of ongoing combat.
-            if (
-                self._daily_combat_visible(screenshot)
-            ):
+            if time.monotonic() >= deadline:
+                break
+            # The marker must never override evidence of ongoing combat.
+            if self._daily_combat_visible(screenshot):
                 self.controller.release_keys()
                 self.log("    奖励搜索时发现清理目标文字或首领血条仍在，判定战斗尚未结束，继续攻击。")
                 return False
+            prompt = self._find_daily_reward_prompt(screenshot)
             with Image.open(screenshot) as captured:
                 width, height = captured.size
             if self.stop_event.is_set():
@@ -1256,9 +1275,26 @@ class OtherTask:
                 if interactions >= 2:
                     raise RuntimeError('重新寻找光球并再次按F后，仍未确认进入领取界面；未当作领取成功。')
                 self.log('    按F后未进入领取界面，可能提示闪过未按到；重新寻找一次光球并接近后重试。')
+                deadline = max(deadline, time.monotonic() + 12.0)
                 route, missed_turns = None, 0
                 continue
-            valid = target_x is not None and density >= threshold
+            target_x, _target_y, density = self._daily_reward_orb_location(screenshot)
+            direct_orb = target_x is not None and density >= threshold
+            direction = None
+            if not direct_orb:
+                target_x, _target_y, density = self._daily_reward_marker_location(screenshot)
+                if target_x is not None and density >= .82:
+                    direction = self._daily_reward_marker_direction(screenshot, target_x, _target_y)
+            if self.stop_event.is_set():
+                break
+            if direction:
+                turns = {'left': (-180, 0), 'right': (180, 0), 'up': (0, -100), 'down': (0, 100)}
+                self.controller.move_mouse_relative(*turns[direction])
+                self.log('    奖励标志箭头方向：'+{'left':'左', 'right':'右', 'up':'上', 'down':'下'}[direction]+'；先转动视角，再重新定位。')
+                route, missed_turns = None, 0
+                self._sleep_interruptible(.15)
+                continue
+            valid = direct_orb or (target_x is not None and density >= .82)
             if valid:
                 missed_turns = 0
             if route is None and missed_turns >= 12 and not valid:
@@ -1285,11 +1321,13 @@ class OtherTask:
                 if abs(offset) > width * 0.05:
                     self.controller.move_mouse_relative(int(max(-300, min(300, offset * 0.40))), 0)
                 self.controller.press_keys(("W",), 500)
-                self.log(f"    已定位白色奖励光球（核心密度 {density:.2f}），正在靠近。")
+                self.log(f"    已定位{'光球（置信度' if direct_orb else '奖励标志（相似度'} {density:.2f}），正在靠近领取位置。")
             self._sleep_interruptible(0.22)
+        if interactions:
+            raise RuntimeError('按F后未能确认领取奖励界面，也未重新看到领取提示。')
         raise RuntimeError("奖励阶段未找到“领取奖励”提示，已停止以避免误操作。")
 
-    def _wait_daily_reward_dialog(self, timeout=3.0):
+    def _wait_daily_reward_dialog(self, timeout=5.0):
         """Only the actual claim button/settlement acknowledges an F interaction."""
         screenshot = APP_DIR/'_runtime_screenshot.png'
         deadline = time.monotonic()+timeout
@@ -1298,15 +1336,14 @@ class OtherTask:
             self._capture_for_matching(screenshot)
             if self.stop_event.is_set():
                 return ''
-            if self._read_daily_settlement(screenshot) is not None:
+            if self._daily_reward_dialog_present(screenshot):
+                state = 'claim'
+            elif self._read_daily_settlement(screenshot) is not None:
                 state = 'settlement'
+            elif self._daily_combat_visible(screenshot):
+                state = 'combat'
             else:
-                if self._daily_reward_dialog_present(screenshot):
-                    state = 'claim'
-                elif self._daily_combat_visible(screenshot):
-                    state = 'combat'
-                else:
-                    state = ''
+                state = ''
             stable = stable+1 if state and state == previous else 1 if state else 0
             previous = state
             if state and stable >= 2:
@@ -1318,8 +1355,19 @@ class OtherTask:
     def _daily_reward_dialog_present(self, screenshot):
         with Image.open(screenshot) as image:
             width, height = image.size
+            header = np.asarray(image.crop((
+                round(width*.23), round(height*.30), round(width*.32), round(height*.35),
+            )).convert('L'))
+        if not header.size or float((header > 225).mean()) < .55:
+            return False
+        scales = [width / 1920]
+        if self._find_daily_template('reward_dialog_title.png', threshold=.83, scales=scales,
+                screenshot=screenshot, region=(round(width*.22), round(height*.29),
+                                               round(width*.34), round(height*.36))) is None:
+            return False
         return self._find_daily_template('double_claim.png', threshold=.68, screenshot=screenshot,
-            region=(round(width*.50), round(height*.54), round(width*.80), round(height*.75))) is not None
+            region=(round(width*.50), round(height*.54), round(width*.80), round(height*.75)),
+            scales=scales) is not None
 
     def _turn_daily_reward_camera(self, delta: int) -> None:
         while delta and not self.stop_event.is_set():

@@ -5,7 +5,9 @@ from unittest.mock import Mock, patch
 
 from PIL import Image, ImageDraw
 
-from tasks.weekly_150 import original_task
+from tasks.runner import TaskRunner
+from tasks.weekly_150 import from_host, original_task
+from tasks.weekly_restart import restart_match
 from tasks.weekly_runtime_150 import WeeklyRuntime, WeeklyCapReached
 from tasks.models import Step
 
@@ -60,6 +62,49 @@ class WeeklyCapStopTests(unittest.TestCase):
         self.assertEqual(runner.controller.screencap.call_count,2)
         self.assertFalse(runner.stop_event.is_set())
         runner.controller.tap.assert_not_called()
+
+    def test_test_mode_keeps_restart_available_at_the_weekly_cap(self):
+        host = TaskRunner(Mock(), Mock(), dry_run=False, max_cycles=13, weekly_test_mode=True)
+        runner = from_host(host)
+        self.assertTrue(runner.weekly_test_mode)
+        self.assertTrue(runner._cap_result(RESULT))
+        self.assertGreaterEqual(restart_match(RESULT).score, .93)
+        runner._cap_result = Mock(return_value=True)
+        runner._capture_for_matching(RESULT)
+        runner._cap_result.assert_not_called()
+        self.assertFalse(host.stop_event.is_set())
+
+    def test_test_mode_passes_the_round_limit_and_honors_manual_stop(self):
+        runner = WeeklyRuntime(Mock(), Mock(), dry_run=False, max_cycles=1, weekly_test_mode=True)
+        runner._wait_for_cycle_template = Mock(return_value=(10, 20, .98))
+        runner._verify_final_cycle_click = Mock()
+        runner._sleep_click_interval = Mock()
+        clicks = []
+
+        def click(step, *_point):
+            clicks.append(step.template)
+            if len(clicks) == 3:
+                runner.stop_event.set()
+
+        runner._click_cycle_template = click
+        runner._run_image_cycle(Step(action='tap_image_cycle', templates=['menu99.png'], loop=True))
+        self.assertEqual(clicks, ['menu99.png']*3)
+        runner._verify_final_cycle_click.assert_not_called()
+
+    def test_test_mode_can_start_from_an_already_capped_result(self):
+        runner = WeeklyRuntime(Mock(), Mock(), dry_run=False, weekly_test_mode=True)
+        with tempfile.TemporaryDirectory() as folder, patch('tasks.weekly_runtime_150.APP_DIR', Path(folder)):
+            def capture(path, **_kwargs):
+                with Image.open(RESULT) as image:
+                    image.save(path)
+
+            runner.controller.screencap.side_effect = capture
+            runner._restart_and_confirm = Mock(return_value='menu3.png')
+            runner._run_image_cycle = Mock()
+            runner.run_task(original_task())
+        runner._restart_and_confirm.assert_called_once_with()
+        runner._run_image_cycle.assert_called_once()
+        self.assertEqual(runner._resume_cycle_template, 'menu3.png')
 
     def test_standalone_and_daily_entry_finish_normally_and_keep_result(self):
         for method,original in (('run_task','run_task'),('_run_default_weekly_from_daily','_run_default_weekly_from_daily'),

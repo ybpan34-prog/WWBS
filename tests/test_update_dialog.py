@@ -11,6 +11,7 @@ def release(tag, **fields):
     return dict(tag_name=tag, assets=[{'name': 'wwbs-exe.zip', 'state': 'uploaded'}], **fields)
 
 
+@patch("app.APP_VERSION", "1.5.9")
 class UpdateDiscoveryTests(unittest.TestCase):
     def test_newer_beta_is_skipped_even_when_its_version_is_larger(self):
         candidates = [release('v1.5.3'), release('v1.5.4-beta1', prerelease=True),
@@ -90,6 +91,36 @@ class UpdateDiscoveryTests(unittest.TestCase):
         ui._show_available_update = Mock()
         ui.root.after.call_args.args[1]()
         self.assertEqual(ui._show_available_update.call_args.args[0], 'v1.5.5')
+
+
+@patch("app.APP_VERSION", "1.6.0beta")
+class BetaDiscoveryTests(unittest.TestCase):
+    def test_beta_can_upgrade_to_next_beta_and_same_number_stable(self):
+        beta = release("v1.6.0-beta2", prerelease=True)
+        stable = release("v1.6.0")
+        self.assertTrue(app.App._release_is_newer(beta["tag_name"], beta))
+        self.assertEqual(app.App._select_update_release([stable, beta])[0], "v1.6.0")
+
+    def test_beta_ignores_the_legacy_update_entry(self):
+        bridge = release("v1.5.9-update", body="<!-- WWBS_LEGACY_UPDATE -->")
+        beta = release("v1.6.0beta", prerelease=True)
+        self.assertEqual(app.App._select_update_release([bridge, beta])[0], "v1.6.0beta")
+        self.assertFalse(app.App._release_is_newer(beta["tag_name"], beta))
+
+    def test_beta_checks_release_list_first(self):
+        ui = app.App.__new__(app.App)
+        ui.root, ui.status = Mock(), Mock()
+        ui._show_available_update = Mock()
+        response = MagicMock()
+        response.__enter__.return_value.read.return_value = json.dumps([
+            release("v1.5.9"), release("v1.6.0-beta2", prerelease=True)
+        ]).encode()
+        with patch("app.urllib.request.urlopen", return_value=response) as opened, \
+                patch("app.threading.Thread", side_effect=lambda *, target, daemon: Mock(start=target)):
+            ui._check_for_updates()
+        self.assertTrue(opened.call_args.args[0].full_url.endswith("/releases?per_page=10"))
+        ui.root.after.call_args.args[1]()
+        self.assertEqual(ui._show_available_update.call_args.args[0], "v1.6.0-beta2")
 
 
 class UpdateDialogTests(unittest.TestCase):
