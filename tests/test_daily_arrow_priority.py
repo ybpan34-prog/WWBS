@@ -25,6 +25,27 @@ class DailyArrowTests(unittest.TestCase):
             self.assertGreater(score, .82)
             self.assertEqual(reward_marker_direction(path, x, y), 'left')
 
+    def test_reported_low_left_arrow_turns_without_searching_for_an_orb(self):
+        fixture = ROOT/'tests/fixtures/daily-marker-left-low-reported.png'
+        with Image.open(fixture) as sample:
+            screen = Image.new('RGB', (1920, 1080), (40, 45, 60))
+            screen.paste(sample, (405, 641))
+        for width in (1600, 1920):
+            with self.subTest(width=width), tempfile.TemporaryDirectory() as folder, \
+                    patch('tasks.other.APP_DIR', Path(folder)):
+                runner = self.runner(folder)
+                screen.resize((width, width*9//16), Image.Resampling.LANCZOS).save(
+                    Path(folder)/'_runtime_screenshot.png')
+                del runner._daily_reward_marker_location, runner._daily_reward_marker_direction
+                runner._find_daily_reward_prompt.side_effect = [None, None, Mock()]
+                runner._daily_reward_orb_location = Mock(return_value=(960, 350, .99))
+                self.assertTrue(runner._collect_daily_reward(1))
+                turns = [call.args for call in runner.controller.move_mouse_relative.call_args_list]
+                self.assertEqual(len(turns), 2)
+                self.assertTrue(all(dx < 0 and dy == 0 for dx, dy in turns))
+                runner._daily_reward_orb_location.assert_not_called()
+                runner.controller.press_keys.assert_not_called()
+
     def test_all_arrow_orientations_and_no_arrow(self):
         with tempfile.TemporaryDirectory() as folder, Image.open(ROOT/'templates/daily/reward_arrow_left.png') as arrow, Image.open(
                 ROOT/'templates/daily/reward_marker_5.png') as marker:

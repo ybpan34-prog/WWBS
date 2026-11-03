@@ -46,10 +46,17 @@ def reward_marker_location(screenshot):
 def _arrow_templates():
     directory = Path(__file__).resolve().parents[1]/'templates/daily'
     left = _arrow_mask(directory/'reward_arrow_left.png')
+    left_low = _arrow_mask(directory/'reward_arrow_left_low.png')
     down_right = _arrow_mask(directory/'reward_arrow_down_right.png')
-    return {'left': left, 'right': left.transpose(Image.Transpose.ROTATE_180),
-            'up': left.transpose(Image.Transpose.ROTATE_270), 'down': left.transpose(Image.Transpose.ROTATE_90),
-            'down_right': down_right, 'down_left': down_right.transpose(Image.Transpose.FLIP_LEFT_RIGHT)}
+    return {
+        'left': ((left, 1600), (left_low, 1920)),
+        'right': ((left.transpose(Image.Transpose.ROTATE_180), 1600),
+                  (left_low.transpose(Image.Transpose.FLIP_LEFT_RIGHT), 1920)),
+        'up': ((left.transpose(Image.Transpose.ROTATE_270), 1600),),
+        'down': ((left.transpose(Image.Transpose.ROTATE_90), 1600),),
+        'down_right': ((down_right, 1600),),
+        'down_left': ((down_right.transpose(Image.Transpose.FLIP_LEFT_RIGHT), 1600),),
+    }
 
 
 def _arrow_mask(path):
@@ -78,19 +85,19 @@ def reward_marker_direction(screenshot, x, y):
         if not region.size:
             continue
         scene = ((region.min(axis=2) > 210) & (np.ptp(region, axis=2) < 70)).astype(np.float64)
-        template = _arrow_templates()[direction]
         threshold = .80 if direction.startswith('down_') else .82
-        for factor in (.75, .9, 1., 1.1, 1.25, 1.5):
-            size = (max(4, round(template.width*width/1600*factor)),
-                    max(4, round(template.height*width/1600*factor)))
-            if size[0] >= scene.shape[1] or size[1] >= scene.shape[0]:
-                continue
-            patch = np.asarray(template.resize(size, Image.Resampling.NEAREST), dtype=np.float64)/255
-            match = _match_single_scale_gray(scene, patch)
-            # A corner glyph on either side of the ring must turn horizontally.
-            if direction == 'down' and abs(left+match.center[0]-x) >= side*.49:
-                continue
-            if match.score >= threshold and match.score > best[0]:
-                best = (match.score, direction)
+        for template, reference_width in _arrow_templates()[direction]:
+            for factor in (.75, .9, 1., 1.1, 1.25, 1.5):
+                size = (max(4, round(template.width*width/reference_width*factor)),
+                        max(4, round(template.height*width/reference_width*factor)))
+                if size[0] >= scene.shape[1] or size[1] >= scene.shape[0]:
+                    continue
+                patch = np.asarray(template.resize(size, Image.Resampling.NEAREST), dtype=np.float64)/255
+                match = _match_single_scale_gray(scene, patch)
+                # A corner glyph on either side of the ring must turn horizontally.
+                if direction == 'down' and abs(left+match.center[0]-x) >= side*.49:
+                    continue
+                if match.score >= threshold and match.score > best[0]:
+                    best = (match.score, direction)
     direction = best[1]
     return direction.removeprefix('down_') if direction else None
