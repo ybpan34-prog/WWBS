@@ -83,7 +83,7 @@ class DailyArrowTests(unittest.TestCase):
             runner._daily_reward_orb_location.assert_called_once()
 
     def test_arrow_blocks_orb_detection_even_if_orb_would_be_above_threshold(self):
-        for direction, turn in (('left', (-180, 0)), ('right', (180, 0)), ('up', (0, -100)), ('down', (0, 100))):
+        for direction, turn in (('left', (-270, 0)), ('right', (270, 0)), ('up', (0, -150)), ('down', (0, 150))):
             with tempfile.TemporaryDirectory() as folder, patch('tasks.other.APP_DIR', Path(folder)):
                 runner = self.runner(folder)
                 runner._daily_reward_orb_location = Mock(return_value=(1400, 350, .99))
@@ -100,7 +100,7 @@ class DailyArrowTests(unittest.TestCase):
             runner._daily_reward_marker_direction.side_effect = [None, 'right', None]
             runner._daily_reward_orb_location = Mock(return_value=(960, 350, .99))
             self.assertTrue(runner._collect_daily_reward(1))
-            runner.controller.move_mouse_relative.assert_called_once_with(180, 0)
+            runner.controller.move_mouse_relative.assert_called_once_with(270, 0)
             runner._daily_reward_orb_location.assert_not_called()
             runner.controller.press_keys.assert_not_called()
 
@@ -109,10 +109,10 @@ class DailyArrowTests(unittest.TestCase):
             runner = self.runner(folder)
             runner._daily_reward_marker_location.return_value = (None, None, 0.)
             runner._daily_reward_orb_location = Mock(return_value=(960, 350, .99))
-            with patch('tasks.other.time.monotonic', side_effect=[0., 110., 121.]):
+            with patch('tasks.other.time.monotonic', side_effect=[0., 179., 180.]):
                 with self.assertRaisesRegex(RuntimeError, '奖励阶段未找到'):
                     runner._collect_daily_reward(1)
-            runner.controller.move_mouse_relative.assert_called_once_with(300, 0)
+            runner.controller.move_mouse_relative.assert_called_once_with(450, 0)
             runner._daily_reward_orb_location.assert_not_called()
             runner.controller.press_keys.assert_not_called()
 
@@ -138,7 +138,7 @@ class DailyArrowTests(unittest.TestCase):
                 screen = Image.new('RGB', (1920, 1080), (40, 45, 60))
                 screen.paste(panel, (419, 315))
                 screen.resize((width, width*9//16)).save(Path(folder)/'_runtime_screenshot.png')
-                with patch('tasks.other.time.monotonic', side_effect=[0., 121., 121., 121.2]):
+                with patch('tasks.other.time.monotonic', side_effect=[0., 181., 181., 181.2]):
                     self.assertTrue(runner._collect_daily_reward(1))
                 self.assertEqual(runner._capture_for_matching.call_count, 3)
                 runner._find_daily_reward_prompt.assert_not_called()

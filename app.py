@@ -24,7 +24,7 @@ from tkinter import font as tkfont
 from PIL import Image, ImageTk
 
 from image_matcher import TemplateMatcher
-from tasks.reward_orb_scan import orb_confidence
+from tasks.reward_orb_scan import REWARD_SEARCH_SECONDS, orb_confidence
 from tasks.models import TaskNeedsReview
 from tasks.combat_4c_entrance import BOSS_AVATARS, BossChallengeEntrance
 from windows_client import ClientWindowController
@@ -110,7 +110,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
 APP_VERSION = "1.6.0beta"
-APP_BUILD = 3
+APP_BUILD = 4
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -4682,7 +4682,7 @@ class App:
                               values=tuple(f'{v}%' for v in range(45, 100, 5)), state='readonly', width=12)
         picker.pack(anchor='w')
         picker.bind('<<ComboboxSelected>>', self._save_daily_zone)
-        Label(daily_box, text='最多搜索120秒。先按奖励标志箭头转向，连续确认标志无箭头后才寻找光球。',
+        Label(daily_box, text=f'最多搜索{REWARD_SEARCH_SECONDS}秒。先按奖励标志箭头转向，连续确认标志无箭头后才寻找光球。',
               bg=COLORS['panel_alt'], fg=COLORS['muted'], wraplength=600, justify=LEFT).pack(anchor='w', pady=6)
         weekly_box = self._card_body(self.settings_tab)
         weekly_box.pack(fill=X, pady=(0, 14))

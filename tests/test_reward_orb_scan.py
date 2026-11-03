@@ -74,7 +74,7 @@ class OrbDirectionTests(unittest.TestCase):
             runner = self.runner(directory, [(None, None, .3)]*14, [None]*13+[Mock()])
             self.assertTrue(runner._collect_daily_reward(1))
             turns = runner.controller.move_mouse_relative.call_args_list
-            self.assertEqual([call.args for call in turns[:12]], [(300, 0)]*12)
+            self.assertEqual([call.args for call in turns[:12]], [(450, 0)]*12)
             self.assertEqual(len(turns), 13)
             self.assertEqual(turns[-1].args, (-84, 0))
             runner.controller.press_keys.assert_called_once_with(('W',), 180)

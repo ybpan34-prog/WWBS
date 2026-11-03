@@ -17,7 +17,7 @@ from tasks.models import Step
 from tasks.daily_settlement import DailySettlementVision
 from tasks.daily_radio import DailyRadioVision
 from tasks.terminal_navigation import terminal_target
-from tasks.reward_orb_scan import ORB_SCAN_STEP
+from tasks.reward_orb_scan import ORB_SCAN_STEP, REWARD_SEARCH_SECONDS
 from tasks.weekly_rewards import WeeklyRewardsVision
 
 
@@ -1217,13 +1217,13 @@ class OtherTask:
 
     def _collect_daily_reward(self, cycle_index: int) -> bool:
         screenshot = APP_DIR / "_runtime_screenshot.png"
-        deadline = time.monotonic() + 120.0
+        deadline = time.monotonic() + REWARD_SEARCH_SECONDS
         threshold = getattr(self, 'daily_orb_confidence', .45)
         missed_turns = 0
         route = None
         interactions = 0
         marker_without_arrow = False
-        self.log(f'    最多搜索120秒。先找奖励标志，有箭头就按方向转动；连续确认标志无箭头后，才寻找置信度至少{threshold:.0%}的光球。')
+        self.log(f'    最多搜索{REWARD_SEARCH_SECONDS}秒。先找奖励标志，有箭头就按方向转动；连续确认标志无箭头后，才寻找置信度至少{threshold:.0%}的光球。')
         while not self.stop_event.is_set():
             self._capture_for_matching(screenshot)
             if self._daily_reward_dialog_present(screenshot):
@@ -1286,7 +1286,7 @@ class OtherTask:
             if self.stop_event.is_set():
                 break
             if direction:
-                turns = {'left': (-180, 0), 'right': (180, 0), 'up': (0, -100), 'down': (0, 100)}
+                turns = {'left': (-270, 0), 'right': (270, 0), 'up': (0, -150), 'down': (0, 150)}
                 self.controller.move_mouse_relative(*turns[direction])
                 self.log('    奖励标志箭头方向：'+{'left':'左', 'right':'右', 'up':'上', 'down':'下'}[direction]+'；先转动视角，再重新定位。')
                 route, missed_turns = None, 0

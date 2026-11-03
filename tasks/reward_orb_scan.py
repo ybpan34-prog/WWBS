@@ -7,8 +7,8 @@ from PIL import Image
 from image_matcher import _match_single_scale_gray
 
 
-# Daily yaw increased by 150% relative to the previous 120-unit step.
-ORB_SCAN_STEP = 300
+REWARD_SEARCH_SECONDS = 180
+ORB_SCAN_STEP = 450
 ORB_DIRECT_CONFIDENCE = .8
 
 
