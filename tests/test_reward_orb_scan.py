@@ -7,10 +7,25 @@ import numpy as np
 from PIL import Image
 
 import app
-from tasks.reward_orb_scan import OrbDirectionSweep
+from tasks.reward_orb_scan import OrbDirectionSweep, RewardCamera
 
 
 class OrbDirectionTests(unittest.TestCase):
+    def test_camera_adjusts_step_to_distance_progress_and_reversal(self):
+        camera = RewardCamera()
+        far, _ = camera.follow('left', 394, 576, 1920, 1080)
+        stalled, _ = camera.follow('left', 394, 576, 1920, 1080)
+        near, _ = camera.follow('left', 850, 576, 1920, 1080)
+        correction, dy = camera.follow('right', 1260, 576, 1920, 1080)
+        self.assertLess(stalled, far)
+        self.assertLess(far, near)
+        self.assertLess(near, 0)
+        self.assertEqual(dy, 0)
+        self.assertGreater(correction, 0)
+        self.assertLess(correction, abs(near))
+        camera.follow('left', 394, 576, 1920, 1080)
+        self.assertEqual([camera.sweep(i) for i in (0, 1, 11)], [-225, -300, -600])
+
     def test_scan_waits_for_full_lap_and_remembers_highest_direction(self):
         panorama = np.random.default_rng(34).random((72,864))
         offsets = (0,216,432,648,840,864)
@@ -74,7 +89,8 @@ class OrbDirectionTests(unittest.TestCase):
             runner = self.runner(directory, [(None, None, .3)]*14, [None]*13+[Mock()])
             self.assertTrue(runner._collect_daily_reward(1))
             turns = runner.controller.move_mouse_relative.call_args_list
-            self.assertEqual([call.args for call in turns[:12]], [(450, 0)]*12)
+            self.assertEqual([call.args for call in turns[:12]],
+                             [(step, 0) for step in (225, 300, 375, 450, 525, 600, 600, 600, 600, 600, 600, 600)])
             self.assertEqual(len(turns), 13)
             self.assertEqual(turns[-1].args, (-84, 0))
             runner.controller.press_keys.assert_called_once_with(('W',), 180)

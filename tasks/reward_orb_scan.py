@@ -12,6 +12,37 @@ ORB_SCAN_STEP = 450
 ORB_DIRECT_CONFIDENCE = .8
 
 
+class RewardCamera:
+    def __init__(self):
+        self.previous_turn = None
+        self.scan_sign = 1
+
+    def follow(self, direction, x, y, width, height):
+        horizontal = direction in ('left', 'right')
+        sign = -1 if direction in ('left', 'up') else 1
+        coordinate, size = (x, width) if horizontal else (y, height)
+        distance = min(1., abs(2 * coordinate / size - 1))
+        minimum, maximum = (100, 480) if horizontal else (70, 240)
+        step = round(minimum + (maximum - minimum) * distance)
+        if self.previous_turn is not None:
+            previous_direction, previous_distance, previous_step = self.previous_turn
+            if direction == previous_direction and distance >= previous_distance - .025:
+                step = min(maximum, max(step, previous_step + 50))
+            elif (direction, previous_direction) in (
+                ('left', 'right'), ('right', 'left'), ('up', 'down'), ('down', 'up'),
+            ):
+                step = min(step, max(minimum, previous_step // 2))
+        self.previous_turn = (direction, distance, step)
+        if horizontal:
+            self.scan_sign = sign
+            return sign * step, 0
+        return 0, sign * step
+
+    def sweep(self, misses):
+        self.previous_turn = None
+        return self.scan_sign * min(600, ORB_SCAN_STEP // 2 + 75 * misses)
+
+
 @dataclass
 class OrbDirection:
     turn: int

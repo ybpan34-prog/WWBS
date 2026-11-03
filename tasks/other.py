@@ -17,7 +17,7 @@ from tasks.models import Step
 from tasks.daily_settlement import DailySettlementVision
 from tasks.daily_radio import DailyRadioVision
 from tasks.terminal_navigation import terminal_target
-from tasks.reward_orb_scan import ORB_SCAN_STEP, REWARD_SEARCH_SECONDS
+from tasks.reward_orb_scan import ORB_SCAN_STEP, REWARD_SEARCH_SECONDS, RewardCamera
 from tasks.weekly_rewards import WeeklyRewardsVision
 
 
@@ -969,8 +969,9 @@ class OtherTask:
         try:
             def inspect():
                 self._capture_for_matching(screenshot)
-                reward = self._daily_battle_end_present(screenshot)
-                return reward, False if reward else self._daily_combat_visible(screenshot)
+                present = self._daily_combat_visible(screenshot)
+                reward = self._daily_battle_end_present(screenshot, combat_visible=present)
+                return reward, present and not reward
 
             def stop_on_end(result):
                 if result[0]:
@@ -1171,10 +1172,17 @@ class OtherTask:
             vision = self._daily_settlement_vision = DailySettlementVision(TEMPLATES_DIR/'daily')
         return vision.read(screenshot, self._fast_scales())
 
-    def _daily_battle_end_present(self, screenshot: Path) -> bool:
+    def _daily_battle_end_present(self, screenshot: Path, *, combat_visible=None) -> bool:
         if self._read_daily_settlement(screenshot) is not None:
             return True
-        return self._daily_reward_stage_present(screenshot) and not self._daily_combat_visible(screenshot)
+        if combat_visible is None:
+            combat_visible = self._daily_combat_visible(screenshot)
+        if combat_visible:
+            return False
+        if self._daily_reward_stage_present(screenshot):
+            return True
+        x, y, score = self._daily_reward_marker_location(screenshot)
+        return x is not None and score >= .82 and self._daily_reward_marker_direction(screenshot, x, y) is not None
 
     @staticmethod
     def _daily_reward_orb_location(screenshot: Path) -> tuple[int | None, int | None, float]:
@@ -1223,6 +1231,7 @@ class OtherTask:
         route = None
         interactions = 0
         marker_without_arrow = False
+        camera = RewardCamera()
         self.log(f'    最多搜索{REWARD_SEARCH_SECONDS}秒。先找奖励标志，有箭头就按方向转动；连续确认标志无箭头后，才寻找置信度至少{threshold:.0%}的光球。')
         while not self.stop_event.is_set():
             self._capture_for_matching(screenshot)
@@ -1279,6 +1288,7 @@ class OtherTask:
                 deadline = max(deadline, time.monotonic() + 12.0)
                 route, missed_turns = None, 0
                 marker_without_arrow = False
+                camera = RewardCamera()
                 continue
             target_x, target_y, density = self._daily_reward_marker_location(screenshot)
             marker_visible = target_x is not None and density >= .82
@@ -1286,15 +1296,17 @@ class OtherTask:
             if self.stop_event.is_set():
                 break
             if direction:
-                turns = {'left': (-270, 0), 'right': (270, 0), 'up': (0, -150), 'down': (0, 150)}
-                self.controller.move_mouse_relative(*turns[direction])
-                self.log('    奖励标志箭头方向：'+{'left':'左', 'right':'右', 'up':'上', 'down':'下'}[direction]+'；先转动视角，再重新定位。')
+                dx, dy = camera.follow(direction, target_x, target_y, width, height)
+                self.controller.move_mouse_relative(dx, dy)
+                self.log('    奖励标志箭头方向：'+{'left':'左', 'right':'右', 'up':'上', 'down':'下'}[direction]
+                         +f'，转动步长{abs(dx or dy)}；重新截图定位。')
                 route, missed_turns = None, 0
                 marker_without_arrow = False
                 self._sleep_interruptible(.15)
                 continue
             direct_orb = False
             if marker_visible:
+                camera.previous_turn = None
                 missed_turns = 0
                 route = None
                 if not marker_without_arrow:
@@ -1324,7 +1336,7 @@ class OtherTask:
                 self._sleep_interruptible(.06)
                 continue
             if not marker_visible:
-                self.controller.move_mouse_relative(ORB_SCAN_STEP, 0)
+                self.controller.move_mouse_relative(camera.sweep(missed_turns), 0)
                 missed_turns += 1
             else:
                 offset = target_x - width * 0.5

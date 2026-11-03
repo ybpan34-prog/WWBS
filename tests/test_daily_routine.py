@@ -8,7 +8,6 @@ from PIL import Image
 
 import app
 from app import DAILY_ZONE_NAMES, DAILY_ZONE_TEMPLATES, TaskRunner
-from tasks.other import ORB_SCAN_STEP
 from desktop_pet import DesktopPet
 
 
@@ -601,7 +600,7 @@ class DailyRoutineTests(unittest.TestCase):
         with patch.object(app.Image, 'open', return_value=context):
             with self.assertRaises(RuntimeError):
                 runner._collect_daily_reward(1)
-        controller.move_mouse_relative.assert_called_once_with(ORB_SCAN_STEP, 0)
+        controller.move_mouse_relative.assert_called_once_with(225, 0)
 
     def test_daily_healing_is_disabled_by_default(self):
         runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)
@@ -653,6 +652,7 @@ class DailyRoutineTests(unittest.TestCase):
         runner._select_daily_slot_after_loading = Mock()
         runner._capture_for_matching = Mock()
         runner._daily_reward_stage_present = Mock(return_value=False)
+        runner._daily_reward_marker_location = Mock(return_value=(None, None, 0.))
         runner._daily_combat_visible = Mock(side_effect=(True, False))
         runner._confirm_daily_battle_finished = Mock(return_value=True)
         runner._perform_4c_heal_rotation = Mock()
