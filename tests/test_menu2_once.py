@@ -3,6 +3,8 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
+from PIL import Image
+
 from tasks.models import Step
 from tasks.weekly_matcher_150 import MatchResult
 from tasks.weekly_runtime_150 import WeeklyRuntime, WeeklyAdvanced
@@ -25,6 +27,18 @@ class Menu2OnceTests(unittest.TestCase):
             runner._wait_for_cycle_template(Step(action='tap_image', template='menu2.png', timeout=8))
         self.assertEqual(runner.matcher.find.call_count, 1)
         self.assertEqual(runner._capture_for_matching.call_count, 1)
+        self.assertEqual(runner._probe_neighbors.call_count, 3)
+
+    def test_delayed_confirmed_board_wins_over_previous_button_without_retrying_menu2(self):
+        runner = self.runner()
+        runner.matcher.find = Mock(side_effect=RuntimeError('missing'))
+        runner._probe_neighbors = Mock(side_effect=[{}, {'menu1.png': Mock(), 'menu3.png': Mock()}])
+        with self.assertRaises(WeeklyAdvanced) as advanced:
+            runner._wait_for_cycle_template(Step(action='tap_image', template='menu2.png'))
+        self.assertEqual(advanced.exception.template, 'menu3.png')
+        self.assertEqual(runner.matcher.find.call_count, 1)
+        self.assertEqual(runner._probe_neighbors.call_count, 2)
+        runner.controller.tap.assert_not_called()
 
     def test_second_call_cannot_search_menu2_again_in_same_round(self):
         runner = self.runner()
@@ -40,6 +54,7 @@ class Menu2OnceTests(unittest.TestCase):
         runner.matcher.find = Mock(side_effect=RuntimeError('missing'))
         with tempfile.TemporaryDirectory() as folder, patch('tasks.weekly_runtime_150.APP_DIR', Path(folder)), patch(
                 'tasks.weekly_board.board_ready', return_value=False):
+            Image.new('RGB', (1920, 1080)).save(Path(folder)/'_runtime_screenshot.png')
             for name in ('menu2.png', 'menu3.png', 'menu4.png'):
                 runner._probe_neighbors(name)
         self.assertFalse(any(call.args[1] == 'menu2.png' for call in runner.matcher.find.call_args_list))

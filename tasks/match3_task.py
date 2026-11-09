@@ -149,18 +149,34 @@ class Match3Session:
             deadline = time.monotonic()+timeout
             attempts = confirmed = 0
             failed_moves = {}
-            while time.monotonic() < deadline and not runner.stop_event.is_set():
+            rechecking_moves = False
+            while (rechecking_moves or time.monotonic() < deadline) and not runner.stop_event.is_set():
                 if self.result or self.remaining == 0:
                     break
                 if frame is None:
-                    frame = self.stable_board(timeout=min(18, max(.1, deadline-time.monotonic())))
+                    read_timeout = 18 if rechecking_moves else min(18, max(.1, deadline-time.monotonic()))
+                    frame = self.stable_board(timeout=read_timeout)
                     if frame is None:
                         self.status()
                         runner._sleep_interruptible(.2)
                         continue
                 moves = ranked_moves(frame.tiles)
                 if not moves:
-                    return self.finish('已知格中暂时没有可确认的合法交换，保留当前画面；未知格不会被盲目拖动。')
+                    if runner.dry_run:
+                        return self.finish('预演完成，已知格中暂时没有可确认的合法交换。', completed=True)
+                    if not rechecking_moves:
+                        runner.log('    已知格中暂时没有可确认的合法交换，重新识别当前棋盘并继续计算。')
+                    rechecking_moves = True
+                    failed_moves.clear()
+                    frame = None
+                    self.status()
+                    runner._sleep_interruptible(.35)
+                    continue
+                if rechecking_moves:
+                    rechecking_moves = False
+                    expected_remaining = self.remaining
+                    deadline = time.monotonic()+timeout
+                    runner.log('    重新识别后找到合法交换，继续当前关卡。')
                 move = next((item for item in moves if failed_moves.get((item.start, item.end), 0) < 2), None)
                 if move is None:
                     failed_moves.clear()

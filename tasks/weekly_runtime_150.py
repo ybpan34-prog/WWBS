@@ -139,9 +139,9 @@ class WeeklyRuntime(OriginalRunner):
                     position = names.index(anchor)
                     backward = [name for name in names[max(0, position-2):position] if name in matches]
                     candidates = [name for name in names[position:position+3] if name in matches]
-                    can_resume = candidates and (candidates[0] == anchor
-                        or (anchor == 'menu2.png' and candidates[0] == 'menu3.png'))
-                    if can_resume and not backward and candidates[0] != 'menu1.png':
+                    resume_names = ('menu3.png', 'menu4.png') if anchor == 'menu2.png' else (anchor,)
+                    if (candidates and candidates[0] in resume_names and candidates[0] != 'menu1.png'
+                            and (not backward or anchor == 'menu2.png')):
                         self._resume_cycle_template = candidates[0]
                         self.log(f'    从失败位置{anchor}复核到{candidates[0]}，按当前画面接续，不重复寻找menu1。')
                         return self._run_image_cycle(original_task().steps[1])
@@ -336,6 +336,7 @@ class WeeklyRuntime(OriginalRunner):
 
     def _probe_neighbors(self, anchor):
         from tasks.weekly_board import board_ready
+        from tasks.weekly_restart import restart_match, skip_match
         # menu2 is read only once at its actual step, never in neighbor sweeps.
         names = [name for name in weekly_neighbor_names(anchor) if name != 'menu2.png']
         stable = None
@@ -345,11 +346,17 @@ class WeeklyRuntime(OriginalRunner):
             if self.stop_event.is_set():
                 raise RuntimeError('周常已停止。')
             self._capture_for_matching(path)
-            board_frames += int(board_ready(path))
+            board = board_ready(path)
+            board_frames += int(board)
             current = {}
             for name in names:
                 try:
-                    current[name] = self.matcher.find(path, name, .82 if name == anchor else .88, self._fast_scales())
+                    if anchor == 'menu2.png' and name == 'menu4.png':
+                        current[name] = skip_match(path)
+                    elif anchor == 'menu2.png' and name == 'menu99.png':
+                        current[name] = restart_match(path)
+                    elif anchor != 'menu2.png' or name != 'menu3.png' or board:
+                        current[name] = self.matcher.find(path, name, .82 if name == anchor else .88, self._fast_scales())
                 except RuntimeError:
                     pass
             stable = current if stable is None else {name: match for name, match in current.items() if name in stable}
@@ -406,6 +413,8 @@ class WeeklyRuntime(OriginalRunner):
                 except WeeklyRoundRestarted as restarted:
                     index = templates.index(restarted.template)
                     previous = None
+                    self._menu2_checked = False
+                    self._completed_templates.clear()
                     self.log(f'    已确认跨轮重开，当前入口为{restarted.template}，从实际入口接续。')
                     continue
                 except WeeklyAdvanced as advanced:
@@ -434,12 +443,32 @@ class WeeklyRuntime(OriginalRunner):
                 return
             cycle += 1
 
+    def _recover_menu2(self, error):
+        self.log('    menu2单次识别未命中，等待过渡并复核后续页面。')
+        for _ in range(3):
+            matches = self._probe_neighbors('menu2.png')
+            if self.stop_event.is_set():
+                raise RuntimeError('周常已停止。')
+            if 'menu99.png' in matches:
+                raise WeeklyRoundRestarted(self._restart_and_confirm())
+            if 'menu3.png' in matches:
+                self._completed_templates.add('menu2.png')
+                raise WeeklyAdvanced('menu3.png')
+            if 'menu4.png' in matches:
+                self._completed_templates.update(('menu2.png', 'menu3.png'))
+                raise WeeklyAdvanced('menu4.png')
+            self._sleep_interruptible(.35)
+        if self.stop_event.is_set():
+            raise RuntimeError('周常已停止。')
+        self.stop_event.set()
+        raise RuntimeError('menu2单次识别未命中，等待后仍未确认棋盘、选卡或上一轮结算，已停止。') from error
+
     def _wait_with_neighbors(self, step, previous_step):
         names = ['menu1.png']+original_task().steps[1].templates
         index = names.index(step.template) if step.template in names else None
         if index is None or self.dry_run:
             return super()._wait_for_cycle_template(step, previous_step)
-        limit = 1 if step.template == 'menu2.png' else 5
+        limit = 5
         for misses in range(1, limit+1):
             if self.stop_event.is_set():
                 raise RuntimeError('周常已停止。')
@@ -447,14 +476,12 @@ class WeeklyRuntime(OriginalRunner):
                 return self._find_image(step)
             except RuntimeError as error:
                 self._failed_template = step.template
+                if step.template == 'menu2.png':
+                    self._recover_menu2(error)
                 matches = self._probe_neighbors(step.template)
-                if step.template in ('menu2.png', 'menu3.png', 'menu4.png') and 'menu99.png' in matches:
+                if step.template in ('menu3.png', 'menu4.png') and 'menu99.png' in matches:
                     self.log('    跨轮复核发现menu99，仍在上一轮结算，先完成重新挑战及画面变化复核。')
                     raise WeeklyRoundRestarted(self._restart_and_confirm())
-                if step.template == 'menu2.png' and 'menu4.png' in matches and 'menu3.png' not in matches:
-                    self._completed_templates.update(('menu2.png', 'menu3.png'))
-                    self.log('    menu2单次识别后，已确认实际入口为menu4，接续当前选卡页面。')
-                    raise WeeklyAdvanced('menu4.png')
                 resolved = self._resolved_checkpoint(step.template, matches)
                 if resolved is not None:
                     raise WeeklyAdvanced(resolved)
@@ -465,8 +492,6 @@ class WeeklyRuntime(OriginalRunner):
                 forward = [name for name in names[index+1:index+3] if name in matches]
                 next_name = names[index+1] if index+1 < len(names) else None
                 if next_name in forward and not backward:
-                    if step.template == 'menu2.png' and next_name == 'menu3.png':
-                        self._completed_templates.add(step.template)
                     if step.template in self._completed_templates:
                         raise WeeklyAdvanced(next_name)
                 if backward and forward:
@@ -541,6 +566,9 @@ class WeeklyRuntime(OriginalRunner):
             super()._capture_for_matching(target)
             if self._cap_result(target):
                 raise WeeklyCapReached()
+        if not self.dry_run:
+            from tasks.weekly_stage import crystal_dismiss_point
+            self._dismiss_weekly_overlay(target, crystal_dismiss_point, '频率晶体详情', '点击卡片外空白处')
         self._dismiss_stage_goal(target)
         if self._expected_template is None:
             return
@@ -581,7 +609,10 @@ class WeeklyRuntime(OriginalRunner):
 
     def _dismiss_stage_goal(self, target):
         from tasks.weekly_stage import stage_goal_confirm
-        point = stage_goal_confirm(target)
+        self._dismiss_weekly_overlay(target, stage_goal_confirm, '乐园阶段目标弹窗', '点击确认')
+
+    def _dismiss_weekly_overlay(self, target, detect, label, action):
+        point = detect(target)
         if point is None:
             return
         # Confirm another fresh frame before clicking; stage announcements may
@@ -590,19 +621,20 @@ class WeeklyRuntime(OriginalRunner):
         if self.stop_event.is_set():
             raise RuntimeError('周常已停止。')
         super()._capture_for_matching(target)
-        point = stage_goal_confirm(target)
-        self.log('    已复核乐园阶段目标弹窗，只点击确认，关闭后继续周常。')
+        point = detect(target)
         attempts, absent = 0, 0
         deadline, next_click = time.monotonic()+6, 0.
         while not self.stop_event.is_set() and time.monotonic() < deadline:
             if point is None:
                 absent += 1
                 if absent >= 2:
-                    self.log('    已用连续截图确认阶段目标弹窗关闭，继续原流程。')
+                    self.log(f'    已用连续截图确认{label}关闭，继续原流程。')
                     return
             else:
                 absent = 0
                 if attempts < 3 and time.monotonic() >= next_click:
+                    if not attempts:
+                        self.log(f'    已复核{label}，{action}。')
                     self.controller.tap(*point)
                     attempts += 1
                     next_click = time.monotonic()+1
@@ -610,9 +642,9 @@ class WeeklyRuntime(OriginalRunner):
             if self.stop_event.is_set():
                 break
             super()._capture_for_matching(target)
-            point = stage_goal_confirm(target)
+            point = detect(target)
         self.stop_event.set()
-        raise RuntimeError('阶段目标弹窗确认后仍未复核关闭，已停止，保留当前页面。')
+        raise RuntimeError(f'{label}操作后仍未复核关闭，已停止，保留当前页面。')
 
 
 class ShopNotClosed(RuntimeError):

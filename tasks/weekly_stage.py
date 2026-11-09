@@ -24,3 +24,23 @@ def stage_goal_confirm(path):
         return button.center if orange.mean() > .5 else None
     except (OSError, RuntimeError):
         return None
+
+
+def crystal_dismiss_point(path):
+    matcher = TemplateMatcher(Path(__file__).resolve().parents[1]/'templates/weekly150')
+    try:
+        with Image.open(path) as image:
+            width, height = image.size
+    except OSError:
+        return None
+    for name, box in (
+        ('crystal_detail_title.png', (.40, .24, .51, .32)),
+        ('crystal_detail_icon.png', (.40, .30, .51, .45)),
+    ):
+        region = tuple(round(value * (width if i % 2 == 0 else height))
+                       for i, value in enumerate(box))
+        try:
+            matcher.find_fast(path, name, .88, scale=width/1920, region=region)
+        except (OSError, RuntimeError):
+            return None
+    return round(width*.77), round(height*.76)

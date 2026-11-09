@@ -894,23 +894,24 @@ class OtherTask:
             # Require the boss's two aligned HUD tracks, not a floating mob bar.
             return boss_bar_present(image)
 
-    def _select_daily_slot_after_loading(self, screenshot: Path, slot: int = 1) -> None:
-        """Wait for the battle HUD, then ensure the first configured character is active."""
+    def _select_daily_slot_after_loading(self, screenshot: Path, slot: int = 1) -> bool:
+        """Return whether the first role was already verified on the battle frame."""
         deadline = time.monotonic() + 15.0
         hud_ready = False
         while time.monotonic() < deadline:
             if self.stop_event.is_set():
-                return
+                return False
             self._capture_for_matching(screenshot)
-            if self._daily_battle_end_present(screenshot):
+            combat_visible = self._daily_combat_visible(screenshot)
+            if self._daily_battle_end_present(screenshot, combat_visible=combat_visible):
                 if getattr(self, '_daily_restart_pending', False):
                     self._sleep_interruptible(.15)
                     continue
                 self._rotation_battle_finished = True
                 self._combat_input_cancel.set()
                 self.log('    开局检查已在奖励／结算阶段，不再切人或攻击。')
-                return
-            if self._daily_combat_visible(screenshot):
+                return False
+            if combat_visible:
                 self._daily_restart_pending = False
                 hud_ready = True
                 break
@@ -918,10 +919,17 @@ class OtherTask:
         if not hud_ready:
             raise RuntimeError('未确认无音区战斗界面，已停止；不会在未知页面强制切人。')
         if self.stop_event.is_set():
-            return
+            return False
+        read_slot = getattr(type(self.controller), 'active_character_slot', None)
+        if callable(read_slot) and self.controller.active_character_slot(screenshot) == slot:
+            self.log(f'    战斗界面已加载，首发角色已是{SLOT_NAMES[slot]}，立即开始排轴。')
+            return True
+        if self.stop_event.is_set():
+            return False
         self.controller.press_key(str(slot), 65)
         self._sleep_interruptible(0.08)
         self.log(f"    战斗界面已加载，按 {slot} 确保当前角色为{SLOT_NAMES[slot]}。")
+        return False
 
     def _run_daily_battle(
         self,
@@ -944,7 +952,7 @@ class OtherTask:
         task_seen = False
         screenshot = APP_DIR / "_runtime_screenshot.png"
         try:
-            self._select_daily_slot_after_loading(screenshot, first_slot)
+            first_slot_ready = self._select_daily_slot_after_loading(screenshot, first_slot) is True
         except Exception:
             self._rotation_end_check = None
             self.controller.release_keys()
@@ -981,7 +989,7 @@ class OtherTask:
                     attack_enabled.clear()
                     self.controller.release_keys()
 
-            initial = inspect()
+            initial = (False, True) if first_slot_ready else inspect()
             if initial[0]:
                 stop_on_end(initial)
                 self.log('    已识别奖励／挑战成功结算，停止战斗并进入收尾。')
@@ -989,6 +997,8 @@ class OtherTask:
             rotation = RotationClock(modules, time.monotonic(), self.MAIN_ATTACK_CLICK_INTERVAL,
                                      self.rotation_times.get("daily"), background_idle=True,
                                      slot_order=self.rotation_orders.get("daily"))
+            if first_slot_ready:
+                rotation.needs_select = False
             monitor = BattleMonitor(inspect, initial, self.stop_event, on_result=stop_on_end)
             while time.monotonic() < deadline:
                 if self.stop_event.is_set():

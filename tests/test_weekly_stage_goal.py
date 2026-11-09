@@ -5,14 +5,46 @@ from unittest.mock import Mock, patch
 
 from PIL import Image
 
-from tasks.weekly_stage import stage_goal_confirm
+from tasks.weekly_stage import crystal_dismiss_point, stage_goal_confirm
 from tasks.weekly_runtime_150 import WeeklyRuntime
 
 
 FIXTURE = Path(__file__).parent/'fixtures/weekly-stage-goal-reported.png'
+CRYSTAL = FIXTURE.with_name('weekly-crystal-detail-reported.png')
 
 
 class StageGoalTests(unittest.TestCase):
+    def test_crystal_detail_requires_title_and_icon_at_supported_scales(self):
+        with tempfile.TemporaryDirectory() as folder, Image.open(CRYSTAL) as image:
+            path = Path(folder)/'screen.png'
+            for width in (1280, 1600, 1920, 2560):
+                height = round(width*9/16)
+                image.resize((width, height), Image.Resampling.LANCZOS).save(path)
+                self.assertEqual(crystal_dismiss_point(path), (round(width*.77), round(height*.76)))
+            for box in ((800, 280, 917, 313), (825, 350, 897, 440)):
+                changed = image.copy()
+                changed.paste('black', box)
+                changed.save(path)
+                self.assertIsNone(crystal_dismiss_point(path))
+        self.assertIsNone(crystal_dismiss_point(FIXTURE))
+
+    def test_crystal_detail_closes_then_resumes_the_original_capture(self):
+        runner = WeeklyRuntime(Mock(), Mock(), dry_run=False)
+        runner._sleep_interruptible = Mock()
+        runner._cap_result = Mock(return_value=False)
+        runner._shop_close = Mock(return_value=None)
+        runner._expected_template = 'menu96.png'
+        with tempfile.TemporaryDirectory() as folder, Image.open(CRYSTAL) as image:
+            path = Path(folder)/'screen.png'
+            blank = Image.new('RGB', image.size)
+            runner.controller.screencap.side_effect = lambda target, **_: (
+                blank if runner.controller.tap.called else image).save(target)
+            runner._capture_for_matching(path)
+            runner.controller.tap.assert_called_once_with(1478, 821)
+            self.assertEqual(runner.controller.screencap.call_count, 4)
+            self.assertEqual(runner._expected_template, 'menu96.png')
+            self.assertFalse(runner.stop_event.is_set())
+
     def test_reported_dialog_and_scaled_resolutions_find_only_confirm(self):
         with tempfile.TemporaryDirectory() as folder, Image.open(FIXTURE) as image:
             for width in (1280, 1600, 1920, 2560):

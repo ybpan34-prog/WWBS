@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 
 from PIL import Image
 
+from combat_rotation import new_module
 from tasks.daily_settlement import DailySettlementVision
 from tasks.runner import TaskRunner
 
@@ -74,6 +75,22 @@ class DailySettlementTests(unittest.TestCase):
             runner.controller.middle_click.assert_not_called()
             runner.controller.press_key.assert_not_called()
             self.assertIsNone(runner._rotation_end_check)
+
+    def test_confirmed_first_role_attacks_from_one_battle_capture(self):
+        runner = self.runner(None)
+        runner.rotation_presets['daily'] = [new_module('attack_count')]
+        runner.controller.active_character_slot = Mock(return_value=1)
+        runner.controller.left_click.side_effect = runner.stop_event.set
+        runner._capture_for_matching = Mock()
+        runner._daily_combat_visible = Mock(return_value=True)
+        runner._read_daily_settlement = Mock(return_value=None)
+        runner._run_daily_battle(Mock(timeout=180), 'E', 'R', 1)
+        runner._capture_for_matching.assert_called_once()
+        runner._daily_combat_visible.assert_called_once()
+        runner.controller.active_character_slot.assert_called_once()
+        runner.controller.press_key.assert_not_called()
+        runner.controller.middle_click.assert_called_once()
+        runner.controller.left_click.assert_called_once()
 
     def test_reward_collection_on_settlement_does_not_move_press_f_or_reenter_combat(self):
         with tempfile.TemporaryDirectory() as directory, patch('tasks.other.APP_DIR', Path(directory)):

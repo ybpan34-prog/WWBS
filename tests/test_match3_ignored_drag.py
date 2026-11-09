@@ -3,7 +3,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import Mock, patch
 
-from tasks.match3_solver import Tile, ranked_moves
+from tasks.match3_solver import Tile, UNKNOWN, ranked_moves
 from tasks.match3_task import Match3Session
 from tasks.match3_vision import read_board
 from tasks.runner import TaskRunner
@@ -28,6 +28,62 @@ class IgnoredDragTests(unittest.TestCase):
         tiles = [list(row) for row in frame.tiles]
         tiles[0][col] = Tile((tiles[0][col].color+1) % 5)
         return replace(frame, tiles=tuple(tuple(row) for row in tiles))
+
+    @staticmethod
+    def partial_without_moves(frame):
+        tiles = tuple(tuple(UNKNOWN if r*8+c < 21 else Tile((r+c) % 5)
+                            for c in range(8)) for r in range(7))
+        return replace(frame, tiles=tiles)
+
+    def test_no_confirmed_swap_restarts_recognition_until_a_legal_swap_returns(self):
+        session, runner, now, frame = self.session()
+        partial = self.partial_without_moves(frame)
+        self.assertFalse(ranked_moves(partial.tiles))
+        session.stable_board = Mock(side_effect=[partial, partial, partial, frame])
+        runner.controller.swipe.side_effect = lambda *_args: runner.stop_event.set()
+        with patch('tasks.match3_task.time.monotonic', side_effect=lambda: now[0]), \
+                patch('tasks.match3_task.read_board', return_value=frame):
+            session.run(30)
+        self.assertEqual(session.stable_board.call_count, 4)
+        runner.controller.swipe.assert_called_once()
+        runner.controller.tap.assert_not_called()
+
+    def test_no_swap_recovery_keeps_reading_past_the_normal_deadline_until_stop(self):
+        session, runner, now, frame = self.session()
+        partial = self.partial_without_moves(frame)
+
+        def read(**_kwargs):
+            now[0] += 20
+            if session.stable_board.call_count == 5:
+                runner.stop_event.set()
+                return None
+            return partial
+
+        session.stable_board = Mock(side_effect=read)
+        with patch('tasks.match3_task.time.monotonic', side_effect=lambda: now[0]):
+            session.run(30)
+        self.assertEqual(session.stable_board.call_count, 5)
+        self.assertGreater(now[0], 50)
+        runner.controller.swipe.assert_not_called()
+        runner.controller.tap.assert_not_called()
+
+    def test_no_swap_recovery_stops_at_confirmed_success(self):
+        session, runner, now, frame = self.session()
+        partial = self.partial_without_moves(frame)
+
+        def read(**_kwargs):
+            if session.stable_board.call_count < 3:
+                return partial
+            session.result = 'success'
+            return None
+
+        session.stable_board = Mock(side_effect=read)
+        with patch('tasks.match3_task.time.monotonic', side_effect=lambda: now[0]):
+            session.run(30)
+        self.assertEqual(session.stable_board.call_count, 3)
+        runner.controller.swipe.assert_not_called()
+        runner.controller.tap.assert_not_called()
+        self.assertIn('挑战成功', runner.warning.call_args.args[0])
 
     def test_missed_drag_retries_then_continues_to_success(self):
         session, runner, now, frame = self.session()

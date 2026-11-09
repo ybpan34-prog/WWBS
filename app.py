@@ -109,8 +109,8 @@ DEFAULT_CONFIG = USER_SETTINGS_DIR / "weekly_tasks.json"
 TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
-APP_VERSION = "1.6.0beta"
-APP_BUILD = 6
+APP_VERSION = "1.6.1"
+APP_BUILD = 1
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -204,6 +204,8 @@ UPDATE_NOTICE = """v1.3.5 更新内容
 2. 请将游戏窗口调整为 1920*1080p 或等比例缩放。
 3. 请先完成周本的新手教程，并将速度调整至 MAX。"""
 UPDATE_HISTORY = [
+    ('v1.6.1', 'WWBS 1.6.1 正式版\n周常误打开频率晶体详情时，点击卡片外空白处，确认关闭后接续原步骤。menu2 单次识别未命中后，继续复核棋盘与选卡页面。\n一键日常进场已确认首发角色时，直接开始排轴，减少重复截图。'),
+    ('v1.6.0', 'WWBS 1.6.0 正式版\n日常奖励按宝箱箭头自适应转向，连续两帧确认无箭头后才找光球，搜索上限180秒。\n无音消除暂时找不到合法交换时持续重读当前棋盘，找到后继续，识别到结算或手动停止时结束。\n幻梦游园重开时等待短暂黑屏，连续确认进入下一轮后再计轮。设置中可开启周常测试模式。'),
     ('v1.6.0beta', 'WWBS 1.6.0beta\n合入日常光球及标志箭头导航、幻梦游园顺序复核与精确点击、分辨率提醒、报错截图和窗口恢复重绘。\n日常先按奖励标志箭头转向，连续确认无箭头后才寻找光球。搜索上限由75秒延长到120秒。\n测试版可从右上角检查后续测试版及正式版。'),
     ('v1.5.9', 'WWBS 1.5.9 本地测试包（构建8）\nmenu2每轮仅识别一次，后续邻近复核不再反复寻找menu2。\n主窗口最小化恢复后重新绘制整窗与子控件，保留当前页面、预设和滚动位置。\n日常按奖励标志箭头方向转动视角；光球达到设置置信度时优先直接靠近光球，低于阈值才使用标志导航。'),
     ('v1.5.9', 'WWBS 1.5.9 本地测试包（构建7）\nmenu99只在底部识别重新挑战，并独立复核按钮文字；点击后必须确认截图变化、结算按钮消失及连续两张下一轮页面，才计为完成。\nmenu4增加文字校验，跨轮复核同时检查menu99；第二轮按已确认的实际入口继续，不强制重复已跳过的起始页面。\n点击无效重新定位补点，最多3次，未确认成功不开始下一轮。'),
