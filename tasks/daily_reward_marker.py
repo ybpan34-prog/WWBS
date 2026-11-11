@@ -47,11 +47,13 @@ def _arrow_templates():
     directory = Path(__file__).resolve().parents[1]/'templates/daily'
     left = _arrow_mask(directory/'reward_arrow_left.png')
     left_low = _arrow_mask(directory/'reward_arrow_left_low.png')
+    left_tilted = _arrow_mask(directory/'reward_arrow_left_tilted.png')
     down_right = _arrow_mask(directory/'reward_arrow_down_right.png')
     return {
-        'left': ((left, 1600), (left_low, 1920)),
+        'left': ((left, 1600), (left_low, 1920), (left_tilted, 1920)),
         'right': ((left.transpose(Image.Transpose.ROTATE_180), 1600),
-                  (left_low.transpose(Image.Transpose.FLIP_LEFT_RIGHT), 1920)),
+                  (left_low.transpose(Image.Transpose.FLIP_LEFT_RIGHT), 1920),
+                  (left_tilted.transpose(Image.Transpose.FLIP_LEFT_RIGHT), 1920)),
         'up': ((left.transpose(Image.Transpose.ROTATE_270), 1600),),
         'down': ((left.transpose(Image.Transpose.ROTATE_90), 1600),),
         'down_right': ((down_right, 1600),),

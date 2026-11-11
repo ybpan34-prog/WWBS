@@ -109,7 +109,7 @@ DEFAULT_CONFIG = USER_SETTINGS_DIR / "weekly_tasks.json"
 TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
-APP_VERSION = "1.6.1"
+APP_VERSION = "1.6.2"
 APP_BUILD = 1
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
@@ -204,6 +204,7 @@ UPDATE_NOTICE = """v1.3.5 更新内容
 2. 请将游戏窗口调整为 1920*1080p 或等比例缩放。
 3. 请先完成周本的新手教程，并将速度调整至 MAX。"""
 UPDATE_HISTORY = [
+    ('v1.6.2', 'WWBS 1.6.2 正式版\n日常奖励标志只用于转向。每识别三次光球重新复核箭头，纯向下的箭头触发水平左转。\n进场先用当前角色开打。排轴发送切人键后直接继续执行。'),
     ('v1.6.1', 'WWBS 1.6.1 正式版\n周常误打开频率晶体详情时，点击卡片外空白处，确认关闭后接续原步骤。menu2 单次识别未命中后，继续复核棋盘与选卡页面。\n一键日常进场已确认首发角色时，直接开始排轴，减少重复截图。'),
     ('v1.6.0', 'WWBS 1.6.0 正式版\n日常奖励按宝箱箭头自适应转向，连续两帧确认无箭头后才找光球，搜索上限180秒。\n无音消除暂时找不到合法交换时持续重读当前棋盘，找到后继续，识别到结算或手动停止时结束。\n幻梦游园重开时等待短暂黑屏，连续确认进入下一轮后再计轮。设置中可开启周常测试模式。'),
     ('v1.6.0beta', 'WWBS 1.6.0beta\n合入日常光球及标志箭头导航、幻梦游园顺序复核与精确点击、分辨率提醒、报错截图和窗口恢复重绘。\n日常先按奖励标志箭头转向，连续确认无箭头后才寻找光球。搜索上限由75秒延长到120秒。\n测试版可从右上角检查后续测试版及正式版。'),

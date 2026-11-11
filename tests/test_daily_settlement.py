@@ -92,6 +92,25 @@ class DailySettlementTests(unittest.TestCase):
         runner.controller.middle_click.assert_called_once()
         runner.controller.left_click.assert_called_once()
 
+    def test_daily_opens_with_attack_before_unconfirmed_switch_then_casts(self):
+        runner = self.runner(None)
+        runner.rotation_presets['daily'] = [new_module('skill', 2)]
+        runner.controller.active_character_slot = Mock(return_value=1)
+        runner.controller.press_binding = Mock()
+        runner.controller.press_binding.side_effect = lambda *_: runner.stop_event.set()
+        runner._capture_for_matching = Mock()
+        runner._daily_combat_visible = Mock(return_value=True)
+        runner._read_daily_settlement = Mock(return_value=None)
+        order = Mock()
+        order.attach_mock(runner.controller.left_click, 'attack')
+        order.attach_mock(runner.controller.press_key, 'switch')
+        order.attach_mock(runner.controller.press_binding, 'skill')
+        runner._run_daily_battle(Mock(timeout=180), 'E', 'R', 1)
+        self.assertEqual([event[0] for event in order.mock_calls], ['attack', 'switch', 'skill'])
+        runner.controller.press_key.assert_called_once_with('2', 65)
+        runner.controller.active_character_slot.assert_called_once()
+        runner._capture_for_matching.assert_called_once()
+
     def test_reward_collection_on_settlement_does_not_move_press_f_or_reenter_combat(self):
         with tempfile.TemporaryDirectory() as directory, patch('tasks.other.APP_DIR', Path(directory)):
             runner = self.runner(directory)
@@ -102,7 +121,7 @@ class DailySettlementTests(unittest.TestCase):
 
     def test_background_ending_callback_stops_input_before_main_loop_polls(self):
         runner = self.runner(None)
-        runner._select_daily_slot_after_loading = Mock()
+        runner._select_daily_slot_after_loading = Mock(return_value=True)
         runner._capture_for_matching = Mock()
         runner._read_daily_settlement = Mock(return_value=None)
         runner._daily_reward_stage_present = Mock(return_value=False)

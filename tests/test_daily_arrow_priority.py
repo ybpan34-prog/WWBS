@@ -14,6 +14,15 @@ ROOT = Path(__file__).parents[1]
 
 
 class DailyArrowTests(unittest.TestCase):
+    def test_reported_tilted_arrow_is_recognized_as_left(self):
+        with tempfile.TemporaryDirectory() as folder, Image.open(
+                ROOT/'tests/fixtures/daily-marker-left-tilted-reported.png') as sample:
+            screen = Image.new('RGB', (1920, 1080), (40, 45, 60))
+            screen.paste(sample, (389, 628))
+            path = Path(folder)/'screen.png'
+            screen.save(path)
+            self.assertEqual(reward_marker_direction(path, 445, 659), 'left')
+
     def test_reported_left_edge_marker_and_arrow_are_detected(self):
         with tempfile.TemporaryDirectory() as folder, Image.open(ROOT/'tests/fixtures/daily-marker-left-arrow-reported.png') as sample:
             image = Image.new('RGB', (1600, 900), (40, 45, 60))
@@ -130,7 +139,7 @@ class DailyArrowTests(unittest.TestCase):
             runner._daily_reward_orb_location.assert_called_once()
 
     def test_arrow_blocks_orb_detection_even_if_orb_would_be_above_threshold(self):
-        for direction, turn in (('left', (-440, 0)), ('right', (440, 0)), ('up', (0, -83)), ('down', (0, 83))):
+        for direction, turn in (('left', (-440, 0)), ('right', (440, 0)), ('up', (0, -83)), ('down', (-440, 0))):
             with tempfile.TemporaryDirectory() as folder, patch('tasks.other.APP_DIR', Path(folder)):
                 runner = self.runner(folder)
                 runner._daily_reward_orb_location = Mock(return_value=(1400, 350, .99))
@@ -139,6 +148,17 @@ class DailyArrowTests(unittest.TestCase):
                 runner.controller.move_mouse_relative.assert_called_once_with(*turn)
                 runner._daily_reward_orb_location.assert_not_called()
                 runner.controller.press_keys.assert_not_called()
+
+    def test_three_orb_lookups_recheck_arrow_before_the_fourth(self):
+        with tempfile.TemporaryDirectory() as folder, patch('tasks.other.APP_DIR', Path(folder)):
+            runner = self.runner(folder)
+            runner._daily_reward_marker_direction.side_effect = [None, None, 'down']
+            runner._find_daily_reward_prompt.side_effect = [None]*5+[Mock()]
+            runner._daily_reward_orb_location = Mock(return_value=(960, 350, .99))
+            self.assertTrue(runner._collect_daily_reward(1))
+            self.assertEqual(runner._daily_reward_orb_location.call_count, 3)
+            self.assertEqual(runner.controller.press_keys.call_count, 3)
+            runner.controller.move_mouse_relative.assert_called_once_with(-440, 0)
 
     def test_arrow_return_resets_the_two_frame_confirmation(self):
         with tempfile.TemporaryDirectory() as folder, patch('tasks.other.APP_DIR', Path(folder)):

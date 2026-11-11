@@ -84,7 +84,7 @@ class OrbDirectionTests(unittest.TestCase):
                 runner.controller.press_keys.assert_called_once_with(('W',),500)
                 runner.controller.move_mouse_relative.assert_not_called()
 
-    def test_twelve_failed_turns_then_spiral_and_prompt_stops_movement(self):
+    def test_missing_marker_only_rotates_even_after_twelve_searches(self):
         with tempfile.TemporaryDirectory() as directory, patch('tasks.other.APP_DIR', Path(directory)):
             runner = self.runner(directory, [(None, None, .3)]*14, [None]*13+[Mock()])
             self.assertTrue(runner._collect_daily_reward(1))
@@ -92,8 +92,8 @@ class OrbDirectionTests(unittest.TestCase):
             self.assertEqual([call.args for call in turns[:12]],
                              [(step, 0) for step in (225, 300, 375, 450, 525, 600, 600, 600, 600, 600, 600, 600)])
             self.assertEqual(len(turns), 13)
-            self.assertEqual(turns[-1].args, (-84, 0))
-            runner.controller.press_keys.assert_called_once_with(('W',), 180)
+            self.assertEqual(turns[-1].args, (600, 0))
+            runner.controller.press_keys.assert_not_called()
             runner.controller.press_key.assert_called_once_with('F', 100)
 
     def test_selected_confidence_rejects_lower_orb_and_accepts_above_threshold(self):
@@ -102,16 +102,16 @@ class OrbDirectionTests(unittest.TestCase):
             self.show_arrow_free_marker(runner, x=460)
             runner.daily_orb_confidence = .9
             self.assertTrue(runner._collect_daily_reward(1))
-            runner.controller.move_mouse_relative.assert_called_once_with(-200, 0)
-            self.assertEqual(runner.controller.press_keys.call_count, 2)
+            runner.controller.move_mouse_relative.assert_not_called()
+            runner.controller.press_keys.assert_called_once_with(('W',), 500)
 
-    def test_combat_return_during_spiral_stops_without_claiming_or_moving_again(self):
+    def test_combat_return_during_camera_search_stops_without_claiming(self):
         with tempfile.TemporaryDirectory() as directory, patch('tasks.other.APP_DIR', Path(directory)):
             runner = self.runner(directory, [(None, None, .3)]*14, [None]*13+[Mock()])
             runner._daily_combat_visible = Mock(side_effect=[False]*13+[True])
             self.assertFalse(runner._collect_daily_reward(1))
             self.assertEqual(runner.controller.move_mouse_relative.call_count, 13)
-            runner.controller.press_keys.assert_called_once_with(('W',), 180)
+            runner.controller.press_keys.assert_not_called()
             runner.controller.press_key.assert_not_called()
             runner._claim_daily_double_reward.assert_not_called()
 

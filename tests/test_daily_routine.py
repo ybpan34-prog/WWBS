@@ -222,7 +222,7 @@ class DailyRoutineTests(unittest.TestCase):
         runner._select_daily_slot_after_loading(Path("screen.png"))
 
         self.assertEqual(runner._capture_for_matching.call_count, 2)
-        controller.press_key.assert_called_once_with("1", 65)
+        controller.press_key.assert_not_called()
 
     def test_yellow_claim_rows_ignore_black_go_buttons(self):
         image = np.full((1080, 1920, 3), 235, dtype=np.uint8)

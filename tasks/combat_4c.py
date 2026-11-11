@@ -388,7 +388,14 @@ class Combat4CTask:
         if idle_worker is not None:
             idle_worker.pause()
         attack_enabled.clear()
-        if not self._select_rotation_slot(item.get("slot", 1), verify=kind == "select_slot"):
+        slot = item.get("slot", 1)
+        if daily:
+            if self.stop_event.is_set() or self._rotation_battle_finished:
+                return False
+            if self._rotation_slot != slot:
+                self.controller.press_key(str(slot), 65)
+                self._rotation_slot = slot
+        elif not self._select_rotation_slot(slot, verify=kind == "select_slot"):
             if self.stop_event.is_set() or self._rotation_battle_finished:
                 return False
             # Skip this visit without pretending that the requested role is active.

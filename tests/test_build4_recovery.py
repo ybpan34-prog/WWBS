@@ -96,6 +96,7 @@ class OrbInteractionTests(unittest.TestCase):
             runner._find_daily_reward_prompt = Mock(side_effect=[Mock(), None, None, Mock()])
             runner._daily_reward_marker_direction = Mock(return_value=None)
             runner._daily_reward_marker_location = Mock(return_value=(960, 300, .95))
+            runner._daily_reward_orb_location = Mock(return_value=(960, 300, .95))
             runner._wait_daily_reward_dialog = Mock(side_effect=['', 'claim'])
             self.assertTrue(runner._collect_daily_reward(1))
         self.assertEqual(runner.controller.press_key.call_args_list[0].args, ('F', 100))

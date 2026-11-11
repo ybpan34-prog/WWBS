@@ -279,7 +279,7 @@ class RotationTests(unittest.TestCase):
         controller.press_key.assert_any_call('2', 65)
         runner.stop_event.clear()
         controller.reset_mock()
-        runner._select_daily_slot_after_loading = Mock()
+        runner._select_daily_slot_after_loading = Mock(return_value=True)
         runner._capture_for_matching = Mock()
         runner._daily_reward_stage_present = Mock(return_value=False)
         runner._daily_battle_task_present = Mock(return_value=True)
@@ -778,9 +778,9 @@ class RotationTests(unittest.TestCase):
                 calls = [0]
                 def inspect(*_args, **_kwargs):
                     calls[0] += 1
-                    if calls[0] == 2:
+                    if calls[0] == (1 if mode == 'daily' else 2):
                         capture_span.append(time.monotonic())
-                        time.sleep(.45)
+                        time.sleep(1.2 if mode == 'daily' else .45)
                         capture_span.append(time.monotonic())
                         runner.stop_event.set()
                     return True

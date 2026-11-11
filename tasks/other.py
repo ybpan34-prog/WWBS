@@ -11,7 +11,6 @@ from boss_rain import boss_bar_present
 from combat_rotation import BattleMonitor, IdleAttackWorker, RotationClock, SLOT_NAMES
 from combat_vision import enemy_health_bar_present
 from image_matcher import TemplateMatcher, _match_single_scale_gray
-from tasks.echo_spiral import echo_spiral_steps
 from tasks.tacet_navigation import selected_tacet_label, tacet_card_list_present
 from tasks.models import Step
 from tasks.daily_settlement import DailySettlementVision
@@ -924,11 +923,6 @@ class OtherTask:
         if callable(read_slot) and self.controller.active_character_slot(screenshot) == slot:
             self.log(f'    战斗界面已加载，首发角色已是{SLOT_NAMES[slot]}，立即开始排轴。')
             return True
-        if self.stop_event.is_set():
-            return False
-        self.controller.press_key(str(slot), 65)
-        self._sleep_interruptible(0.08)
-        self.log(f"    战斗界面已加载，按 {slot} 确保当前角色为{SLOT_NAMES[slot]}。")
         return False
 
     def _run_daily_battle(
@@ -961,6 +955,9 @@ class OtherTask:
             self._rotation_end_check = None
             return
         self.controller.middle_click()
+        if not first_slot_ready and not self.stop_event.is_set():
+            self.controller.left_click()
+            self._rotation_slot = None
         self.log(
             f"    第{cycle_index}轮：中键锁定后，"
             f"按日常预设执行 {len(modules)} 个战斗模块。"
@@ -989,17 +986,12 @@ class OtherTask:
                     attack_enabled.clear()
                     self.controller.release_keys()
 
-            initial = (False, True) if first_slot_ready else inspect()
-            if initial[0]:
-                stop_on_end(initial)
-                self.log('    已识别奖励／挑战成功结算，停止战斗并进入收尾。')
-                return
             rotation = RotationClock(modules, time.monotonic(), self.MAIN_ATTACK_CLICK_INTERVAL,
                                      self.rotation_times.get("daily"), background_idle=True,
                                      slot_order=self.rotation_orders.get("daily"))
             if first_slot_ready:
                 rotation.needs_select = False
-            monitor = BattleMonitor(inspect, initial, self.stop_event, on_result=stop_on_end)
+            monitor = BattleMonitor(inspect, (False, True), self.stop_event, on_result=stop_on_end)
             while time.monotonic() < deadline:
                 if self.stop_event.is_set():
                     return
@@ -1238,9 +1230,9 @@ class OtherTask:
         deadline = time.monotonic() + REWARD_SEARCH_SECONDS
         threshold = getattr(self, 'daily_orb_confidence', .45)
         missed_turns = 0
-        route = None
         interactions = 0
         marker_without_arrow = False
+        orb_checks = None
         camera = RewardCamera()
         self.log(f'    最多搜索{REWARD_SEARCH_SECONDS}秒。先找奖励标志，有箭头就按方向转动；连续确认标志无箭头后，才寻找置信度至少{threshold:.0%}的光球。')
         while not self.stop_event.is_set():
@@ -1296,64 +1288,52 @@ class OtherTask:
                     raise RuntimeError('重新寻找光球并再次按F后，仍未确认进入领取界面；未当作领取成功。')
                 self.log('    按F后未进入领取界面，可能提示闪过未按到；重新寻找一次光球并接近后重试。')
                 deadline = max(deadline, time.monotonic() + 12.0)
-                route, missed_turns = None, 0
+                missed_turns = 0
                 marker_without_arrow = False
+                orb_checks = None
                 camera = RewardCamera()
                 continue
-            target_x, target_y, density = self._daily_reward_marker_location(screenshot)
-            marker_visible = target_x is not None and density >= .82
-            direction = self._daily_reward_marker_direction(screenshot, target_x, target_y) if marker_visible else None
-            if self.stop_event.is_set():
-                break
-            if direction:
-                dx, dy = camera.follow(direction, target_x, target_y, width, height)
-                self.controller.move_mouse_relative(dx, dy)
-                self.log('    奖励标志箭头方向：'+{'left':'左', 'right':'右', 'up':'上', 'down':'下'}[direction]
-                         +f'，转动步长{abs(dx or dy)}；重新截图定位。')
-                route, missed_turns = None, 0
-                marker_without_arrow = False
-                self._sleep_interruptible(.15)
-                continue
-            direct_orb = False
-            if marker_visible:
+            if orb_checks is None or orb_checks == 3:
+                marker_x, marker_y, score = self._daily_reward_marker_location(screenshot)
+                marker_visible = marker_x is not None and score >= .82
+                direction = self._daily_reward_marker_direction(screenshot, marker_x, marker_y) if marker_visible else None
+                if self.stop_event.is_set():
+                    break
+                if direction:
+                    turn = 'left' if direction == 'down' else direction
+                    dx, dy = camera.follow(turn, marker_x, marker_y, width, height)
+                    self.controller.move_mouse_relative(dx, dy)
+                    self.log('    奖励标志箭头：'+{'left':'左', 'right':'右', 'up':'上', 'down':'下（向左转）'}[direction]
+                             +f'，转动步长{abs(dx or dy)}。')
+                    missed_turns = 0
+                    marker_without_arrow = False
+                    orb_checks = None
+                    self._sleep_interruptible(.15)
+                    continue
+                if not marker_visible:
+                    marker_without_arrow = False
+                    orb_checks = None
+                    self.controller.move_mouse_relative(camera.sweep(missed_turns), 0)
+                    missed_turns += 1
+                    self._sleep_interruptible(.22)
+                    continue
                 camera.previous_turn = None
                 missed_turns = 0
-                route = None
-                if not marker_without_arrow:
+                if orb_checks is None and not marker_without_arrow:
                     marker_without_arrow = True
                     self._sleep_interruptible(.15)
                     continue
-                orb_x, _orb_y, confidence = self._daily_reward_orb_location(screenshot)
-                if self.stop_event.is_set():
-                    break
-                if orb_x is not None and confidence >= threshold:
-                    target_x, density = orb_x, confidence
-                    direct_orb = True
-            else:
-                marker_without_arrow = False
-            if route is None and missed_turns >= 12 and not marker_visible:
-                route = echo_spiral_steps()
-                self.log('    视角转动12次仍未找到奖励标志，开始向外螺旋移动搜索。')
-            if route is not None:
-                turn, duration = next(route)
-                self.controller.move_mouse_relative(turn, 0)
-                if self.stop_event.is_set():
-                    break
-                if callable(getattr(type(self.controller), 'press_keys_cancelable', None)):
-                    self.controller.press_keys_cancelable(('W',), duration, self.stop_event)
-                else:
-                    self.controller.press_keys(('W',), duration)
-                self._sleep_interruptible(.06)
-                continue
-            if not marker_visible:
-                self.controller.move_mouse_relative(camera.sweep(missed_turns), 0)
-                missed_turns += 1
-            else:
-                offset = target_x - width * 0.5
+                orb_checks = 0
+            orb_x, _orb_y, confidence = self._daily_reward_orb_location(screenshot)
+            orb_checks += 1
+            if self.stop_event.is_set():
+                break
+            if orb_x is not None and confidence >= threshold:
+                offset = orb_x - width * 0.5
                 if abs(offset) > width * 0.05:
                     self.controller.move_mouse_relative(int(max(-300, min(300, offset * 0.40))), 0)
                 self.controller.press_keys(("W",), 500)
-                self.log(f"    已定位{'光球（置信度' if direct_orb else '奖励标志（相似度'} {density:.2f}），正在靠近领取位置。")
+                self.log(f"    已定位光球（置信度 {confidence:.2f}），正在靠近领取位置。")
             self._sleep_interruptible(0.22)
         if interactions:
             raise RuntimeError('按F后未能确认领取奖励界面，也未重新看到领取提示。')
