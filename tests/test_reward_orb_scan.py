@@ -107,8 +107,8 @@ class OrbDirectionTests(unittest.TestCase):
 
     def test_combat_return_during_camera_search_stops_without_claiming(self):
         with tempfile.TemporaryDirectory() as directory, patch('tasks.other.APP_DIR', Path(directory)):
-            runner = self.runner(directory, [(None, None, .3)]*14, [None]*13+[Mock()])
-            runner._daily_combat_visible = Mock(side_effect=[False]*13+[True])
+            runner = self.runner(directory, [(None, None, .3)]*15, [None]*15)
+            runner._daily_combat_visible = Mock(side_effect=[False]*13+[True]*2)
             self.assertFalse(runner._collect_daily_reward(1))
             self.assertEqual(runner.controller.move_mouse_relative.call_count, 13)
             runner.controller.press_keys.assert_not_called()
@@ -117,7 +117,7 @@ class OrbDirectionTests(unittest.TestCase):
 
     def test_boss_hud_alone_prevents_reward_search_even_without_objective(self):
         with tempfile.TemporaryDirectory() as directory, patch('tasks.other.APP_DIR', Path(directory)):
-            runner = self.runner(directory, [(None, None, .3)], [None])
+            runner = self.runner(directory, [(None, None, .3)], [None, None])
             with patch('tasks.other.boss_bar_present', return_value=True):
                 self.assertFalse(runner._collect_daily_reward(1))
             runner.controller.move_mouse_relative.assert_not_called()

@@ -33,7 +33,7 @@ DEFAULT_VALUES = {
     "approach": (0.09, 0.75), "wait": (1, 0),
     "execute": (1, 0), "skill_count": (1, 0), "ultimate_count": (1, 0),
 }
-COMBAT_MODES = {"combat_4c": "4C 刷取", "daily": "一键日常", "tower": "深塔挑战"}
+COMBAT_MODES = {"combat_4c": "4C 刷取", "daily": "一键日常", "tower": "深塔挑战", "forgery": "凝素领域"}
 SLOT_NAMES = {1: "一号位", 2: "二号位", 3: "三号位"}
 MAX_PRESET_NAME = 64
 PERIODIC_ACTIONS = frozenset({"skill", "ultimate", "echo"})

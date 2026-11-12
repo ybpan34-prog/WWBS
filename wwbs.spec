@@ -1,12 +1,18 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from pathlib import Path
+
+template_data = [
+    (str(path), f'templates/{path.name}' if path.is_dir() else 'templates')
+    for path in sorted(Path('templates').iterdir())
+    if path.name != 'match3'
+]
 
 a = Analysis(
     ['app.py'],
     pathex=[],
     binaries=[],
-    datas=[
-        ('templates', 'templates'),
+    datas=template_data+[
         ('weekly_tasks.json', '.'),
         ('wwbs-version.json', '.'),
         ('wwbs.ico', '.'),

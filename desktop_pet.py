@@ -36,7 +36,6 @@ class DesktopPet:
         ("周常拿满奖励", "run_rewards"),
         ("周常拿满星声", "run_astrite"),
         ("一键日常（2轮双倍）", "run_daily"),
-        ("4C刷取（10次）", "run_4c_10"),
         ("4C刷取（自定义次数）", "run_4c_custom"),
         ("停止当前任务", "stop_task"),
     )

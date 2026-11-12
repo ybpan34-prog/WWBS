@@ -118,7 +118,7 @@ class DailyRoutineTests(unittest.TestCase):
         self.assertEqual(labels["周常拿满奖励"], "run_rewards")
         self.assertEqual(labels["周常拿满星声"], "run_astrite")
         self.assertEqual(labels["一键日常（2轮双倍）"], "run_daily")
-        self.assertEqual(labels["4C刷取（10次）"], "run_4c_10")
+        self.assertNotIn("4C刷取（10次）", labels)
         self.assertEqual(labels["4C刷取（自定义次数）"], "run_4c_custom")
         self.assertNotIn("检测游戏窗口", labels)
         self.assertNotIn("4C刷取（5次）", labels)
@@ -683,7 +683,7 @@ class DailyRoutineTests(unittest.TestCase):
         runner._find_daily_reward_prompt = Mock(return_value=None)
         runner._daily_reward_orb_location = Mock(return_value=(900, 360, 0.82))
         runner._daily_battle_task_present = Mock(return_value=True)
-        runner._sleep_interruptible = Mock(side_effect=lambda _seconds: runner.stop_event.set())
+        runner._sleep_interruptible = Mock()
 
         with tempfile.TemporaryDirectory() as temp_dir:
             screenshot = Path(temp_dir) / "_runtime_screenshot.png"
@@ -691,7 +691,7 @@ class DailyRoutineTests(unittest.TestCase):
             with patch("tasks.other.APP_DIR", Path(temp_dir)):
                 self.assertFalse(runner._collect_daily_reward(1))
 
-        runner._daily_battle_task_present.assert_called_once()
+        self.assertEqual(runner._daily_battle_task_present.call_count, 2)
         controller.press_keys.assert_not_called()
 
     def test_refill_never_selects_star_currency_card(self):

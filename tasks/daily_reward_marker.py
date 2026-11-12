@@ -80,6 +80,7 @@ def reward_marker_direction(screenshot, x, y):
              'down_right': (x+side*.49, y+side*.35, x+side*1.55, y+side*1.55),
              'down_left': (x-side*1.55, y+side*.35, x-side*.49, y+side*1.55)}
     best = (0., None)
+    possible_arrow = False
     for direction, box in boxes.items():
         left, top, right, bottom = (round(value) for value in box)
         left, top = max(0, left), max(0, top)
@@ -101,5 +102,9 @@ def reward_marker_direction(screenshot, x, y):
                     continue
                 if match.score >= threshold and match.score > best[0]:
                     best = (match.score, direction)
+                elif match.score >= threshold - .06:
+                    possible_arrow = True
     direction = best[1]
-    return direction.removeprefix('down_') if direction else None
+    if direction:
+        return direction.removeprefix('down_')
+    return 'uncertain' if possible_arrow else None

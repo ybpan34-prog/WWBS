@@ -109,7 +109,7 @@ DEFAULT_CONFIG = USER_SETTINGS_DIR / "weekly_tasks.json"
 TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
-APP_VERSION = "1.6.2"
+APP_VERSION = "1.6.3"
 APP_BUILD = 1
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
@@ -204,6 +204,7 @@ UPDATE_NOTICE = """v1.3.5 更新内容
 2. 请将游戏窗口调整为 1920*1080p 或等比例缩放。
 3. 请先完成周本的新手教程，并将速度调整至 MAX。"""
 UPDATE_HISTORY = [
+    ('v1.6.3', 'WWBS 1.6.3 正式版\n无音区选行自动滚动露出按钮，重开后直接接战。\n4C 自定义刷取支持副本与大世界，新增凝素领域刷取和剧情跳过对话。'),
     ('v1.6.2', 'WWBS 1.6.2 正式版\n日常奖励标志只用于转向。每识别三次光球重新复核箭头，纯向下的箭头触发水平左转。\n进场先用当前角色开打。排轴发送切人键后直接继续执行。'),
     ('v1.6.1', 'WWBS 1.6.1 正式版\n周常误打开频率晶体详情时，点击卡片外空白处，确认关闭后接续原步骤。menu2 单次识别未命中后，继续复核棋盘与选卡页面。\n一键日常进场已确认首发角色时，直接开始排轴，减少重复截图。'),
     ('v1.6.0', 'WWBS 1.6.0 正式版\n日常奖励按宝箱箭头自适应转向，连续两帧确认无箭头后才找光球，搜索上限180秒。\n无音消除暂时找不到合法交换时持续重读当前棋盘，找到后继续，识别到结算或手动停止时结束。\n幻梦游园重开时等待短暂黑屏，连续确认进入下一轮后再计轮。设置中可开启周常测试模式。'),
@@ -892,7 +893,6 @@ AGENT_TASK_LABELS = {
     "run_daily": "一键日常（2轮双倍）",
     "run_weekly_rewards": "周常拿满奖励（15轮）",
     "run_weekly_astrite": "周常拿满星声（13轮）",
-    "run_4c_10": "4C刷取（10次）",
     "run_4c_30": "4C刷取（30次）",
     "stop_task": "停止当前任务",
     "diagnose": "运行诊断",
@@ -1054,6 +1054,10 @@ class App:
         self.daily_orb_confidence = StringVar(value=f'{orb_confidence(orb_value):.0%}')
         self.auto_shutdown_enabled = BooleanVar(value=self._load_app_flag("shutdown_after_task"))
         self.weekly_test_mode = BooleanVar(value=self._load_app_flag("weekly_test_mode"))
+        self.story_skip_enabled = BooleanVar(value=False)
+        self.four_c_location = StringVar(value="副本")
+        self.forgery_target = StringVar(value="")
+        self.forgery_count = StringVar(value="1")
         self.pet_size = StringVar(value=f"{self._load_pet_size_percent()}%")
         self.pet_visible = self._load_pet_visible()
         self.pet_supports_look_controls = self.pet_id in {"jingran", "cartethyia"}
@@ -1894,7 +1898,6 @@ class App:
             "run_daily": lambda: self._start_daily_routine(require_confirmation=False),
             "run_weekly_rewards": lambda: self._start_enabled_real(15, require_confirmation=False),
             "run_weekly_astrite": lambda: self._start_enabled_real(13, require_confirmation=False),
-            "run_4c_10": lambda: self._start_named_task_real("4C刷取", 10, require_confirmation=False),
             "run_4c_30": lambda: self._start_named_task_real("4C刷取", 30, require_confirmation=False),
             "stop_task": self._stop,
             "diagnose": self._diagnose_runtime,
@@ -2012,7 +2015,7 @@ class App:
         except OSError:
             messagebox.showerror("保存失败", "无法记住刷取次数，请检查程序目录权限。", parent=self.root)
             return
-        self._start_named_task_real("4C刷取", count)
+        self._start_named_task_real("4C刷取", count, overworld=self.four_c_location.get() == "大世界")
 
     def _ask_4c_count(self, initial: int) -> int | None:
         dialog = Toplevel(self.root)
@@ -2785,7 +2788,7 @@ class App:
 
     @staticmethod
     def _normalize_start_action_order(saved) -> list[str]:
-        defaults = ["weekly_rewards", "weekly_astrite", "daily", "combat_4c_10", "combat_4c_custom", "boss_challenge", "tower", "match3"]
+        defaults = ["weekly_rewards", "weekly_astrite", "daily", "combat_4c_custom", "boss_challenge", "forgery", "tower"]
         if not isinstance(saved, list):
             return defaults
         ordered = []
@@ -3277,10 +3280,9 @@ class App:
             action_list, "daily", "一键日常（2轮双倍）", "先选择无音区，再运行两轮挑战",
             self._start_daily_routine, "daily", with_zone=True,
         )
-        self._make_start_action_card(action_list, "combat_4c_10", "4C刷取（10次）", "固定 10 轮战斗与吸收",
-                                     lambda: self._start_named_task_real("4C刷取", 10), "combat_4c")
-        self._make_start_action_card(action_list, "combat_4c_custom", "4C刷取（自定义次数）", "运行前填写本次循环次数",
-                                     self._start_custom_4c, "combat_4c")
+        self._make_start_action_card(action_list, "combat_4c_custom", "副本／大世界刷4C声骸",
+                                     "进入首领战斗后启动，运行前填写次数", self._start_custom_4c, "combat_4c",
+                                     controls=(("场景", self.four_c_location, ("副本", "大世界"), lambda *_: None),))
         self._make_start_action_card(
             action_list, "boss_challenge", "战歌重奏自动刷取", "自动进本，使用4C战斗轴并吸收声骸",
             self._start_boss_challenge, "boss_challenge", controls=(
@@ -3291,8 +3293,10 @@ class App:
         )
         self._make_start_action_card(action_list, "tower", "深塔挑战", "靠近光球开战，已有怪物时直接战斗",
                                      self._start_tower_challenge, "tower")
-        self._make_start_action_card(action_list, "match3", "无音消除", "打开棋盘后启动，自动计算交换；每步重读，结算后停止",
-                                     self._start_match3_puzzle, "match3")
+        self._make_start_action_card(action_list, "forgery", "凝素领域挑战",
+                                     "输入索拉指南里的关卡名称，使用分配的战斗轴", self._start_forgery, "forgery",
+                                     controls=(("关卡", self.forgery_target, None, lambda *_: None),
+                                               ("次数", self.forgery_count, None, lambda *_: None)))
         self._repack_start_action_cards()
         Label(left, text="提示：将鼠标放在无音区或键位上滚动滚轮，可快速切换选项。",
               fg=COLORS["muted"], bg=COLORS["panel"],
@@ -3410,12 +3414,11 @@ class App:
         return button
 
     def _show_run_notice(self, notice_key: str) -> None:
-        if notice_key == 'match3':
-            messagebox.showinfo('无音消除',
-                '先进入无音消除，关闭规则和新手引导，让完整7行8列棋盘显示后点击任务。\n\n'
-                '程序识别棋子、计算相邻交换，等待消除与掉落稳定后再走下一步。角色技能由游戏自动释放。\n\n'
-                '不设累计操作步数上限；随机补子可能影响结果。未知格先占位，优先走已知合法交换；无法确认可走的一步时停止。结算后不点下一关、不自动关机。\n'
-                f'随时按{STOP_HOTKEY_LABEL}停止；空闲时按同一快捷键重跑。', parent=self.root)
+        if notice_key == 'forgery':
+            messagebox.showinfo('凝素领域挑战',
+                '从可传送的大世界启动。填写索拉指南中显示的关卡名称和次数。\n\n'
+                '在战斗排轴中为「凝素领域」选择预设。每轮领取一次奖励，需要补充体力时停止。',
+                parent=self.root)
             return
         if notice_key == 'boss_challenge':
             messagebox.showinfo('战歌重奏自动刷取',
@@ -4694,6 +4697,11 @@ class App:
                     activebackground=COLORS['panel_alt'], fg=COLORS['text']).pack(anchor='w')
         Label(weekly_box, text='下次启动幻梦游园时生效。忽略本周游历值上限与轮数限制，直到手动停止或流程报错。',
               bg=COLORS['panel_alt'], fg=COLORS['muted'], wraplength=600, justify=LEFT).pack(anchor='w', pady=6)
+        Checkbutton(weekly_box, text='任务中跳过对话', variable=self.story_skip_enabled,
+                    command=self._toggle_story_skip, bg=COLORS['panel_alt'],
+                    activebackground=COLORS['panel_alt'], fg=COLORS['text']).pack(anchor='w')
+        Label(weekly_box, text='单独运行。开启后切回游戏，自动点击已识别的剧情跳过与确认按钮。',
+              bg=COLORS['panel_alt'], fg=COLORS['muted'], wraplength=600, justify=LEFT).pack(anchor='w', pady=6)
         self._build_rain_settings()
         theme_box = self._card_body(self.settings_tab)
         theme_box.pack(fill=X, pady=(0, 14))
@@ -5185,7 +5193,6 @@ class App:
                     "run_rewards": lambda: self._start_enabled_real(15, require_confirmation=False),
                     "run_astrite": lambda: self._start_enabled_real(13, require_confirmation=False),
                     "run_daily": lambda: self._start_daily_routine(require_confirmation=False),
-                    "run_4c_10": lambda: self._start_named_task_real("4C刷取", 10, require_confirmation=False),
                     "run_4c_custom": self._start_custom_4c,
                     "stop_task": self._stop,
                     **{
@@ -6714,6 +6721,8 @@ class App:
         task_name: str,
         cycles: int | None = None,
         require_confirmation: bool = False,
+        *,
+        overworld: bool = False,
     ) -> None:
         task = next((item for item in self.tasks if item.name == task_name), None)
         if task is None:
@@ -6723,6 +6732,9 @@ class App:
             # The dedicated launcher always uses the packaged 4C resources. It must
             # not depend on, or alter, the template group selected in the UI.
             task = replace(task, template_group="4c", enabled=True)
+            if overworld:
+                task = replace(task, steps=[replace(step, text="overworld") if step.action == "combat_4c" else step
+                                            for step in task.steps])
         if self.target_mode.get() != "client":
             messagebox.showerror("模式不支持", "4C刷取目前只支持 PC 客户端窗口。", parent=self.root)
             return
@@ -6806,14 +6818,43 @@ class App:
         if self._ensure_admin_for_real_run():
             self._start_worker([task])
 
-    def _start_match3_puzzle(self) -> None:
-        task = WeeklyTask(name='无音消除', enabled=True, weekday='any', template_group='match3',
-                          description='从完整棋盘开始，逐步识别并计算交换；保留结算页面。',
-                          steps=[Step(action='match3_puzzle', label='识别棋盘并自动消除', timeout=1200)])
-        self.max_cycles = None
+    def _start_forgery(self) -> None:
+        target = self.forgery_target.get().strip()
+        try:
+            count = int(self.forgery_count.get())
+            if len(target) < 2 or not 1 <= count <= 9999:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror("凝素领域", "请填写关卡名称和 1 至 9999 的次数。", parent=self.root)
+            return
+        if self.target_mode.get() != "client":
+            messagebox.showerror("模式不支持", "凝素领域需要 PC 客户端。", parent=self.root)
+            return
+        task = WeeklyTask(name="凝素领域挑战", template_group="daily",
+                          steps=[Step(action="forgery_challenge", label="进入并刷取所选凝素领域",
+                                      timeout=360, text=target)])
+        self.max_cycles = count
         self.dry_run.set(False)
         if self._ensure_admin_for_real_run():
             self._start_worker([task])
+
+    def _toggle_story_skip(self) -> None:
+        if not self.story_skip_enabled.get():
+            if getattr(self, '_story_skip_job', None) is self.stop_event:
+                self._stop()
+            return
+        if self.target_mode.get() != "client" or (self.worker and self.worker.is_alive()):
+            self.story_skip_enabled.set(False)
+            messagebox.showinfo("剧情跳过", "请在 PC 客户端模式且其他快捷任务已停止时开启。", parent=self.root)
+            return
+        previous = self.stop_event
+        self.max_cycles = None
+        self.dry_run.set(False)
+        self._start_worker([WeeklyTask(name="剧情跳过对话", steps=[Step(action="story_skip")])])
+        if self.stop_event is previous:
+            self.story_skip_enabled.set(False)
+        else:
+            self._story_skip_job = self.stop_event
 
     def _start_daily_routine(self, require_confirmation: bool = False) -> None:
         selected = self.daily_zone.get()
@@ -6972,7 +7013,8 @@ class App:
             return
         if hasattr(self, "rotation_store"):
             self._rotation_run_store = validate_store(self.rotation_store)
-            kinds = {"tower_challenge": "tower", "daily_routine": "daily", "combat_4c": "combat_4c"}
+            kinds = {"tower_challenge": "tower", "daily_routine": "daily", "combat_4c": "combat_4c",
+                     "forgery_challenge": "forgery"}
             modes = {kinds[step.action] for task in tasks for step in task.steps if step.action in kinds}
             for mode in modes:
                 selected = next(p for p in self._rotation_run_store['presets']
@@ -7081,10 +7123,12 @@ class App:
             self._active_controller = None
             self.max_cycles = None
             self.root.after(0, lambda: self._set_pet_working(False) if self.stop_event is job_event else None)
+            if any(step.action == "story_skip" for task in tasks for step in task.steps):
+                self.root.after(0, lambda: self.story_skip_enabled.set(False) if self.stop_event is job_event else None)
 
     def _handle_successful_task_completion(self) -> None:
         self._pet_feedback("review", self._event_line("task_complete"))
-        if any(any(step.action in {"tower_challenge", "match3_puzzle"} for step in task.steps)
+        if any(any(step.action in {"tower_challenge", "forgery_challenge", "story_skip"} for step in task.steps)
                for task in getattr(self, "_last_started_tasks", [])):
             self._log("本次任务已停止输入，保持当前／结算界面，不再操作，也不自动关机。")
             return
@@ -7275,7 +7319,7 @@ class App:
 
     @staticmethod
     def _is_dedicated_launcher_task(task: WeeklyTask) -> bool:
-        return any(step.action in {"combat_4c", "tower_challenge", "match3_puzzle"} for step in task.steps)
+        return any(step.action in {"combat_4c", "tower_challenge", "forgery_challenge", "story_skip"} for step in task.steps)
 
     @classmethod
     def _activate_template_group_task(

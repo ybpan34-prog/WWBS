@@ -624,7 +624,6 @@ class Daily154Navigation:
                         "体力不足继续提示的确认",
                         timeout=5.0,
                     )
-                    self._sleep_interruptible(0.3)
                 else:
                     self._click_daily_template("exit_instance.png", "退出副本", timeout=20.0)
                     self._confirm_daily_exit_if_present()

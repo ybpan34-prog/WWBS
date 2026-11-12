@@ -149,16 +149,26 @@ class DailyArrowTests(unittest.TestCase):
                 runner._daily_reward_orb_location.assert_not_called()
                 runner.controller.press_keys.assert_not_called()
 
-    def test_three_orb_lookups_recheck_arrow_before_the_fourth(self):
+    def test_arrow_reappearing_before_three_lookups_stops_orb_search_immediately(self):
         with tempfile.TemporaryDirectory() as folder, patch('tasks.other.APP_DIR', Path(folder)):
             runner = self.runner(folder)
             runner._daily_reward_marker_direction.side_effect = [None, None, 'down']
-            runner._find_daily_reward_prompt.side_effect = [None]*5+[Mock()]
+            runner._find_daily_reward_prompt.side_effect = [None]*3+[Mock()]
             runner._daily_reward_orb_location = Mock(return_value=(960, 350, .99))
             self.assertTrue(runner._collect_daily_reward(1))
-            self.assertEqual(runner._daily_reward_orb_location.call_count, 3)
-            self.assertEqual(runner.controller.press_keys.call_count, 3)
+            runner._daily_reward_orb_location.assert_called_once()
+            runner.controller.press_keys.assert_called_once()
             runner.controller.move_mouse_relative.assert_called_once_with(-440, 0)
+
+    def test_uncertain_arrow_never_counts_as_an_arrow_free_frame(self):
+        with tempfile.TemporaryDirectory() as folder, patch('tasks.other.APP_DIR', Path(folder)):
+            runner = self.runner(folder)
+            runner._daily_reward_marker_direction.side_effect = [None, 'uncertain', None]
+            runner._find_daily_reward_prompt.side_effect = [None]*3+[Mock()]
+            runner._daily_reward_orb_location = Mock(return_value=(960, 350, .99))
+            self.assertTrue(runner._collect_daily_reward(1))
+            runner._daily_reward_orb_location.assert_not_called()
+            runner.controller.press_keys.assert_not_called()
 
     def test_arrow_return_resets_the_two_frame_confirmation(self):
         with tempfile.TemporaryDirectory() as folder, patch('tasks.other.APP_DIR', Path(folder)):
@@ -187,10 +197,28 @@ class DailyArrowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder, patch('tasks.other.APP_DIR', Path(folder)):
             runner = self.runner(folder)
             runner._daily_combat_visible.return_value = True
+            runner._find_daily_reward_prompt = Mock(return_value=None)
             runner._daily_reward_orb_location = Mock()
-            self.assertFalse(runner._collect_daily_reward(1))
+            with patch('tasks.other.enemy_health_bar_present', return_value=True):
+                self.assertFalse(runner._collect_daily_reward(1))
             runner.controller.move_mouse_relative.assert_not_called()
             runner.controller.press_keys.assert_not_called()
+
+    def test_reward_arrow_takes_priority_over_stale_combat_hint(self):
+        with tempfile.TemporaryDirectory() as folder, patch('tasks.other.APP_DIR', Path(folder)):
+            runner = self.runner(folder)
+            runner._daily_combat_visible.return_value = True
+            runner._daily_reward_orb_location = Mock()
+            runner._find_daily_reward_prompt = Mock(return_value=None)
+            frame = Path(folder)/'_runtime_screenshot.png'
+            self.assertTrue(runner._daily_battle_end_present(frame, combat_visible=True))
+            with patch('tasks.other.enemy_health_bar_present', return_value=True):
+                self.assertFalse(runner._daily_battle_end_present(frame, combat_visible=True))
+            runner._find_daily_reward_prompt.side_effect = [None, Mock()]
+            self.assertTrue(runner._collect_daily_reward(1))
+            runner.controller.move_mouse_relative.assert_called_once_with(-440, 0)
+            runner._daily_reward_orb_location.assert_not_called()
+            runner.controller.press_key.assert_called_once_with('F', 100)
 
     def test_open_reward_dialog_claims_even_after_navigation_deadline(self):
         panel_path = ROOT/'tests/fixtures/daily-reward-dialog-panel.png'

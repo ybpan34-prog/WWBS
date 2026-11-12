@@ -5,6 +5,7 @@ import time
 import numpy as np
 from PIL import Image
 
+from combat_vision import enemy_health_bar_present
 from tasks.daily_154 import (Daily154Navigation, DAILY_ZONE_BUTTON_Y_OFFSETS)
 from tasks.daily_checks import DailyStepChecks
 from tasks.daily_radio import DailyRadioVision
@@ -203,7 +204,8 @@ class VerifiedDailyNavigation(Daily154Navigation):
             title = self._find_daily_template(zone_template, threshold=.97 if numbered else .9, screenshot=path,
                 template_crop=(6, 18, 304 if numbered else 190, 64), scales=[self._fast_scales()[0]],
                 region=(round(width*.34), round(height*.12), round(width*.98), round(height*.92)))
-            if title is not None and self._daily_row_button_ready(path, title.center[1]):
+            if (title is not None and height*.17 < title.center[1] < height*.87
+                    and self._daily_row_button_ready(path, title.center[1])):
                 return self._tap((round(width*.895), title.center[1]))
             return False
         return self._checks.transition('进入所选无音区的队伍页面',
@@ -283,13 +285,36 @@ class VerifiedDailyNavigation(Daily154Navigation):
         elif template_name == 'restart_challenge.png':
             self._runner._daily_restart_pending = True
             self._runner._daily_restart_confirmed = False
-            def recover(path):
+            self._runner._daily_restart_ready = False
+            self._runner._click_daily_settlement_action('restart', wait_for_disappearance=False)
+            path = self._checks.screenshot
+            deadline = time.monotonic()+60
+            next_confirm = 0.
+            next_restart = time.monotonic()+1.8
+            restarts = 1
+            while time.monotonic() < deadline and not self.stop_event.is_set():
+                self._capture_for_matching(path)
+                if self.stop_event.is_set():
+                    return False
                 prompt = self._match(path, 'insufficient_continue.png', .82)
-                return self._tap(prompt.center) if prompt is not None else False
-            confirmed = self._checks.transition('重开后进入下一轮战斗', self._battle, source_action,
-                                                 timeout=60, recovery=recover)
-            self._runner._daily_restart_confirmed = bool(confirmed)
-            return confirmed
+                if prompt is not None:
+                    if time.monotonic() >= next_confirm and self._tap(prompt.center):
+                        self.log('    已确认体力不足继续挑战，等待战斗画面。')
+                        next_confirm = time.monotonic()+1.2
+                else:
+                    settled = self._runner._read_daily_settlement(path)
+                    if settled is None and self._restart_battle_visible(path):
+                        self._runner._daily_restart_confirmed = True
+                        self._runner._daily_restart_ready = True
+                        return True
+                    if settled is not None and restarts < 3 and time.monotonic() >= next_restart:
+                        if self._tap(settled.restart.center):
+                            restarts += 1
+                            next_restart = time.monotonic()+1.8
+                self._sleep_interruptible(.12)
+            if self.stop_event.is_set():
+                return False
+            raise RuntimeError('重开后未确认下一轮战斗画面。')
         elif template_name == 'exit_instance.png':
             def recover(path):
                 return self._tap(self._ratio_point(path, .657, .628)) if self._daily_exit_confirmation_present(path) else False
@@ -303,15 +328,20 @@ class VerifiedDailyNavigation(Daily154Navigation):
             recovery=lambda p: self._tap(self._ratio_point(p, .13, .86))
                 if template_name == 'one_click_claim.png' and not self._normal(p) else False)
 
+    def _restart_battle_visible(self, path):
+        if self._battle(path):
+            return True
+        if not self._runner._overworld_hud_ready(path):
+            return False
+        with Image.open(path) as image:
+            return enemy_health_bar_present(image)
+
     def _click_optional_daily_template(self, template_name, label, *, timeout=3., threshold=.72):
         if self.stop_event.is_set():
             return False
         if template_name == 'insufficient_continue.png' and getattr(self._runner, '_daily_restart_confirmed', False):
-            # Restart recovery already handles this dialog before confirming two
-            # battle frames. Looking for it again can reject an active battle as
-            # skill effects briefly hide the HUD.
             self._runner._daily_restart_confirmed = False
-            self.log('    重开已连续截图确认进入战斗，无需再次等待体力不足继续提示，立即接续战斗。')
+            self.log('    已确认进入第二轮，立即接续战斗。')
             return False
         missing = 0
         deadline = time.monotonic()+timeout
@@ -421,6 +451,8 @@ class VerifiedDailyNavigation(Daily154Navigation):
         zone_threshold = 0.97 if numbered_huangshi else 0.90
         zone_crop = (6, 18, 304, 64) if numbered_huangshi else (6, 18, 190, 64)
         for page_index in range(32):
+            if self.stop_event.is_set():
+                return False
             _path, width, height = self._capture_size(screenshot)
             if zone_template in DAILY_ZONE_BUTTON_Y_OFFSETS:
                 result = self._find_new_daily_zone(screenshot, zone_template)
@@ -457,13 +489,13 @@ class VerifiedDailyNavigation(Daily154Navigation):
                     self._sleep_interruptible(.15)
                     break
                 row_y = found.center[1] + round(DAILY_ZONE_BUTTON_Y_OFFSETS.get(zone_template, 0) * self._fast_scales()[0])
-                if not self._daily_row_button_ready(screenshot, row_y):
+                if not height*.17 < row_y < height*.87 or not self._daily_row_button_ready(screenshot, row_y):
                     wheel_x, wheel_y = round(width * 0.91), round(height * 0.60)
                     if hasattr(self.controller, "screenshot_to_client"):
                         wheel_x, wheel_y = self.controller.screenshot_to_client(wheel_x, wheel_y)
                     self.log(f"    已看到“{self.daily_zone_name}”，等待同一行按钮完整出现。")
-                    if row_y > round(height * 0.68):
-                        self.controller.wheel_at(wheel_x, wheel_y, -360)
+                    scroll = 120 if row_y < round(height*.30) else -120
+                    self.controller.wheel_at(wheel_x, wheel_y, scroll)
                     self._sleep_interruptible(0.38)
                     found = None
                     continue

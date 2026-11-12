@@ -323,7 +323,10 @@ class RotationTests(unittest.TestCase):
                 window._rotation_refresh_picker()
                 window.rotation_mode_choices['daily'].set('自定义')
                 window._rotation_assign_mode('daily')
-                self.assertEqual(load_store(app.COMBAT_PRESETS_CONFIG)['modes'], {'daily': 'custom', 'combat_4c': 'default', 'tower': 'default'})
+                window.rotation_mode_choices['forgery'].set('自定义')
+                window._rotation_assign_mode('forgery')
+                self.assertEqual(load_store(app.COMBAT_PRESETS_CONFIG)['modes'],
+                                 {'daily': 'custom', 'combat_4c': 'default', 'tower': 'default', 'forgery': 'custom'})
         finally:
             root.destroy()
 

@@ -34,6 +34,7 @@ class Combat4CTask:
         skill_key = self.controller.normalize_input_binding(self.combat_skill_key)
         ultimate_key = self.controller.normalize_input_binding(self.combat_ultimate_key)
         cycle_count = max(1, int(self.max_cycles or 1))
+        overworld = step.text == 'overworld'
         if self.dry_run:
             self.log(
                 f"    干运行：计划执行 {cycle_count} 轮；每轮开打先按鼠标中键锁定敌人，"
@@ -57,15 +58,21 @@ class Combat4CTask:
                 self._run_4c_battle(step, skill_key, ultimate_key, cycle_index)
                 if self.stop_event.is_set():
                     return
-                self._collect_4c_reward(cycle_index)
+                if overworld:
+                    self._collect_4c_reward(cycle_index, allow_missing=True)
+                else:
+                    self._collect_4c_reward(cycle_index)
                 if self.stop_event.is_set():
                     return
                 if cycle_index >= cycle_count:
-                    self.log(f"    已完成 {cycle_count} 轮战斗与吸收，停止4C刷取。")
+                    self.log(f"    已完成 {cycle_count} 轮战斗，停止4C刷取。")
                     return
-                self._restart_4c_challenge(cycle_index + 1)
-                if self.boss_challenge is not None:
-                    self.boss_challenge.wait_for_battle(self)
+                if overworld:
+                    self._wait_4c_overworld_boss()
+                else:
+                    self._restart_4c_challenge(cycle_index + 1)
+                    if self.boss_challenge is not None:
+                        self.boss_challenge.wait_for_battle(self)
         finally:
             try:
                 self.controller.release_keys(("W", "A", "S", "D", "SPACE", "1", "2", "3", "4"))
@@ -530,11 +537,32 @@ class Combat4CTask:
         self._sleep_interruptible(0.22)
         return not self.stop_event.is_set()
 
-    def _collect_4c_reward(self, cycle_index: int) -> None:
+    def _wait_4c_overworld_boss(self) -> None:
+        from boss_rain import boss_bar_present
+
+        screenshot = APP_DIR / "_runtime_screenshot.png"
+        deadline = time.monotonic()+180
+        self.log("    等待大世界首领刷新并出现首领血条。")
+        next_lock = 0.
+        while time.monotonic() < deadline and not self.stop_event.is_set():
+            self._capture_for_matching(screenshot)
+            if self._overworld_hud_ready(screenshot):
+                with Image.open(screenshot) as image:
+                    if boss_bar_present(image):
+                        return
+                if time.monotonic() >= next_lock and not self.stop_event.is_set():
+                    self.controller.middle_click()
+                    next_lock = time.monotonic()+3
+            self._sleep_interruptible(.35)
+        if not self.stop_event.is_set():
+            raise RuntimeError("等待首领刷新超时，请确认角色仍在首领附近。")
+
+    def _collect_4c_reward(self, cycle_index: int, *, allow_missing=False) -> None:
         screenshot = APP_DIR / "_runtime_screenshot.png"
         transition_until = time.monotonic() + 2.5
-        deadline = transition_until + self.REWARD_SEARCH_TIMEOUT
+        deadline = transition_until + (15 if allow_missing else self.REWARD_SEARCH_TIMEOUT)
         route = echo_spiral_steps()
+        targeted_moves = 0
         self.log(f'    第{cycle_index}轮：从当前位置向外螺旋搜索声骸，每小段重新检查吸收提示。')
         while time.monotonic() < deadline:
             if self.stop_event.is_set():
@@ -560,6 +588,12 @@ class Combat4CTask:
                 self.controller.release_keys()
                 self._sleep_interruptible(.1)
                 continue  # Death animation may ignore controls; absorb prompt still wins.
+            if targeted_moves < 3:
+                confidence, gold_x, _ = self._gold_target_location(screenshot)
+                if gold_x is not None and confidence >= .75 and not self.stop_event.is_set():
+                    targeted_moves += 1
+                    self._approach_4c_gold_target(gold_x-scale*960, scale*1920)
+                    continue
             turn, duration = next(route)
             self.controller.move_mouse_relative(turn, 0)
             if self.stop_event.is_set():
@@ -570,6 +604,9 @@ class Combat4CTask:
                 self.controller.press_keys(('W',), duration)
             self._sleep_interruptible(0.06)
         self.controller.release_keys()
+        if allow_missing:
+            self.log(f'    第{cycle_index}轮未发现可吸收声骸，继续等待首领刷新。')
+            return
         raise RuntimeError("击败首领后螺旋向外搜索仍未找到“F / 吸收”提示，已停止循环。")
 
     def _approach_4c_gold_target(self, offset_x: float, screen_width: int) -> str:

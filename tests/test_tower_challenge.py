@@ -230,7 +230,8 @@ class TowerUiTests(unittest.TestCase):
                 ui.rotation_mode_choices['tower'].set('深塔自定义')
                 ui._rotation_assign_mode('tower')
                 saved = load_store(app.COMBAT_PRESETS_CONFIG)
-                self.assertEqual(saved['modes'], {'daily': 'default', 'combat_4c': 'default', 'tower': 'tower_axis'})
+                self.assertEqual(saved['modes'], {'daily': 'default', 'combat_4c': 'default',
+                                                  'tower': 'tower_axis', 'forgery': 'default'})
         finally:
             root.destroy()
 

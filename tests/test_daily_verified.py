@@ -13,21 +13,57 @@ from tasks.runner import TaskRunner
 class DailyVerifiedTests(unittest.TestCase):
     def test_confirmed_restart_skips_redundant_stamina_prompt_even_if_hud_fades(self):
         nav, runner = self.navigation()
-        nav._checks.transition = Mock(return_value=True)
-        runner._capture_for_matching = Mock(side_effect=AssertionError('must not rescan optional prompt after confirmed battle'))
-        runner._normal = Mock(return_value=False)
+        runner._click_daily_settlement_action = Mock()
+        runner._capture_for_matching = Mock()
+        runner._match = Mock(return_value=None)
+        runner._restart_battle_visible = Mock(return_value=True)
+        runner._read_daily_settlement = Mock(return_value=None)
         self.assertTrue(nav._click_daily_template('restart_challenge.png', '重新挑战'))
+        self.assertTrue(runner._daily_restart_ready)
         self.assertTrue(runner._daily_restart_confirmed)
         self.assertFalse(nav._click_optional_daily_template('insufficient_continue.png', '体力不足继续提示的确认', timeout=5))
         self.assertFalse(runner._daily_restart_confirmed)
+        self.assertFalse(runner._select_daily_slot_after_loading(nav._checks.screenshot))
+        runner._capture_for_matching.assert_called_once()
         runner.controller.tap.assert_not_called()
 
     def test_cancelled_restart_cannot_acknowledge_the_stamina_prompt(self):
         nav, runner = self.navigation()
-        nav._checks.transition = Mock(return_value=False)
+        runner._click_daily_settlement_action = Mock(side_effect=lambda *a, **kw: runner.stop_event.set())
         self.assertFalse(nav._click_daily_template('restart_challenge.png', '重新挑战'))
         self.assertFalse(runner._daily_restart_confirmed)
 
+    def test_restart_accepts_stamina_continue_then_battle_on_next_capture(self):
+        nav, runner = self.navigation()
+        runner._click_daily_settlement_action = Mock()
+        runner._capture_for_matching = Mock()
+        runner._match = Mock(side_effect=[Mock(center=(1250, 650)), None])
+        runner._read_daily_settlement = Mock(return_value=None)
+        runner._restart_battle_visible = Mock(return_value=True)
+        runner._sleep_interruptible = Mock()
+        self.assertTrue(nav._click_daily_template('restart_challenge.png', '重新挑战'))
+        self.assertEqual(runner._capture_for_matching.call_count, 2)
+        runner.controller.tap.assert_called_once_with(1250, 650)
+        self.assertTrue(runner._daily_restart_ready)
+
+    def test_scrolls_and_recaptures_when_tacet_title_is_at_bottom(self):
+        nav, runner = self.navigation()
+        runner._open_terminal_destination = Mock(return_value=True)
+        runner._daily_activity_still_pending = Mock(return_value=True)
+        runner._click_daily_template = Mock()
+        runner._select_daily_tacet_section = Mock()
+        runner._capture_size = Mock(return_value=(nav._checks.screenshot, 1920, 1080))
+        runner.daily_zone_name = '落日堤屿无音区'
+        runner._find_daily_template = Mock(side_effect=[Mock(center=(510, 967)), Mock(center=(510, 810), score=.99)])
+        runner._daily_row_button_ready = Mock(return_value=True)
+        runner._enter_zone = Mock()
+        runner._tap_ratio = Mock()
+        runner._sleep_interruptible = Mock()
+        runner.controller.screenshot_to_client.side_effect = lambda x, y: (x, y)
+        self.assertTrue(nav._open_daily_tacet_field('zone_luori_diyu.png'))
+        runner.controller.wheel_at.assert_called_once_with(1747, 648, -120)
+        runner._enter_zone.assert_called_once_with('zone_luori_diyu.png')
+        self.assertEqual(runner._capture_size.call_count, 2)
     def test_full_reported_frame_clicks_button_center_at_window_scales(self):
         nav, runner = self.navigation()
         fixture = Path(__file__).parent/'fixtures/daily-team-start-full-reported.png'
