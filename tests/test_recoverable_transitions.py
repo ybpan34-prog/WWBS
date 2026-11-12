@@ -33,7 +33,7 @@ class RecoverableTransitionsTests(unittest.TestCase):
             controller = Mock()
             runner = TaskRunner(controller, Mock(), dry_run=False)
             runner._capture_for_matching = Mock()
-            runner._find_4c_absorb_prompt = Mock(side_effect=[(None, '')]*3+[(Mock(score=.99), 'absorb')])
+            runner._find_4c_absorb_prompt = Mock(side_effect=[(None, '')]*3+[(Mock(score=.99), 'absorb'), (None, ''), (None, '')])
             now = [0.]
             runner._sleep_interruptible = lambda seconds: now.__setitem__(0, now[0]+seconds)
             with patch('tasks.combat_4c.APP_DIR', root), patch('tasks.combat_4c.time.monotonic', side_effect=lambda: now[0]):
@@ -42,7 +42,7 @@ class RecoverableTransitionsTests(unittest.TestCase):
             controller.press_keys.assert_not_called()
             controller.press_key.assert_called_once_with('F', 100)
 
-    def test_spiral_starts_after_animation_grace_and_is_cancelable(self):
+    def test_recentering_starts_after_animation_grace_and_is_cancelable(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             Image.new('RGB', (1600, 900)).save(root/'_runtime_screenshot.png')
@@ -55,7 +55,7 @@ class RecoverableTransitionsTests(unittest.TestCase):
             def turn(*args):
                 moved.append(now[0])
                 runner.stop_event.set()
-            controller.move_mouse_relative.side_effect = turn
+            controller.middle_click.side_effect = turn
             with patch('tasks.combat_4c.APP_DIR', root), patch('tasks.combat_4c.time.monotonic', side_effect=lambda: now[0]):
                 runner._collect_4c_reward(1)
             self.assertEqual(len(moved), 1)

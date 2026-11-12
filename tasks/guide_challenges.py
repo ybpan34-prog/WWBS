@@ -1,20 +1,60 @@
 """Guide navigation for material domains and the opt-in story dialog task."""
 import ctypes
+from functools import lru_cache
 from pathlib import Path
 import time
 
+import numpy as np
 from PIL import Image
 
 from combat_vision import enemy_health_bar_present
+from image_matcher import _match_single_scale_gray
 from tasks.combat_4c_entrance import EntranceFrame
 from tasks.daily_checks import DailyStepChecks
 from tasks.daily_team import team_start_target
 from tasks.models import TaskNeedsReview
-from tasks.tacet_navigation import tacet_card_list_present
 from windows_ocr import WindowsOcr
 
 
-SCREENSHOT = Path(__file__).resolve().parent.parent / "_runtime_screenshot.png"
+APP_DIR = Path(__file__).resolve().parent.parent
+SCREENSHOT = APP_DIR / "_runtime_screenshot.png"
+
+
+def _icon_edges(image):
+    return np.hypot(*np.gradient(np.asarray(image, dtype=np.float64)))
+
+
+@lru_cache(maxsize=12)
+def _forgery_icon_edges(side):
+    path = APP_DIR/'templates/daily/guide_forgery_icon.png'
+    with Image.open(path) as source:
+        return _icon_edges(source.convert('L').resize((side, side), Image.Resampling.LANCZOS))
+
+
+def forgery_category(screenshot):
+    """Find the crossed-tools glyph in the sidebar, including when its colors invert."""
+    with Image.open(screenshot) as source:
+        width, height = source.size
+        left, top = round(width*.10), round(height*.14)
+        region = source.crop((left, top, round(width*.15), round(height*.94))).convert('L')
+        scene = _icon_edges(region)
+        native_side = 61*width/1920
+        for factor in (1., .97, 1.03):
+            side = max(8, round(native_side*factor))
+            if side >= min(scene.shape):
+                continue
+            icon = _match_single_scale_gray(scene, _forgery_icon_edges(side))
+            if icon.score < .78:
+                continue
+            x, y = left+icon.center[0], top+icon.center[1]
+            # The active card has a pale fill. Read its interior away from the
+            # glyph and labels so a bright label on an inactive card can't pass.
+            pad = round(height*.016)
+            background = np.asarray(source.crop(
+                (round(width*.267), y-pad, round(width*.315), y+pad)).convert('L'))
+            selected = background.size > 0 and float((background > 150).mean()) >= .75
+            return (x, y), selected
+    return None
 
 
 class GuideFrames:
@@ -89,9 +129,6 @@ class ForgeryChallenge(GuideFrames):
     def guide(self, path):
         return self.read(path).find('索拉指南', '活跃行迹', '素材获取', region=(.01,.01,.36,.23))
 
-    def category(self, path):
-        return self.read(path).find('凝素领域', region=(.06,.17,.34,.86))
-
     def challenge_prompt(self, path):
         if self.runner._overworld_hud_ready(path):
             return self.read(path).find('开启挑战', '开始挑战', region=(.47,.27,.90,.77))
@@ -135,18 +172,26 @@ class ForgeryChallenge(GuideFrames):
     def enter(self):
         runner = self.runner
         runner._capture_for_matching(SCREENSHOT)
-        if not self.guide(SCREENSHOT):
-            runner._open_terminal_destination('索拉指南')
-        runner._click_daily_template('guide_battle_tab.png', '索拉指南战斗标签', threshold=.78,
-                                     region_ratio=(.01,.10,.10,.88))
-        def open_category(path):
-            category = self.category(path)
-            return self.tap(category.center) if category else False
+        if not runner._guide_material_page_present(SCREENSHOT):
+            if not self.guide(SCREENSHOT):
+                runner._open_terminal_destination('索拉指南')
+            runner._click_daily_template('guide_battle_tab.png', '索拉指南战斗标签', threshold=.78,
+                                         region_ratio=(.01,.10,.10,.88))
+        def category(path):
+            if runner._guide_material_page_present(path):
+                return forgery_category(path)
+            return None
 
-        # The category title and entry buttons are checked again on fresh frames.
-        self.checks.transition('打开凝素领域列表', lambda p: bool(self.category(p)) and
-            (self.read(p).find('凝素领域', region=(.33,.02,.98,.24)) or tacet_card_list_present(p)),
-            open_category, require_action=True, timeout=16)
+        def open_category(path):
+            state = category(path)
+            return self.tap(state[0]) if state and not state[1] else False
+
+        def selected(path):
+            state = category(path)
+            return bool(state and state[1])
+
+        if not self.checks.transition('打开凝素领域列表', selected, open_category, timeout=16):
+            return False
         deadline, next_click = time.monotonic()+45, 0.
         for _ in range(35):
             if runner.stop_event.is_set() or time.monotonic() >= deadline:
@@ -162,7 +207,7 @@ class ForgeryChallenge(GuideFrames):
                 if button is not None:
                     self.tap(button.center)
                     next_click = time.monotonic()+1.5
-                elif self.category(SCREENSHOT):
+                elif selected(SCREENSHOT):
                     self.select_row(SCREENSHOT)
                     next_click = time.monotonic()+.45
             runner._sleep_interruptible(.20)

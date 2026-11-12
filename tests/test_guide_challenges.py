@@ -1,11 +1,13 @@
+from pathlib import Path
+import tempfile
 import unittest
 from threading import Event
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from tasks.combat_4c_entrance import EntranceFrame
-from tasks.guide_challenges import ForgeryChallenge, SCREENSHOT, _skip_target
+from tasks.guide_challenges import ForgeryChallenge, SCREENSHOT, _skip_target, forgery_category
 from tasks.models import Step
 from tasks.runner import TaskRunner
 
@@ -27,6 +29,30 @@ class StoryTests(unittest.TestCase):
 
 
 class ForgeryTests(unittest.TestCase):
+    def test_reported_sidebar_opens_even_when_ocr_cannot_read_the_category(self):
+        fixture = Path(__file__).parent/'fixtures/forgery-guide-sidebar-reported.png'
+        with Image.open(fixture) as source:
+            inactive = source.convert('RGB')
+        active = inactive.copy()
+        card = (94, 188, 334, 236)
+        active.paste(ImageOps.invert(active.crop(card)), card[:2])
+        with tempfile.TemporaryDirectory() as folder:
+            screen = Path(folder)/'screen.png'
+            runner = TaskRunner(Mock(), Mock(), dry_run=False)
+            runner._capture_for_matching = Mock(side_effect=lambda path: (
+                active if runner.controller.tap.called else inactive).save(path))
+            runner._sleep_interruptible = Mock()
+            runner._click_daily_template = Mock()
+            ocr = Mock()
+            with patch('tasks.guide_challenges.SCREENSHOT', screen):
+                challenge = ForgeryChallenge(runner, ocr, '目标领域')
+                challenge.battle = Mock(return_value=True)
+                self.assertTrue(challenge.enter())
+                self.assertEqual(forgery_category(screen), ((119, 212), True))
+            runner.controller.tap.assert_called_once_with(119, 212)
+            runner._click_daily_template.assert_not_called()
+            ocr.recognize.assert_not_called()
+
     def test_opening_a_row_uses_its_own_button_and_not_adjacent_row(self):
         runner = Mock(stop_event=Event())
         challenge = ForgeryChallenge(runner, Mock(), '目标领域')
@@ -62,4 +88,4 @@ class EchoOverworldTests(unittest.TestCase):
         runner._wait_4c_overworld_boss.assert_called_once()
         runner._restart_4c_challenge.assert_not_called()
         for collect in runner._collect_4c_reward.call_args_list:
-            self.assertEqual(collect.kwargs, {'allow_missing': True})
+            self.assertEqual(collect.kwargs, {})

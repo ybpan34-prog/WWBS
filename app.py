@@ -110,7 +110,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
 APP_VERSION = "1.6.3"
-APP_BUILD = 1
+APP_BUILD = 3
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -5425,6 +5425,15 @@ class App:
                             findings.append(
                                 ("warning", "当前截图未显示首领名字与血条，可能处于大招或镜头动画；单张截图不能判断战斗结束。")
                             )
+                    elif self._task_with_action(diagnostic_tasks, "forgery_challenge") is not None:
+                        from tasks.guide_challenges import forgery_category
+                        category = (forgery_category(preview)
+                                    if TaskRunner._guide_material_page_present(preview) else None)
+                        if category is not None:
+                            status = '已选中，正在等待关卡列表。' if category[1] else '已定位，等待点击。'
+                            findings.append(('ok', f'素材获取页面中的凝素领域{status}'))
+                        else:
+                            findings.append(('info', '当前画面未显示素材获取页面的凝素领域入口。'))
                     elif self._task_with_action(diagnostic_tasks, "daily_routine") is not None:
                         required = [
                             "activity_full.png", "battle_task_text.png", "reward_prompt.png",

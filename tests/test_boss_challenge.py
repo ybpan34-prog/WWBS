@@ -164,7 +164,8 @@ class EntranceTests(unittest.TestCase):
             self.assertEqual(instance._load_boss_challenge_settings()['count'],53)
         order=app.App._normalize_start_action_order(['daily','combat_4c_10','combat_4c_custom'])
         self.assertIn('boss_challenge',order)
-        self.assertLess(order.index('combat_4c_10'),order.index('combat_4c_custom'))
+        self.assertIn('combat_4c_custom',order)
+        self.assertNotIn('combat_4c_10',order)
 
     def test_failed_entry_cannot_start_combat_or_absorption(self):
         entry=Mock()

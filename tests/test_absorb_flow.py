@@ -55,7 +55,7 @@ class AbsorbFlowTests(unittest.TestCase):
             screen = self.screen(directory)
             runner = app.TaskRunner(Mock(), Mock(), dry_run=False)
             runner._capture_for_matching = Mock()
-            runner._find_4c_absorb_prompt = Mock(return_value=(Mock(score=.95), "absorb"))
+            runner._find_4c_absorb_prompt = Mock(side_effect=[(Mock(score=.95), "absorb"), (None, ""), (None, "")])
             runner._sleep_interruptible = Mock()
             with patch("tasks.combat_4c.APP_DIR", screen.parent):
                 screen.rename(screen.parent / "_runtime_screenshot.png")
@@ -65,23 +65,51 @@ class AbsorbFlowTests(unittest.TestCase):
             runner.controller.move_mouse_relative.assert_not_called()
             runner.controller.wheel_at.assert_not_called()
 
-    def test_missing_prompt_spirals_outward_and_checks_each_segment(self):
+    def test_search_recenters_and_walks_backward_before_forward(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = app.TaskRunner(Mock(), Mock(), dry_run=False)
+            events = []
+            runner._capture_4c_absorb_prompt = Mock(side_effect=[(None, "")]*8 + [(Mock(), "absorb")])
+            runner._absorb_4c_echo = Mock(return_value=True)
+            runner._sleep_interruptible = Mock()
+            runner.controller.middle_click.side_effect = lambda: events.append("center")
+            runner.controller.press_keys.side_effect = lambda keys, ms: events.append((keys[0], ms))
+            with patch("tasks.combat_4c.APP_DIR", Path(directory)), patch(
+                    "tasks.combat_4c.time.monotonic", side_effect=[0, 3]):
+                self.assertTrue(runner._collect_4c_reward(1))
+            self.assertEqual(events, ["center"] + [("S", 200)]*5 + [("W", 200)])
+            runner._absorb_4c_echo.assert_called_once()
+            runner.controller.move_mouse_relative.assert_not_called()
+
+    def test_no_prompt_completes_bounded_search_without_pressing_f(self):
+        runner = app.TaskRunner(Mock(), Mock(), dry_run=False)
+        runner._capture_4c_absorb_prompt = Mock(return_value=(None, ""))
+        runner._sleep_interruptible = Mock()
+        with patch("tasks.combat_4c.time.monotonic", side_effect=[0, 3]):
+            self.assertFalse(runner._collect_4c_reward(1))
+        self.assertEqual(runner.controller.press_keys.call_count, 20)
+        runner.controller.press_key.assert_not_called()
+        runner.controller.release_keys.assert_called()
+
+    def test_unchanged_absorb_prompt_retries_once(self):
         with tempfile.TemporaryDirectory() as directory:
             screen = self.screen(directory)
             runner = app.TaskRunner(Mock(), Mock(), dry_run=False)
-            events = []
-            runner._capture_for_matching = lambda _: events.append("capture")
-            runner._find_4c_absorb_prompt = Mock(side_effect=[(None, ""), (None, ""), (Mock(score=.95), "absorb")])
+            runner._capture_4c_absorb_prompt = Mock(side_effect=[(Mock(), "absorb")]*5 + [(None, "")]*2)
+            runner._find_daily_template = Mock(return_value=None)
             runner._sleep_interruptible = Mock()
-            runner.controller.press_keys.side_effect = lambda keys, ms: events.append((keys, ms))
-            runner.controller.press_key.side_effect = lambda key, ms: events.append(key)
-            runner.controller.move_mouse_relative.side_effect = lambda x, y: events.append(('turn',x,y))
-            with patch("tasks.combat_4c.APP_DIR", screen.parent), patch("tasks.combat_4c.time.monotonic", side_effect=[0]+[3]*20):
-                screen.rename(screen.parent / "_runtime_screenshot.png")
-                runner._collect_4c_reward(1)
-            self.assertEqual(events, ["capture", ("turn", -84, 0), (("W",), 180), "capture", ("turn", -84, 0), (("W",), 192), "capture", "F"])
-            self.assertEqual(runner.controller.move_mouse_relative.call_count, 2)
-            runner.controller.wheel_at.assert_not_called()
+            self.assertTrue(runner._absorb_4c_echo(screen, 1, "absorb"))
+            self.assertEqual(runner.controller.press_key.call_count, 2)
+
+    def test_reward_dialog_is_dismissed_and_not_counted_as_absorption(self):
+        with tempfile.TemporaryDirectory() as directory:
+            screen = self.screen(directory)
+            runner = app.TaskRunner(Mock(), Mock(), dry_run=False)
+            runner._capture_4c_absorb_prompt = Mock(return_value=(None, ""))
+            runner._find_daily_template = Mock(return_value=Mock())
+            runner._sleep_interruptible = Mock()
+            self.assertFalse(runner._absorb_4c_echo(screen, 1, "absorb"))
+            self.assertEqual([item.args[0] for item in runner.controller.press_key.call_args_list], ["F", "ESC"])
 
     def test_stop_during_probe_prevents_forward_movement(self):
         with tempfile.TemporaryDirectory() as directory:

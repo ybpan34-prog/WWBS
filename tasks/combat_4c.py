@@ -9,7 +9,6 @@ from PIL import Image
 
 from combat_rotation import BattleMonitor, IdleAttackWorker, RotationClock, SLOT_NAMES
 from tasks.models import Step
-from tasks.echo_spiral import echo_spiral_steps
 
 
 APP_DIR = Path(__file__).resolve().parent.parent
@@ -58,10 +57,7 @@ class Combat4CTask:
                 self._run_4c_battle(step, skill_key, ultimate_key, cycle_index)
                 if self.stop_event.is_set():
                     return
-                if overworld:
-                    self._collect_4c_reward(cycle_index, allow_missing=True)
-                else:
-                    self._collect_4c_reward(cycle_index)
+                self._collect_4c_reward(cycle_index)
                 if self.stop_event.is_set():
                     return
                 if cycle_index >= cycle_count:
@@ -557,73 +553,83 @@ class Combat4CTask:
         if not self.stop_event.is_set():
             raise RuntimeError("等待首领刷新超时，请确认角色仍在首领附近。")
 
-    def _collect_4c_reward(self, cycle_index: int, *, allow_missing=False) -> None:
-        screenshot = APP_DIR / "_runtime_screenshot.png"
-        transition_until = time.monotonic() + 2.5
-        deadline = transition_until + (15 if allow_missing else self.REWARD_SEARCH_TIMEOUT)
-        route = echo_spiral_steps()
-        targeted_moves = 0
-        self.log(f'    第{cycle_index}轮：从当前位置向外螺旋搜索声骸，每小段重新检查吸收提示。')
-        while time.monotonic() < deadline:
-            if self.stop_event.is_set():
-                return
-            self._capture_for_matching(screenshot)
-            with Image.open(screenshot) as captured:
-                scale = captured.width / 1920.0
-            prompt, prompt_name = self._find_4c_absorb_prompt(screenshot, scale)
-            if self.stop_event.is_set():
-                return
-            if prompt is not None:
-                self.log(
-                    f"    第{cycle_index}轮：发现吸收提示 {prompt_name}，"
-                    f"相似度 {prompt.score:.3f}，立即按 F。"
-                )
-                self.controller.release_keys()
-                self.controller.press_key("F", 100)
-                self._sleep_interruptible(2.8)
-                return
-            if self.stop_event.is_set():
-                return
-            if time.monotonic() < transition_until:
-                self.controller.release_keys()
-                self._sleep_interruptible(.1)
-                continue  # Death animation may ignore controls; absorb prompt still wins.
-            if targeted_moves < 3:
-                confidence, gold_x, _ = self._gold_target_location(screenshot)
-                if gold_x is not None and confidence >= .75 and not self.stop_event.is_set():
-                    targeted_moves += 1
-                    self._approach_4c_gold_target(gold_x-scale*960, scale*1920)
-                    continue
-            turn, duration = next(route)
-            self.controller.move_mouse_relative(turn, 0)
-            if self.stop_event.is_set():
-                return
-            if callable(getattr(type(self.controller), 'press_keys_cancelable', None)):
-                self.controller.press_keys_cancelable(('W',), duration, self.stop_event)
-            else:
-                self.controller.press_keys(('W',), duration)
-            self._sleep_interruptible(0.06)
-        self.controller.release_keys()
-        if allow_missing:
-            self.log(f'    第{cycle_index}轮未发现可吸收声骸，继续等待首领刷新。')
-            return
-        raise RuntimeError("击败首领后螺旋向外搜索仍未找到“F / 吸收”提示，已停止循环。")
+    def _capture_4c_absorb_prompt(self, screenshot):
+        self._capture_for_matching(screenshot)
+        with Image.open(screenshot) as image:
+            scale = image.width / 1920
+        return self._find_4c_absorb_prompt(screenshot, scale)
 
-    def _approach_4c_gold_target(self, offset_x: float, screen_width: int) -> str:
-        """Approach a visible echo without violating the right-only camera search."""
-        centre_tolerance = screen_width * 0.045
-        if offset_x < -centre_tolerance:
-            # Keep the camera direction stable and strafe toward a visible target;
-            # a full rightward wrap used to throw left-side echoes out of view.
-            self.controller.press_keys(("W", "A"), 400)
-            return "目标在左侧，向左前方靠近"
-        if offset_x > centre_tolerance:
-            turn = int(max(110, min(360, offset_x * 0.40)))
-            self.controller.move_mouse_relative(turn, 0)
-            self.controller.press_keys(("W",), 360)
-            return "目标在右侧，向右微调并靠近"
-        self.controller.press_keys(("W",), 500)
-        return "目标已在中央，直线靠近"
+    def _collect_4c_reward(self, cycle_index: int) -> bool:
+        screenshot = APP_DIR / "_runtime_screenshot.png"
+        try:
+            settle_until = time.monotonic() + 2.5
+            while not self.stop_event.is_set():
+                prompt, name = self._capture_4c_absorb_prompt(screenshot)
+                if prompt is not None:
+                    return self._absorb_4c_echo(screenshot, cycle_index, name)
+                if time.monotonic() >= settle_until:
+                    break
+                self._sleep_interruptible(self.REWARD_INITIAL_CHECK_DELAY)
+
+            if self.stop_event.is_set():
+                return False
+            self.log(f"    第{cycle_index}轮：未见吸收提示，回正视角，先向后、再向前查找声骸。")
+            self.controller.middle_click()
+            self._sleep_interruptible(.2)
+            for key, steps in (("S", 5), ("W", 15)):
+                for segment in range(steps + 1):
+                    if self.stop_event.is_set():
+                        return False
+                    prompt, name = self._capture_4c_absorb_prompt(screenshot)
+                    if prompt is not None:
+                        return self._absorb_4c_echo(screenshot, cycle_index, name)
+                    if segment == steps or self.stop_event.is_set():
+                        break
+                    if callable(getattr(type(self.controller), "press_keys_cancelable", None)):
+                        self.controller.press_keys_cancelable((key,), 200, self.stop_event)
+                    else:
+                        self.controller.press_keys((key,), 200)
+
+            if not self.stop_event.is_set():
+                self.log(f"    第{cycle_index}轮未确认有可吸收声骸，继续刷取。")
+            return False
+        finally:
+            self.controller.release_keys()
+
+    def _absorb_4c_echo(self, screenshot, cycle_index, name):
+        for attempt in range(1, 3):
+            if self.stop_event.is_set():
+                return False
+            self.controller.release_keys()
+            self.log(f"    第{cycle_index}轮：已识别 F／吸收（{name}），第{attempt}次交互。")
+            self.controller.press_key("F", 100)
+            absent = 0
+            for _ in range(5):
+                self._sleep_interruptible(.25)
+                if self.stop_event.is_set():
+                    return False
+                prompt, name = self._capture_4c_absorb_prompt(screenshot)
+                if self.stop_event.is_set():
+                    return False
+                with Image.open(screenshot) as image:
+                    width, height = image.size
+                reward_title = self._find_daily_template(
+                    str(TEMPLATES_DIR/"daily"/"reward_dialog_title.png"), threshold=.88,
+                    scales=[width/1920], screenshot=screenshot,
+                    region=(round(width*.22), round(height*.29), round(width*.34), round(height*.37)),
+                )
+                if reward_title is not None:
+                    self.controller.press_key("ESC", 70)
+                    self._sleep_interruptible(.25)
+                    self.log("    F 打开了领取奖励窗口，已关闭，未记为声骸吸收。")
+                    return False
+                absent = absent+1 if prompt is None else 0
+                if absent >= 2:
+                    self.log(f"    第{cycle_index}轮已复核吸收提示消失。")
+                    return True
+            if prompt is None:
+                break
+        raise RuntimeError("未确认吸收交互生效，已停止刷取。")
 
     def _find_4c_absorb_prompt(self, screenshot: Path, scale: float, *, fast: bool = False):
         best = None
@@ -644,6 +650,7 @@ class Combat4CTask:
                 scales.append(candidate)
         for template_name in self.ABSORB_PROMPT_TEMPLATES:
             text_crop = self.ABSORB_TEXT_CROPS[template_name]
+            key_crop = (17, 28, 46, 58) if template_name.endswith('_dark.png') else (11, 15, 42, 45)
             for candidate_scale in scales:
                 try:
                     match = self.matcher.find_fast(
@@ -653,6 +660,18 @@ class Combat4CTask:
                         scale=candidate_scale,
                         region=prompt_region,
                         template_crop=text_crop,
+                    )
+                    # An absorb label alone may be another item in the prompt list.
+                    # Match the F key immediately to the left on the same row.
+                    left = match.x + round((key_crop[0]-text_crop[0])*candidate_scale)
+                    top = match.y + round((key_crop[1]-text_crop[1])*candidate_scale)
+                    margin = max(3, round(7*candidate_scale))
+                    self.matcher.find_fast(
+                        screenshot, template_name, threshold=.76, scale=candidate_scale,
+                        region=(left-margin, top-margin,
+                                left+round((key_crop[2]-key_crop[0])*candidate_scale)+margin,
+                                top+round((key_crop[3]-key_crop[1])*candidate_scale)+margin),
+                        template_crop=key_crop,
                     )
                 except Exception:
                     continue
@@ -746,116 +765,3 @@ class Combat4CTask:
         low = region.min(axis=2)
         neutral_track = ((high - low) < 45) & (high > 85)
         return float(neutral_track.mean(axis=1).max())
-
-    @staticmethod
-    def _gold_target_location(screenshot: Path) -> tuple[float, int | None, int | None]:
-        with Image.open(screenshot) as source:
-            image = np.asarray(source.convert("RGB"))
-        height, width = image.shape[:2]
-        # High signs are excluded. The lower world view remains searchable because
-        # a small echo can sit near the character; lower candidates must be more
-        # solid so hollow golden combat rings are rejected.
-        top, bottom = round(height * 0.18), round(height * 0.84)
-        left, right = round(width * 0.08), round(width * 0.92)
-        region = image[top:bottom, left:right]
-        red = region[:, :, 0].astype(np.float32)
-        green = region[:, :, 1].astype(np.float32)
-        blue = region[:, :, 2].astype(np.float32)
-        # Absorbable echoes are a saturated deep orange-gold. Pale yellow-white
-        # reflections and floor lights must not be treated as navigation targets.
-        maximum = np.maximum.reduce((red, green, blue))
-        minimum = np.minimum.reduce((red, green, blue))
-        saturation = (maximum - minimum) / np.maximum(maximum, 1.0)
-        gold = (
-            (red > 150)
-            & (green > 85)
-            & (blue < 145)
-            & (saturation >= 0.42)
-            & ((red - green) > 18)
-            & ((green - blue) > 18)
-        )
-        if not gold.any():
-            return 0.0, None, None
-
-        # Downsample once and lightly join glow fragments. The component filter
-        # below accepts small compact echoes, but rejects long rails and streaks.
-        sample_step = 3
-        sampled = gold[::sample_step, ::sample_step]
-        padded = np.pad(sampled, 1, mode="constant")
-        expanded = np.logical_or.reduce(
-            [
-                padded[dy : dy + sampled.shape[0], dx : dx + sampled.shape[1]]
-                for dy in range(3)
-                for dx in range(3)
-            ]
-        )
-
-        visited = np.zeros(expanded.shape, dtype=bool)
-        best_points: list[tuple[int, int]] = []
-        best_score = 0.0
-        best_confidence = 0.0
-        rows, columns = expanded.shape
-        for start_y, start_x in zip(*np.nonzero(expanded & ~visited)):
-            if visited[start_y, start_x]:
-                continue
-            stack = [(int(start_y), int(start_x))]
-            visited[start_y, start_x] = True
-            points = []
-            while stack:
-                y, x = stack.pop()
-                points.append((y, x))
-                for dy in (-1, 0, 1):
-                    for dx in (-1, 0, 1):
-                        ny, nx = y + dy, x + dx
-                        if 0 <= ny < rows and 0 <= nx < columns and expanded[ny, nx] and not visited[ny, nx]:
-                            visited[ny, nx] = True
-                            stack.append((ny, nx))
-            ys = [point[0] for point in points]
-            xs = [point[1] for point in points]
-            component_height = max(ys) - min(ys) + 1
-            component_width = max(xs) - min(xs) + 1
-            aspect = max(component_width / component_height, component_height / component_width)
-            compactness = len(points) / max(1, component_width * component_height)
-            component_center_y = (sum(ys) / len(ys)) * sample_step + top
-            component_center_x = (sum(xs) / len(xs)) * sample_step
-            minimum_compactness = 0.68 if component_center_y > height * 0.60 else 0.43
-            valid_shape = aspect <= 2.05 or (
-                component_width > component_height and aspect <= 2.80
-            )
-            # A common false positive is the small gold ring mounted beneath the
-            # large yellow MILITECH billboard. Reject a candidate when a broad,
-            # dense gold panel occupies the area well above it. Real echoes do not
-            # have a billboard-sized gold slab suspended over their position.
-            overhead = gold[
-                max(0, round(component_center_y - top - height * 0.40)):
-                max(1, round(component_center_y - top - height * 0.10)),
-                max(0, round(component_center_x - width * 0.16)):
-                min(gold.shape[1], round(component_center_x + width * 0.16)),
-            ]
-            overhead_gold_ratio = float(overhead.mean()) if overhead.size else 0.0
-            # Distant echoes form a medium-sized compact cluster. Tiny golden UI
-            # marks and large billboards sit outside this range; a very close echo
-            # is handled by the F/absorb prompt before colour navigation runs.
-            if (
-                len(points) < 100
-                or len(points) > 1400
-                or not valid_shape
-                or compactness < minimum_compactness
-                or overhead_gold_ratio > 0.055
-            ):
-                continue
-            score = len(points) * compactness
-            if score > best_score:
-                best_score = score
-                best_points = points
-                best_confidence = compactness
-
-        if not best_points:
-            return float(len(best_points) / max(1, expanded.size)), None, None
-        ys = np.fromiter((point[0] for point in best_points), dtype=np.float32)
-        xs = np.fromiter((point[1] for point in best_points), dtype=np.float32)
-        return (
-            float(best_confidence),
-            round(float(xs.mean()) * sample_step + left),
-            round(float(ys.mean()) * sample_step + top),
-        )
