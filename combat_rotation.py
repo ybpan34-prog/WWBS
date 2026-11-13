@@ -14,6 +14,7 @@ ACTION_SPECS = {
     "idle_attack": ("空闲时持续普攻", "其他模块结束后普攻，每 N 下穿插重击", 1, 100),
     "attack_count": ("普攻 N 次", "按节奏点击左键 N 次", 1, 100),
     "jump_attack": ("跳跃普攻", "跳跃后普攻 N 次", 1, 20),
+    "dodge": ("闪避（右键）", "按排轴顺序点击一次鼠标右键", 1, 1),
     "attack_seconds": ("普攻 N 秒", "按顺序执行的普攻时长", 0.2, 30),
     "heavy_count": ("重击 N 次", "长按左键进行重击", 1, 20),
     "skill": ("施放技能", "使用任务设置中的技能键，按间隔循环触发", 1, 1),
@@ -31,7 +32,7 @@ DEFAULT_VALUES = {
     "attack_seconds": (3, 0), "heavy_count": (1, 0),
     "skill": (1, 5), "ultimate": (1, 15), "echo": (1, 20),
     "approach": (0.09, 0.75), "wait": (1, 0),
-    "execute": (1, 0), "skill_count": (1, 0), "ultimate_count": (1, 0),
+    "execute": (1, 0), "dodge": (1, 0), "skill_count": (1, 0), "ultimate_count": (1, 0),
 }
 COMBAT_MODES = {"combat_4c": "4C 刷取", "daily": "一键日常", "tower": "深塔挑战", "forgery": "凝素领域"}
 SLOT_NAMES = {1: "一号位", 2: "二号位", 3: "三号位"}

@@ -8,7 +8,7 @@ const ACTIONS = [
   ['ultimate',1,15,1,1,true], ['echo',1,20,1,1,true], ['approach',.09,.75,.05,3,false], ['wait',1,0,.2,30,false],
 ];
 const ORDERS = [[1,2,3],[1,3,2],[2,1,3],[2,3,1],[3,1,2],[3,2,1]];
-const ACTIONS_V5 = [...ACTIONS, ['execute',1,0,1,1,true], ['skill_count',1,0,1,20,true], ['ultimate_count',1,0,1,20,true]];
+const ACTIONS_V5 = [...ACTIONS, ['execute',1,0,1,1,true], ['skill_count',1,0,1,20,true], ['ultimate_count',1,0,1,20,true], ['dodge',1,0,1,1,true]];
 
 export function crc32(buffer) {
   let crc = 0xffffffff;

@@ -110,7 +110,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
 APP_VERSION = "1.6.3"
-APP_BUILD = 3
+APP_BUILD = 4
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -4078,7 +4078,7 @@ class App:
               wraplength=380, justify=LEFT).pack(anchor="w", pady=(0, 12))
         Label(body, text="角色位", bg=COLORS["panel"], fg=COLORS["text"]).pack(anchor="w")
         self._rounded_picker(body, slot, list(SLOT_NAMES.values()), lambda: None).pack(fill=X, pady=(4, 10))
-        for title, variable in ([] if kind in {"skill", "ultimate", "echo", "execute"} else [(caption, value)]) + ([("循环间隔（秒）", interval)]
+        for title, variable in ([] if kind in {"skill", "ultimate", "echo", "execute", "dodge"} else [(caption, value)]) + ([("循环间隔（秒）", interval)]
                                                     if kind in {"skill", "ultimate", "echo", "approach"} else []):
             Label(body, text=title, bg=COLORS["panel"], fg=COLORS["text"],
                   wraplength=380, justify=LEFT).pack(anchor="w")
@@ -4170,6 +4170,7 @@ class App:
                   "jump_attack": f"跳跃后普攻 {value:g} 次", "heavy_count": f"长按重击 {value:g} 次",
                   "attack_seconds": f"普攻 {value:g} 秒", "wait": f"等待 {value:g} 秒",
                   "execute": "按顺序点击 F 一次",
+                  "dodge": "按顺序点击右键一次",
                   "skill_count": f"每次驻场施放技能 {value:g} 次，不循环",
                   "ultimate_count": f"每次驻场施放大招 {value:g} 次，不循环",
                   "approach": f"前进 {value:g} 秒"}.get(kind, f"每 {item['interval']:g} 秒循环触发")
@@ -4863,8 +4864,7 @@ class App:
         display_box.pack(fill=X, pady=(0, 14))
         Label(display_box, text="识别环境检查", font=(FONT_FAMILY, 11, "bold"),
               bg=COLORS["panel_alt"]).pack(anchor="w")
-        Label(display_box, text="HDR、自动 HDR 和游戏滤镜会改变截图颜色，导致按钮识别失败。"
-              "诊断可读取游戏所在屏幕的系统 HDR 状态；第三方滤镜需手动检查。",
+        Label(display_box, text="诊断会报告游戏所在屏幕的系统 HDR 状态。游戏内及第三方滤镜需在各自设置中查看。",
               wraplength=720, justify=LEFT, fg=COLORS["muted"],
               bg=COLORS["panel_alt"]).pack(anchor="w", fill=X, pady=(6, 10))
         self._ui_button(display_box, text="检查 HDR 与识别环境", command=self._diagnose_runtime).pack(anchor="w")
@@ -5277,7 +5277,7 @@ class App:
     @staticmethod
     def _friendly_runtime_error(error_text: str) -> str:
         if any(text in error_text for text in ("未找到模板", "识别超时", "无法确认", "周常模板流程无法继续")):
-            return f"当前画面没有匹配到任务需要的按钮或界面。{error_text} 请运行识别环境诊断，并检查 HDR／自动 HDR 和游戏滤镜。"
+            return f"当前画面没有匹配到任务需要的按钮或界面。{error_text} 可查看诊断截图，确认游戏停留在哪个页面。"
         if "模板不存在" in error_text or "模板组不存在" in error_text:
             return f"任务需要的模板文件不完整。{error_text}"
         if "等比例缩放" in error_text:
@@ -5513,7 +5513,7 @@ class App:
                     findings.append(("error", f"游戏窗口检查失败：{error_text}"))
 
             if not any(FILTER_GUIDANCE in message for _, message in findings):
-                findings.append(("warning", FILTER_GUIDANCE))
+                findings.append(("info", FILTER_GUIDANCE))
             self._log(f"=== {self.pet_name}运行诊断（{APP_VERSION}） ===")
             icons = {"ok": "[正常]", "warning": "[注意]", "error": "[问题]", "info": "[提示]"}
             for level, message in findings:
@@ -7063,7 +7063,7 @@ class App:
                 self._log(controller.connect())
                 self._warn_nonstandard_resolution(controller)
             for level, message in display_findings(read_game_display(getattr(controller, 'hwnd', None))):
-                if level != 'ok':
+                if level in {'warning', 'error'}:
                     self._log(f"识别环境提醒：{message}")
             rotation_snapshot = getattr(self, "_rotation_run_store", self.rotation_store)
             runner = TaskRunner(

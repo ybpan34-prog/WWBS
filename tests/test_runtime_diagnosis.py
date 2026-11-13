@@ -67,10 +67,11 @@ class RuntimeDiagnosisTests(unittest.TestCase):
         self.assertEqual(app._event_line.call_args.args[0], "diagnose_error")
         app._pet_feedback.assert_called_once()
 
-    def test_reported_weekly_failure_includes_environment_diagnosis(self):
+    def test_reported_weekly_failure_points_to_screenshot_without_assuming_display_settings(self):
         detail = App._friendly_runtime_error('周常模板流程无法继续：本次 menu4.png')
-        self.assertIn('HDR', detail)
-        self.assertIn('滤镜', detail)
+        self.assertIn('诊断截图', detail)
+        self.assertNotIn('HDR', detail)
+        self.assertNotIn('滤镜', detail)
 
     def test_log_reader_notifies_pet_about_mouse_move_failure(self) -> None:
         app = App.__new__(App)

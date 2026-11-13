@@ -68,7 +68,7 @@ class CountedCastTests(unittest.TestCase):
 
     def test_validation_save_and_new_seed_round_trip(self):
         preset = default_store()['presets'][0]
-        preset['modules'] = [new_module(k) for k in ('execute', 'skill_count', 'ultimate_count')]
+        preset['modules'] = [new_module(k) for k in ('execute', 'skill_count', 'ultimate_count', 'dodge')]
         preset['modules'][1]['value'] = 3
         seed = export_seed(preset)
         self.assertIn('】WWBS5.', seed)
@@ -80,6 +80,22 @@ class CountedCastTests(unittest.TestCase):
             store['presets'][0]['modules'] = [dict(new_module('skill_count'), value=bad)]
             with self.assertRaises(ValueError):
                 validate_store(store)
+
+    def test_dodge_right_clicks_once_per_visit_and_respects_stop(self):
+        runner = app.TaskRunner(Mock(), Mock())
+        runner._rotation_slot = 1
+        runner._rotation_idle_worker = Mock()
+        clock = RotationClock([new_module('dodge')], 0)
+        clock.next_action(0)
+        action = clock.next_action(.1)
+        self.assertEqual(action['kind'], 'dodge')
+        self.assertIsNone(clock.next_action(.2))
+        with patch('tasks.combat_4c.time.monotonic', return_value=.1):
+            runner._run_rotation_action(action, clock, 'E', 'R', threading.Event(), threading.Lock())
+            runner.stop_event.set()
+            runner._run_rotation_action(action, clock, 'E', 'R', threading.Event(), threading.Lock())
+        runner.controller.right_click.assert_called_once_with()
+        runner._rotation_idle_worker.pause.assert_called_once()
 
     def test_editor_exposes_cast_count_and_saves_without_changing_loop_modules(self):
         root = tk.Tk()

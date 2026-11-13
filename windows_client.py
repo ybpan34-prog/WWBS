@@ -17,6 +17,8 @@ kernel32 = ctypes.windll.kernel32
 SW_RESTORE = 9
 MOUSEEVENTF_LEFTDOWN = 0x0002
 MOUSEEVENTF_LEFTUP = 0x0004
+MOUSEEVENTF_RIGHTDOWN = 0x0008
+MOUSEEVENTF_RIGHTUP = 0x0010
 MOUSEEVENTF_MIDDLEDOWN = 0x0020
 MOUSEEVENTF_MIDDLEUP = 0x0040
 MOUSEEVENTF_WHEEL = 0x0800
@@ -128,6 +130,7 @@ class ClientWindowController:
             for key in list(getattr(self, '_held_keys', ())):
                 self._send_keyboard_event(key, key_up=True)
             up_flags = {MOUSEEVENTF_LEFTDOWN: MOUSEEVENTF_LEFTUP,
+                        MOUSEEVENTF_RIGHTDOWN: MOUSEEVENTF_RIGHTUP,
                         MOUSEEVENTF_MIDDLEDOWN: MOUSEEVENTF_MIDDLEUP,
                         MOUSEEVENTF_XDOWN: MOUSEEVENTF_XUP}
             for flag, data in list(getattr(self, '_held_mouse', ())):
@@ -225,6 +228,20 @@ class ClientWindowController:
             time.sleep(0.025)
         finally:
             self._send_mouse_button(MOUSEEVENTF_LEFTUP)
+
+    def right_click(self) -> None:
+        if self._input_stopped():
+            return
+        self._ensure_window()
+        if user32.GetForegroundWindow() != self.hwnd:
+            self._focus_window()
+        if user32.GetForegroundWindow() != self.hwnd:
+            raise RuntimeError("游戏窗口未获得焦点，已取消闪避。")
+        try:
+            self._send_mouse_button(MOUSEEVENTF_RIGHTDOWN)
+            time.sleep(0.025)
+        finally:
+            self._send_mouse_button(MOUSEEVENTF_RIGHTUP)
 
     def hold_left_button(self, duration_ms: int = 800, *, cancel_event=None) -> None:
         """Hold basic attack for a charged attack, always releasing the button."""
@@ -933,7 +950,7 @@ class ClientWindowController:
 
     def _send_mouse_button(self, flag: int, mouse_data: int = 0) -> None:
         with getattr(self, '_input_lock', nullcontext()):
-            down_flags = {MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_XDOWN}
+            down_flags = {MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_XDOWN}
             if flag in down_flags and self._input_stopped():
                 return
             event = INPUT(type=INPUT_MOUSE, union=INPUT_UNION(mi=MOUSEINPUT(0, 0, mouse_data, flag, 0, 0)))
@@ -942,7 +959,10 @@ class ClientWindowController:
                 raise RuntimeError("鼠标点击发送失败。")
             held = getattr(self, '_held_mouse', None)
             if held is not None:
-                inverse = {MOUSEEVENTF_LEFTUP: MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_MIDDLEUP: MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_XUP: MOUSEEVENTF_XDOWN}
+                inverse = {MOUSEEVENTF_LEFTUP: MOUSEEVENTF_LEFTDOWN,
+                           MOUSEEVENTF_RIGHTUP: MOUSEEVENTF_RIGHTDOWN,
+                           MOUSEEVENTF_MIDDLEUP: MOUSEEVENTF_MIDDLEDOWN,
+                           MOUSEEVENTF_XUP: MOUSEEVENTF_XDOWN}
                 if flag in down_flags:
                     held.add((flag, mouse_data))
                 elif flag in inverse:

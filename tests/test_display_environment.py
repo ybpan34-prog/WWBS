@@ -44,7 +44,7 @@ class DisplayEnvironmentTests(unittest.TestCase):
         reader.source_name.return_value = 'game'
         reader.color.side_effect = [DisplayState('GAME', 'sdr'), DisplayState('GAME', 'hdr')]
         findings = display_findings(read_game_display(123, reader=reader))
-        self.assertTrue(any(level == 'error' and '自动 HDR' in message and '关闭' in message
+        self.assertTrue(any(level == 'warning' and '已确认' in message and '关闭' in message
                             for level, message in findings))
 
     def test_api_failure_is_unknown_not_sdr_and_filters_require_manual_check(self):
@@ -53,8 +53,10 @@ class DisplayEnvironmentTests(unittest.TestCase):
         findings = display_findings(read_game_display(123, reader=reader))
         self.assertTrue(any('无法确认' in message for _, message in findings))
         self.assertFalse(any(level == 'ok' for level, _ in findings))
-        self.assertIn(('warning', FILTER_GUIDANCE), findings)
-        self.assertIn(('warning', FILTER_GUIDANCE), display_findings(()))
+        self.assertIn(('info', FILTER_GUIDANCE), findings)
+        self.assertIn(('info', FILTER_GUIDANCE), display_findings(()))
+        for state in ((), (DisplayState('game', 'sdr'),), (DisplayState('game', 'advanced'),)):
+            self.assertFalse(any(level in {'warning', 'error'} for level, _ in display_findings(state)))
 
     def test_modern_query_falls_back_to_legacy_read_only(self):
         reader = WindowsDisplayReader.__new__(WindowsDisplayReader)

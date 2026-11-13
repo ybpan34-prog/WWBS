@@ -57,7 +57,7 @@ class FastStopTests(unittest.TestCase):
         self.assertIsNot(ui._start_worker.call_args.args[0][0], ui._last_started_tasks[0])
 
     def test_heavy_and_keyboard_holds_are_released_without_waiting_for_their_duration(self):
-        for action in ('heavy', 'keyboard'):
+        for action in ('heavy', 'keyboard', 'dodge'):
             with self.subTest(action=action):
                 controller = ClientWindowController()
                 controller.hwnd = 1
@@ -66,13 +66,16 @@ class FastStopTests(unittest.TestCase):
                 controller.set_cancel_event(stopped)
                 def send(_count, pointer, _size):
                     event = pointer._obj
-                    if (event.type == windows_client.INPUT_MOUSE and event.union.mi.dwFlags == MOUSEEVENTF_LEFTDOWN
+                    if (event.type == windows_client.INPUT_MOUSE
+                            and event.union.mi.dwFlags in {MOUSEEVENTF_LEFTDOWN, windows_client.MOUSEEVENTF_RIGHTDOWN}
                             or event.type == windows_client.INPUT_KEYBOARD and event.union.ki.dwFlags == 0):
                         entered.set()
                     return 1
                 with patch.object(windows_client.user32, 'GetForegroundWindow', return_value=1), \
                         patch.object(windows_client.user32, 'SendInput', side_effect=send) as inject:
-                    method = (lambda: controller.hold_left_button(2000)) if action == 'heavy' else (lambda: controller.press_keys(('W',), 1000))
+                    method = {'heavy': lambda: controller.hold_left_button(2000),
+                              'keyboard': lambda: controller.press_keys(('W',), 1000),
+                              'dodge': controller.right_click}[action]
                     thread = threading.Thread(target=method)
                     thread.start()
                     self.assertTrue(entered.wait(1))
@@ -86,6 +89,7 @@ class FastStopTests(unittest.TestCase):
                     count = inject.call_count
                     controller._send_keyboard_event(ord('E'), key_up=False)
                     controller._send_mouse_button(MOUSEEVENTF_LEFTDOWN)
+                    controller._send_mouse_button(windows_client.MOUSEEVENTF_RIGHTDOWN)
                     self.assertEqual(inject.call_count, count)
 
     def test_ui_fallback_does_not_duplicate_background_listener_press(self):

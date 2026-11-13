@@ -42,7 +42,8 @@ SHORT_ACTIONS = (
     ("ultimate", 1, 15), ("echo", 1, 20), ("approach", .09, .75), ("wait", 1, 0),
 )
 SHORT_ORDERS = tuple(itertools.permutations((1, 2, 3)))
-EXTENDED_ACTIONS = SHORT_ACTIONS + (("execute", 1, 0), ("skill_count", 1, 0), ("ultimate_count", 1, 0))
+EXTENDED_ACTIONS = SHORT_ACTIONS + (("execute", 1, 0), ("skill_count", 1, 0), ("ultimate_count", 1, 0),
+                                   ("dodge", 1, 0))
 
 
 def _checked_preset(preset: dict) -> dict:
@@ -113,7 +114,8 @@ def validate_seed_name(name: str) -> str:
 
 def export_seed(preset: dict, *, seed_name: str | None = None) -> str:
     checked = _checked_preset(preset)
-    extended = any(item['kind'] in {'execute', 'skill_count', 'ultimate_count'} for item in checked['modules'])
+    legacy_kinds = {kind for kind, _, _ in SHORT_ACTIONS}
+    extended = any(item['kind'] not in legacy_kinds for item in checked['modules'])
     actions = EXTENDED_ACTIONS if extended else SHORT_ACTIONS
     automatic_name = re.sub(r'[【】\x00-\x1f]', '', checked['name']).strip()[:MAX_SEED_NAME] or '战斗轴'
     alias = validate_seed_name(seed_name if seed_name is not None else automatic_name)

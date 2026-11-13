@@ -8,10 +8,8 @@ import os
 from dataclasses import dataclass
 
 
-FILTER_GUIDANCE = ('游戏滤镜无法可靠自动检测。识别失败时，请关闭游戏内滤镜、'
-                   'NVIDIA／AMD 游戏滤镜及 ReShade 等调色效果，再重试。')
-HDR_GUIDANCE = ('请在 Windows 设置→系统→显示→HDR 中关闭该屏幕的“使用 HDR”和“自动 HDR”，'
-                '同时关闭游戏内 HDR；重新进入游戏后重试。')
+FILTER_GUIDANCE = '检测范围仅包括系统 HDR 状态。游戏内滤镜及第三方滤镜的开启状态未检测。'
+HDR_GUIDANCE = '如遇识别失败，可在 Windows 设置 → 系统 → 显示 → HDR 中关闭该屏幕的“使用 HDR”后重试。'
 U32 = c.c_uint32
 I32 = c.c_int32
 
@@ -82,18 +80,18 @@ def display_findings(states):
     """Input is restricted to targets on the game's monitor (including clones)."""
     findings = []
     if not states:
-        findings.append(('warning', '未能读取游戏所在屏幕的 HDR 状态，请手动检查 Windows HDR／自动 HDR。'))
+        findings.append(('info', '未能读取游戏所在屏幕的系统 HDR 状态。'))
     for state in states:
         if state.mode == 'hdr':
-            findings.append(('error', f'检测到游戏所在屏幕 {state.device} 正在使用 HDR，会改变模板截图颜色。'+HDR_GUIDANCE))
+            findings.append(('warning', f'已确认游戏所在屏幕 {state.device} 启用了系统 HDR。'+HDR_GUIDANCE))
         elif state.mode == 'advanced':
-            findings.append(('warning', f'{state.device} 已启用高级颜色；当前系统接口不能区分 HDR 与广色域，请手动检查 HDR／自动 HDR。'))
+            findings.append(('info', f'{state.device} 已启用高级颜色，具体模式为 HDR 还是广色域尚无法确认。'))
         elif state.mode == 'unknown':
-            findings.append(('warning', f'无法确认 {state.device} 的 HDR 状态，请手动检查。{state.detail}'))
+            findings.append(('info', f'无法确认 {state.device} 的系统 HDR 状态。{state.detail}'))
         else:
             mode = '广色域 WCG' if state.mode == 'wcg' else 'SDR'
             findings.append(('ok', f'游戏所在屏幕 {state.device} 当前为{mode}，未启用系统 HDR。'))
-    findings.append(('warning', FILTER_GUIDANCE))
+    findings.append(('info', FILTER_GUIDANCE))
     return findings
 
 

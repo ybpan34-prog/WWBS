@@ -426,6 +426,8 @@ class Combat4CTask:
             self.controller.press_key("SPACE", 50)
         elif kind == "execute":
             self.controller.press_key("F", 65)
+        elif kind == "dodge":
+            self.controller.right_click()
         elif kind in {"skill", "ultimate", "echo"}:
             if self.stop_event.is_set():
                 return False
