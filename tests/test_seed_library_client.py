@@ -4,8 +4,8 @@ import unittest
 from unittest.mock import Mock
 import urllib.error
 
-from combat_rotation import default_store
-from combat_seed import export_seed
+from combat_rotation import default_store, new_module
+from combat_seed import decode_seed, export_seed, import_seed
 from seed_library import upload_seed,search_seeds,download_seed
 
 
@@ -14,6 +14,23 @@ def response(data):
 
 
 class SeedLibraryClientTests(unittest.TestCase):
+    def test_download_edit_rename_and_share_uses_the_library_title_on_redownload(self):
+        source = default_store()['presets'][0]
+        original = export_seed(source, seed_name='A轴')
+        store, original_id = import_seed(default_store(), original, from_library=True)
+        edited = next(p for p in store['presets'] if p['id'] == original_id)
+        self.assertEqual(edited['name'], 'A轴')
+        edited['name'] = 'B轴'
+        edited['modules'].append(new_module('dodge', 2))
+        shared = export_seed(edited)
+        self.assertEqual(decode_seed(shared)['seed_name'], 'B轴')
+        downloaded, _ = import_seed(default_store(), shared, from_library=True)
+        self.assertEqual(downloaded['presets'][-1]['name'], 'B轴')
+        self.assertTrue(any(m['kind'] == 'dodge' and m['slot'] == 2 for m in downloaded['presets'][-1]['modules']))
+        downloaded, _ = import_seed(downloaded, shared, from_library=True)
+        self.assertEqual([p['name'] for p in downloaded['presets'][-2:]], ['B轴', 'B轴（2）'])
+        self.assertEqual(decode_seed(original)['seed_name'], 'A轴')
+
     def test_upload_sends_seed_only_without_local_configuration(self):
         seed=export_seed(default_store()['presets'][0])
         opened=Mock(return_value=response({'item':{'id':'a'*24,'name':'默认战斗轴'}}))

@@ -78,7 +78,7 @@ class SeedLibraryUiTests(unittest.TestCase):
             self.wait_job(dialog)
         download.assert_called_once_with('b'*24)
         self.assertEqual(len(self.ui.rotation_store['presets']), 2)
-        self.assertEqual(self.ui.rotation_store['presets'][-1]['name'], '第二条种子（导入）')
+        self.assertEqual(self.ui.rotation_store['presets'][-1]['name'], '第二条种子')
         self.assertEqual(self.ui.rotation_store['modes'], modes)
 
     def test_long_card_list_can_scroll_and_short_refresh_does_not_leave_blank_space(self):

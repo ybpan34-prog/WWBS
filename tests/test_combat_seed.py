@@ -106,7 +106,7 @@ class CombatSeedTests(unittest.TestCase):
         self.assertEqual(len({p["name"] for p in store["presets"]}), 3)
         self.assertEqual(store["presets"][1]["name"], self.preset["name"] + "（导入）")
         self.assertEqual(store["presets"][2]["name"], self.preset["name"] + "（导入）（2）")
-        self.assertEqual(store["modes"], {"daily": second, "combat_4c": "default", "tower": "default"})
+        self.assertEqual(store["modes"], {"daily": second, "combat_4c": "default", "tower": "default", "forgery": "default"})
         self.assertEqual(store["active"], second)
         ids = [m["id"] for p in store["presets"] for m in p["modules"]]
         self.assertEqual(len(ids), len(set(ids)))
@@ -254,7 +254,7 @@ class CombatSeedUiTests(unittest.TestCase):
         self.root.update()
         saved = load_store(self.path)
         self.assertEqual(len(saved["presets"]), 2)
-        self.assertEqual(saved["modes"], {"daily": "default", "combat_4c": saved["active"], "tower": "default"})
+        self.assertEqual(saved["modes"], {"daily": "default", "combat_4c": saved["active"], "tower": "default", "forgery": "default"})
         self.assertEqual(self.ui.rotation_choice.get(), saved["presets"][-1]["name"])
         self.assertEqual(saved['presets'][-1]['name'], '新的轴（导入）')
         self.assertEqual(saved['presets'][-1]['slot_order'], [3, 1, 2])

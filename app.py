@@ -110,7 +110,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
 APP_VERSION = "1.6.3"
-APP_BUILD = 4
+APP_BUILD = 5
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -3658,7 +3658,7 @@ class App:
         shared = decode_seed(seed)
         dialog, body, text = self._rotation_seed_window(
             "生成战斗轴种子",
-            "种子保留原预设名、角色顺序、驻场时间及模块参数。种子名最多10字，用于前缀和在线搜索；生成和复制无需联网，上传后公开共享。",
+            "种子名默认取当前预设名，最多10字。种子库用该名称展示，下载后也用该名称保存。种子保留角色顺序、驻场时间及模块参数。",
         )
         text.insert("1.0", seed)
         text.configure(state="disabled")
@@ -3810,7 +3810,7 @@ class App:
                 status.set('当前预设未保存，下载未导入。')
                 return
             try:
-                updated, identity = import_seed(self.rotation_store, seed)
+                updated, identity = import_seed(self.rotation_store, seed, from_library=True)
                 save_store(COMBAT_PRESETS_CONFIG, updated)
             except (ValueError, OSError) as exc:
                 status.set(f'导入失败：{exc}')

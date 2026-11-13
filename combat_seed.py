@@ -378,7 +378,7 @@ def decode_seed(seed: str) -> dict:
         raise ValueError("种子内容无效，请检查是否复制完整") from exc
 
 
-def import_seed(store: dict, seed: str, *, modes=()) -> tuple[dict, str]:
+def import_seed(store: dict, seed: str, *, modes=(), from_library=False) -> tuple[dict, str]:
     checked = validate_store(store)
     if len(checked["presets"]) >= 30:
         raise ValueError("预设数量已满，最多保存30个预设")
@@ -386,11 +386,15 @@ def import_seed(store: dict, seed: str, *, modes=()) -> tuple[dict, str]:
         raise ValueError("请选择有效的使用模式")
     preset = decode_seed(seed)
     names = {p["name"] for p in checked["presets"]}
-    base = re.sub(r"（导入）(?:（\d+）)?$", "", preset["name"]) or preset["name"]
-    preset["name"] = base[:MAX_PRESET_NAME-4] + "（导入）"
+    if from_library:
+        base = validate_seed_name(preset.get("seed_name"))
+        preset["name"] = base
+    else:
+        base = re.sub(r"（导入）(?:（\d+）)?$", "", preset["name"]) or preset["name"]
+        preset["name"] = base[:MAX_PRESET_NAME-4] + "（导入）"
     index = 2
     while preset["name"] in names:
-        suffix = f"（导入）（{index}）"
+        suffix = f"（{index}）" if from_library else f"（导入）（{index}）"
         preset["name"] = base[:MAX_PRESET_NAME-len(suffix)].rstrip() + suffix
         index += 1
     result = deepcopy(checked)
