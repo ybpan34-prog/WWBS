@@ -1254,6 +1254,7 @@ class OtherTask:
         missed_turns = 0
         interactions = 0
         arrow_free_frames = 0
+        orb_locked = False
         combat_frames = 0
         camera = RewardCamera()
         self.log(f'    最多搜索{REWARD_SEARCH_SECONDS}秒。先找奖励标志，有箭头就按方向转动；连续确认标志无箭头后，才寻找置信度至少{threshold:.0%}的光球。')
@@ -1305,6 +1306,7 @@ class OtherTask:
                 deadline = max(deadline, time.monotonic() + 12.0)
                 missed_turns = 0
                 arrow_free_frames = combat_frames = 0
+                orb_locked = False
                 camera = RewardCamera()
                 continue
             marker_x, marker_y, score, direction = self._daily_reward_marker(screenshot)
@@ -1313,11 +1315,12 @@ class OtherTask:
             with Image.open(screenshot) as captured:
                 width, height = captured.size
                 combat = self._daily_combat_visible(screenshot) and (
-                    not self._daily_marker_confirms_reward(score, direction)
+                    (not orb_locked and not self._daily_marker_confirms_reward(score, direction))
                     or enemy_health_bar_present(captured)
                 )
             if combat:
                 arrow_free_frames = 0
+                orb_locked = False
                 combat_frames += 1
                 if combat_frames >= 2:
                     self.controller.release_keys()
@@ -1330,6 +1333,7 @@ class OtherTask:
                 arrow_free_frames = 0
                 missed_turns = 0
                 if direction != 'uncertain':
+                    orb_locked = False
                     turn = 'left' if direction == 'down' else direction
                     dx, dy = camera.follow(turn, marker_x, marker_y, width, height)
                     self.controller.move_mouse_relative(dx, dy)
@@ -1337,7 +1341,7 @@ class OtherTask:
                              +f'，转动步长{abs(dx or dy)}。')
                 self._sleep_interruptible(.15)
                 continue
-            if marker_x is None:
+            if marker_x is None and not orb_locked:
                 arrow_free_frames = 0
                 self.controller.move_mouse_relative(camera.sweep(missed_turns), 0)
                 missed_turns += 1
@@ -1346,20 +1350,24 @@ class OtherTask:
             camera.previous_turn = None
             missed_turns = 0
             arrow_free_frames += 1
-            if arrow_free_frames < 2:
+            if not orb_locked and arrow_free_frames < 2:
                 self._sleep_interruptible(.15)
                 continue
             orb_x, _orb_y, confidence = self._daily_reward_orb_location(screenshot)
             if self.stop_event.is_set():
                 break
             if orb_x is not None and confidence >= threshold:
+                orb_locked = True
                 offset = orb_x - width * 0.5
-                if abs(offset) > width * 0.05:
-                    self.controller.move_mouse_relative(int(max(-300, min(300, offset * 0.40))), 0)
-                else:
-                    self.controller.press_keys(("W",), 500)
-                    self.log(f"    已定位光球（置信度 {confidence:.2f}），正在靠近领取位置。")
+                keys = ("W",)
+                if abs(offset) > width * .05:
+                    keys += ("A" if offset < 0 else "D",)
+                duration = 750 if len(keys) > 1 else 1000
+                self.controller.press_keys(keys, duration)
+                self.log(f"    已定位光球（置信度 {confidence:.2f}），已发送 {'+'.join(keys)} {duration}毫秒。")
             self._sleep_interruptible(0.22)
+        if self.stop_event.is_set():
+            return False
         if interactions:
             raise RuntimeError('按F后未能确认领取奖励界面，也未重新看到领取提示。')
         raise RuntimeError("奖励阶段未找到“领取奖励”提示，已停止以避免误操作。")

@@ -110,7 +110,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
 APP_VERSION = "1.6.3"
-APP_BUILD = 5
+APP_BUILD = 6
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -4078,7 +4078,7 @@ class App:
               wraplength=380, justify=LEFT).pack(anchor="w", pady=(0, 12))
         Label(body, text="角色位", bg=COLORS["panel"], fg=COLORS["text"]).pack(anchor="w")
         self._rounded_picker(body, slot, list(SLOT_NAMES.values()), lambda: None).pack(fill=X, pady=(4, 10))
-        for title, variable in ([] if kind in {"skill", "ultimate", "echo", "execute", "dodge"} else [(caption, value)]) + ([("循环间隔（秒）", interval)]
+        for title, variable in ([] if kind in {"skill", "ultimate", "echo", "execute", "dodge", "switch_2", "switch_3"} else [(caption, value)]) + ([("循环间隔（秒）", interval)]
                                                     if kind in {"skill", "ultimate", "echo", "approach"} else []):
             Label(body, text=title, bg=COLORS["panel"], fg=COLORS["text"],
                   wraplength=380, justify=LEFT).pack(anchor="w")
@@ -4171,6 +4171,8 @@ class App:
                   "attack_seconds": f"普攻 {value:g} 秒", "wait": f"等待 {value:g} 秒",
                   "execute": "按顺序点击 F 一次",
                   "dodge": "按顺序点击右键一次",
+                  "switch_2": "立即开始2号位排轴",
+                  "switch_3": "立即开始3号位排轴",
                   "skill_count": f"每次驻场施放技能 {value:g} 次，不循环",
                   "ultimate_count": f"每次驻场施放大招 {value:g} 次，不循环",
                   "approach": f"前进 {value:g} 秒"}.get(kind, f"每 {item['interval']:g} 秒循环触发")

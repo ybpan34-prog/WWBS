@@ -133,7 +133,7 @@ class DailyArrowTests(unittest.TestCase):
             runner._daily_reward_marker_direction.side_effect = [None, None]
             runner._find_daily_reward_prompt.side_effect = [None, None, Mock()]
             self.assertTrue(runner._collect_daily_reward(1))
-            runner.controller.press_keys.assert_called_once_with(('W',), 500)
+            runner.controller.press_keys.assert_called_once_with(('W',), 1000)
             runner.controller.move_mouse_relative.assert_not_called()
             self.assertEqual(runner._daily_reward_marker_direction.call_count, 2)
             runner._daily_reward_orb_location.assert_called_once()
@@ -148,6 +148,18 @@ class DailyArrowTests(unittest.TestCase):
                 runner.controller.move_mouse_relative.assert_called_once_with(*turn)
                 runner._daily_reward_orb_location.assert_not_called()
                 runner.controller.press_keys.assert_not_called()
+
+    def test_locked_orb_keeps_camera_still_when_marker_or_orb_briefly_disappears(self):
+        with tempfile.TemporaryDirectory() as folder, patch('tasks.other.APP_DIR', Path(folder)):
+            runner = self.runner(folder)
+            runner._find_daily_reward_prompt.side_effect = [None]*4+[Mock()]
+            runner._daily_reward_marker_location.side_effect = [(960, 500, .92)]*2 + [(None, None, 0.)]*2
+            runner._daily_reward_marker_direction.return_value = None
+            runner._daily_reward_orb_location = Mock(side_effect=[(1400, 350, .9), (None, None, .2), (960, 350, .9)])
+            self.assertTrue(runner._collect_daily_reward(1))
+            runner.controller.move_mouse_relative.assert_not_called()
+            self.assertEqual([call.args for call in runner.controller.press_keys.call_args_list],
+                             [(('W', 'D'), 750), (('W',), 1000)])
 
     def test_arrow_reappearing_before_three_lookups_stops_orb_search_immediately(self):
         with tempfile.TemporaryDirectory() as folder, patch('tasks.other.APP_DIR', Path(folder)):

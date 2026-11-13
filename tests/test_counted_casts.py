@@ -97,6 +97,36 @@ class CountedCastTests(unittest.TestCase):
         runner.controller.right_click.assert_called_once_with()
         runner._rotation_idle_worker.pause.assert_called_once()
 
+    def test_switch_cards_send_number_keys_immediately_and_start_target_columns(self):
+        modules = [new_module('switch_2'), new_module('execute'), new_module('switch_3', 2),
+                   new_module('dodge', 3)]
+        runner = app.TaskRunner(Mock(), Mock())
+        runner._rotation_slot = 1
+        runner._select_rotation_slot = Mock(return_value=True)
+        clock = RotationClock(modules, 0, slot_times={'1': 30, '2': 15, '3': 4})
+        clock.next_action(0)
+        for tick in (.1, .2, .3):
+            with patch('tasks.combat_4c.time.monotonic', return_value=tick):
+                runner._run_rotation_action(clock.next_action(tick), clock, 'E', 'R',
+                                            threading.Event(), threading.Lock())
+        self.assertEqual([call.args for call in runner.controller.press_key.call_args_list],
+                         [('2', 65), ('3', 65)])
+        self.assertEqual(clock.slot, 3)
+        self.assertAlmostEqual(clock.visit_deadline, 4.2)
+        runner.controller.right_click.assert_called_once_with()
+        self.assertEqual(runner._select_rotation_slot.call_count, 1)
+        preset = default_store()['presets'][0]
+        preset['modules'] = modules
+        self.assertEqual([m['kind'] for m in decode_seed(export_seed(preset))['modules']],
+                         ['switch_2', 'execute', 'switch_3', 'dodge'])
+
+    def test_switch_to_empty_column_waits_for_its_station_time(self):
+        clock = RotationClock([new_module('switch_3')], 0)
+        clock.next_action(0)
+        clock.switch_to(3, .1)
+        self.assertIsNone(clock.next_action(1))
+        self.assertEqual(clock.next_action(5.2)['module']['slot'], 1)
+
     def test_editor_exposes_cast_count_and_saves_without_changing_loop_modules(self):
         root = tk.Tk()
         try:

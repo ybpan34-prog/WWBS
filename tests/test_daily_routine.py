@@ -598,8 +598,7 @@ class DailyRoutineTests(unittest.TestCase):
         context.__enter__ = Mock(return_value=image)
         context.__exit__ = Mock(return_value=False)
         with patch.object(app.Image, 'open', return_value=context):
-            with self.assertRaises(RuntimeError):
-                runner._collect_daily_reward(1)
+            self.assertFalse(runner._collect_daily_reward(1))
         controller.move_mouse_relative.assert_called_once_with(225, 0)
 
     def test_daily_healing_is_disabled_by_default(self):

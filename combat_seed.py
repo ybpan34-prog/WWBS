@@ -43,7 +43,7 @@ SHORT_ACTIONS = (
 )
 SHORT_ORDERS = tuple(itertools.permutations((1, 2, 3)))
 EXTENDED_ACTIONS = SHORT_ACTIONS + (("execute", 1, 0), ("skill_count", 1, 0), ("ultimate_count", 1, 0),
-                                   ("dodge", 1, 0))
+                                   ("dodge", 1, 0), ("switch_2", 1, 0), ("switch_3", 1, 0))
 
 
 def _checked_preset(preset: dict) -> dict:

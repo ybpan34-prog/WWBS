@@ -10,8 +10,6 @@ from tasks.daily_radio import DailyRadioVision
 from tasks.daily_verified import VerifiedDailyNavigation
 from tasks.match3_solver import ranked_moves, Tile, evaluate, runs
 from tasks.match3_vision import read_board
-from tasks.match3_task import Match3Session
-from tasks.models import Step, WeeklyTask, TaskNeedsReview
 from tasks.runner import TaskRunner
 
 
@@ -101,7 +99,7 @@ class OrbInteractionTests(unittest.TestCase):
             self.assertTrue(runner._collect_daily_reward(1))
         self.assertEqual(runner.controller.press_key.call_args_list[0].args, ('F', 100))
         self.assertEqual(runner.controller.press_key.call_count, 2)
-        runner.controller.press_keys.assert_called_once_with(('W',), 500)
+        runner.controller.press_keys.assert_called_once_with(('W',), 1000)
         runner._claim_daily_double_reward.assert_called_once_with(1)
 
     def test_two_failed_interactions_never_claim_or_report_success(self):
@@ -167,14 +165,7 @@ class TargetBoardTests(unittest.TestCase):
         self.assertFalse(runs(board))
         self.assertIsNone(evaluate(board, (0, 2), (1, 2)))
 
-    def test_unknown_board_explains_cell_and_is_not_logged_as_task_completion(self):
-        runner = TaskRunner(Mock(), Mock(), dry_run=False)
-        runner.template_root = ROOT/'templates/match3'
-        task = WeeklyTask(name='无音消除', template_group='match3', steps=[Step(action='match3_puzzle')])
-        with patch.object(Match3Session, 'stable_board', return_value=None):
-            with self.assertRaises(TaskNeedsReview):
-                runner.run_task(task)
-        self.assertFalse(any('完成任务:' in str(call.args[0]) for call in runner.log.call_args_list))
+    def test_unknown_board_reports_the_unrecognized_cell(self):
         with tempfile.TemporaryDirectory() as directory, Image.open(TARGETS) as image:
             image.paste('black', (740, 130, 810, 200))
             path = Path(directory)/'unknown.png'

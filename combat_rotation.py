@@ -15,6 +15,8 @@ ACTION_SPECS = {
     "attack_count": ("普攻 N 次", "按节奏点击左键 N 次", 1, 100),
     "jump_attack": ("跳跃普攻", "跳跃后普攻 N 次", 1, 20),
     "dodge": ("闪避（右键）", "按排轴顺序点击一次鼠标右键", 1, 1),
+    "switch_2": ("切换2号位", "立即切到2号位并开始该角色的排轴", 1, 1),
+    "switch_3": ("切换3号位", "立即切到3号位并开始该角色的排轴", 1, 1),
     "attack_seconds": ("普攻 N 秒", "按顺序执行的普攻时长", 0.2, 30),
     "heavy_count": ("重击 N 次", "长按左键进行重击", 1, 20),
     "skill": ("施放技能", "使用任务设置中的技能键，按间隔循环触发", 1, 1),
@@ -33,12 +35,14 @@ DEFAULT_VALUES = {
     "skill": (1, 5), "ultimate": (1, 15), "echo": (1, 20),
     "approach": (0.09, 0.75), "wait": (1, 0),
     "execute": (1, 0), "dodge": (1, 0), "skill_count": (1, 0), "ultimate_count": (1, 0),
+    "switch_2": (1, 0), "switch_3": (1, 0),
 }
 COMBAT_MODES = {"combat_4c": "4C 刷取", "daily": "一键日常", "tower": "深塔挑战", "forgery": "凝素领域"}
 SLOT_NAMES = {1: "一号位", 2: "二号位", 3: "三号位"}
 MAX_PRESET_NAME = 64
 PERIODIC_ACTIONS = frozenset({"skill", "ultimate", "echo"})
 COUNTED_CASTS = {"skill_count": "skill", "ultimate_count": "ultimate"}
+SWITCH_ACTIONS = {"switch_2": 2, "switch_3": 3}
 
 
 def new_module(kind: str, slot: int = 1) -> dict:
@@ -260,10 +264,11 @@ class RotationClock:
         if (not isinstance(order, list) or len(order) != 3
                 or any(type(slot) is not int for slot in order) or set(order) != {1, 2, 3}):
             raise ValueError("角色顺序须包含一、二、三号位各一次")
-        self.slots = [slot for slot in order if self.columns[slot]]
+        targets = {SWITCH_ACTIONS[m["kind"]] for m in modules if m["kind"] in SWITCH_ACTIONS}
+        self.slots = [slot for slot in order if self.columns[slot] or slot in targets]
         self.times = slot_times or {str(slot): 5 for slot in SLOT_NAMES}
-        self.slot_index = 0
-        self.slot = self.slots[0]
+        self.slot = next(slot for slot in self.slots if self.columns[slot])
+        self.slot_index = self.slots.index(self.slot)
         self.visit_deadline = started + float(self.times[str(self.slot)])
         self.needs_select = True
         self.cursor = 0
@@ -277,8 +282,15 @@ class RotationClock:
         self.cast_ready_at = started
 
     def _next_slot(self, now):
-        self.slot_index = (self.slot_index + 1) % len(self.slots)
-        self.slot = self.slots[self.slot_index]
+        for distance in range(1, len(self.slots)+1):
+            slot = self.slots[(self.slot_index + distance) % len(self.slots)]
+            if self.columns[slot]:
+                self._enter_slot(slot, now)
+                return
+
+    def _enter_slot(self, slot, now):
+        self.slot = slot
+        self.slot_index = self.slots.index(slot)
         self.visit_deadline = now + float(self.times[str(self.slot)])
         self.needs_select = True
         self.cursor = 0
@@ -286,6 +298,11 @@ class RotationClock:
         self.idle_count = 0
         self.next_attack = now
         self.cast_ready_at = now
+
+    def switch_to(self, slot, now):
+        if slot != self.slot:
+            self._enter_slot(slot, now)
+            self.needs_select = False
 
     def defer_cast_followup(self, now, delay):
         """Keep input cadence without blocking clicks or screenshot decisions."""

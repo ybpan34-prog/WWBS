@@ -71,7 +71,7 @@ class OrbDirectionTests(unittest.TestCase):
             runner=self.runner(directory,[(960,300,.81)],[None,None,Mock()])
             self.show_arrow_free_marker(runner)
             self.assertTrue(runner._collect_daily_reward(1))
-            runner.controller.press_keys.assert_called_once_with(('W',),500)
+            runner.controller.press_keys.assert_called_once_with(('W',),1000)
             runner.controller.move_mouse_relative.assert_not_called()
 
     def test_arrow_free_marker_allows_orb_at_selected_threshold(self):
@@ -81,7 +81,7 @@ class OrbDirectionTests(unittest.TestCase):
                 self.show_arrow_free_marker(runner)
                 runner.daily_orb_confidence = confidence
                 self.assertTrue(runner._collect_daily_reward(1))
-                runner.controller.press_keys.assert_called_once_with(('W',),500)
+                runner.controller.press_keys.assert_called_once_with(('W',),1000)
                 runner.controller.move_mouse_relative.assert_not_called()
 
     def test_missing_marker_only_rotates_even_after_twelve_searches(self):
@@ -103,7 +103,7 @@ class OrbDirectionTests(unittest.TestCase):
             runner.daily_orb_confidence = .9
             self.assertTrue(runner._collect_daily_reward(1))
             runner.controller.move_mouse_relative.assert_not_called()
-            runner.controller.press_keys.assert_called_once_with(('W',), 500)
+            runner.controller.press_keys.assert_called_once_with(('W',), 1000)
 
     def test_combat_return_during_camera_search_stops_without_claiming(self):
         with tempfile.TemporaryDirectory() as directory, patch('tasks.other.APP_DIR', Path(directory)):

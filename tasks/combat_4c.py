@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from combat_rotation import BattleMonitor, IdleAttackWorker, RotationClock, SLOT_NAMES
+from combat_rotation import BattleMonitor, IdleAttackWorker, RotationClock, SLOT_NAMES, SWITCH_ACTIONS
 from tasks.models import Step
 
 
@@ -391,6 +391,15 @@ class Combat4CTask:
         if idle_worker is not None:
             idle_worker.pause()
         attack_enabled.clear()
+        if kind in SWITCH_ACTIONS:
+            if self.stop_event.is_set() or self._rotation_battle_finished:
+                return False
+            target = SWITCH_ACTIONS[kind]
+            if self._rotation_slot != target:
+                self.controller.press_key(str(target), 65)
+                self._rotation_slot = target
+            rotation.switch_to(target, time.monotonic())
+            return not self.stop_event.is_set()
         slot = item.get("slot", 1)
         if daily:
             if self.stop_event.is_set() or self._rotation_battle_finished:
