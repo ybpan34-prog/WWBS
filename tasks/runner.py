@@ -361,7 +361,9 @@ class TaskRunner(Combat4CTask, DreamlandTask, OtherTask):
         except Exception as exc:
             self.log(f"    调试图保存失败: {exc}")
 
-    def _capture_for_matching(self, target: Path) -> None:
+    def _capture_for_matching(self, target: Path, *, loading=False) -> bool | None:
+        from windows_client import BlankGameCapture
+
         for attempt in range(3):
             try:
                 try:
@@ -370,6 +372,8 @@ class TaskRunner(Combat4CTask, DreamlandTask, OtherTask):
                     self.controller.screencap(target)
                 return
             except (OSError, RuntimeError) as exc:
+                if loading and isinstance(exc, BlankGameCapture):
+                    return False
                 if attempt == 2 or self.stop_event.is_set():
                     raise RuntimeError(f'连续截图失败，未继续使用旧画面：{exc}') from exc
                 self.log(f'    截图暂时失败，正在重试（{attempt+1}/2）：{exc}')

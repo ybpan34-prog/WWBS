@@ -54,16 +54,58 @@ class DailyVerifiedTests(unittest.TestCase):
         runner._select_daily_tacet_section = Mock()
         runner._capture_size = Mock(return_value=(nav._checks.screenshot, 1920, 1080))
         runner.daily_zone_name = '落日堤屿无音区'
-        runner._find_daily_template = Mock(side_effect=[Mock(center=(510, 967)), Mock(center=(510, 810), score=.99)])
-        runner._daily_row_button_ready = Mock(return_value=True)
-        runner._enter_zone = Mock()
-        runner._tap_ratio = Mock()
+        runner._locate_zone_row = Mock(side_effect=[(Mock(center=(910, 967)), None),
+                                                   (Mock(center=(910, 810)), (1720, 840))])
+        runner._enter_zone = Mock(return_value=True)
+        runner._tap_ratio = Mock(return_value=True)
         runner._sleep_interruptible = Mock()
         runner.controller.screenshot_to_client.side_effect = lambda x, y: (x, y)
-        self.assertTrue(nav._open_daily_tacet_field('zone_luori_diyu.png'))
+        with patch('tasks.daily_verified.Image.open') as image_open:
+            image_open.return_value.__enter__.return_value = Image.new('RGB', (1920, 1080))
+            self.assertTrue(nav._open_daily_tacet_field('zone_luori_diyu.png'))
         runner.controller.wheel_at.assert_called_once_with(1747, 648, -120)
         runner._enter_zone.assert_called_once_with('zone_luori_diyu.png')
         self.assertEqual(runner._capture_size.call_count, 2)
+
+    def test_start_click_waits_through_blank_loading_frames_without_reclicking(self):
+        nav, runner = self.navigation()
+        runner._sleep_interruptible = Mock()
+        runner._capture_for_matching = Mock(side_effect=[None, False, False, None, None])
+        runner._restart_battle_visible = Mock(side_effect=[False, True, True])
+        runner._tap_start = Mock(return_value=True)
+        self.assertTrue(nav._tap_ratio(.86, .92))
+        runner._tap_start.assert_called_once()
+        self.assertTrue(runner._daily_entry_ready)
+        self.assertFalse(runner._select_daily_slot_after_loading(nav._checks.screenshot))
+        self.assertEqual(runner._capture_for_matching.call_count, 5)
+
+    def test_fifth_zone_finds_button_below_its_title(self):
+        nav, runner = self.navigation()
+        root = Path(__file__).parents[1]
+        runner.matcher.templates_dir = root/'templates/daily'
+        runner._fast_scales = lambda: [1600/1920]
+        with tempfile.TemporaryDirectory() as folder, Image.open(
+                root/'tests/fixtures/daily-tacet-selected-reported.png') as scene, Image.open(
+                runner.matcher.templates_dir/'zone_luori_diyu.png') as title:
+            path = Path(folder)/'list.png'
+            scene.paste(title.resize((258, 54), Image.Resampling.LANCZOS), (728, 620))
+            scene.save(path)
+            found, button = nav._locate_zone_row(path, 'zone_luori_diyu.png', 1600, 900)
+            self.assertIsNotNone(found)
+            self.assertEqual(button, (1432, 679))
+            self.assertGreater(button[1]-found.center[1], 22)
+
+    def test_recorded_fifth_zone_is_found_without_matching_a_different_zone(self):
+        nav, runner = self.navigation()
+        root = Path(__file__).parents[1]
+        runner.matcher.templates_dir = root/'templates/daily'
+        runner._fast_scales = lambda: [1]
+        for second, expected in ((7, (1747, 750)), (19, (1747, 512)), (92, None)):
+            with self.subTest(second=second):
+                path = root/f'tests/fixtures/daily-tacet-video-list-{second}.png'
+                title, point = nav._locate_zone_row(path, 'zone_luori_diyu.png', 1920, 1080)
+                self.assertEqual(point, expected)
+                self.assertEqual(title is None, expected is None)
     def test_full_reported_frame_clicks_button_center_at_window_scales(self):
         nav, runner = self.navigation()
         fixture = Path(__file__).parent/'fixtures/daily-team-start-full-reported.png'

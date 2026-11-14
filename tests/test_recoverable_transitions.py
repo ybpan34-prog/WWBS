@@ -5,9 +5,18 @@ from unittest.mock import Mock, patch
 
 from PIL import Image
 from tasks.runner import TaskRunner
+from windows_client import BlankGameCapture
 
 
 class RecoverableTransitionsTests(unittest.TestCase):
+    def test_loading_blank_frame_is_skipped_without_using_the_previous_screenshot(self):
+        controller = Mock()
+        controller.screencap.side_effect = [BlankGameCapture('loading'), None]
+        runner = TaskRunner(controller, Mock(), dry_run=False)
+        self.assertIs(runner._capture_for_matching(Path('screen.png'), loading=True), False)
+        self.assertIsNone(runner._capture_for_matching(Path('screen.png'), loading=True))
+        self.assertEqual(controller.screencap.call_count, 2)
+
     def test_capture_recovers_after_transient_failure(self):
         controller = Mock()
         controller.screencap.side_effect = [OSError('busy'), None]

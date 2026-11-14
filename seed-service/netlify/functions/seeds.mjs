@@ -1,5 +1,5 @@
 import { getStore } from '@netlify/blobs';
-import { readSeed } from '../../lib/seed-wire.mjs';
+import { readSeed, supportedActions } from '../../lib/seed-wire.mjs';
 
 const normalize = value => value.normalize('NFKC').toLowerCase();
 const encode = value => Buffer.from(value).toString('hex');
@@ -26,7 +26,7 @@ export async function handle(request, store) {
       return response({item:record,duplicate:!created.modified},created.modified?201:200);
     }
     if(request.method!=='GET')return response({error:'不支持该请求'},405);
-    if(url.searchParams.has('health'))return response({ok:true,format:4});
+    if(url.searchParams.has('health'))return response({ok:true,format:5,actions:supportedActions});
     const id=url.searchParams.get('id');
     if(id) {
       if(!/^[0-9a-f]{24}$/.test(id))return response({error:'种子编号无效'},400);

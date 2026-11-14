@@ -856,7 +856,8 @@ class OtherTask:
         return (best_title, None) if best_title is not None else None
 
     @staticmethod
-    def _daily_row_button_ready(screenshot: Path, row_y: int, *, center_x: int | None = None) -> bool:
+    def _daily_row_button_ready(screenshot: Path, row_y: int, *, center_x: int | None = None,
+                                matched_label: bool = False) -> bool:
         """Require the dark challenge button to be visible, not hidden by the footer."""
         with Image.open(screenshot) as source:
             image = np.asarray(source.convert("RGB"))
@@ -869,7 +870,7 @@ class OtherTask:
         region = image[top:bottom, left:right]
         if region.size == 0:
             return False
-        dark = region.max(axis=2) < 75
+        dark = region.max(axis=2) < (115 if matched_label else 75)
         lines = np.flatnonzero(dark.mean(axis=1) >= .30)
         if not len(lines):
             return False
@@ -898,8 +899,8 @@ class OtherTask:
 
     def _select_daily_slot_after_loading(self, screenshot: Path, slot: int = 1) -> bool:
         """Return whether the first role was already verified on the battle frame."""
-        if getattr(self, '_daily_restart_ready', False):
-            self._daily_restart_ready = self._daily_restart_pending = False
+        if getattr(self, '_daily_restart_ready', False) or getattr(self, '_daily_entry_ready', False):
+            self._daily_entry_ready = self._daily_restart_ready = self._daily_restart_pending = False
             return False
         deadline = time.monotonic() + 15.0
         hud_ready = False

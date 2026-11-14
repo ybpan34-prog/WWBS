@@ -8,12 +8,17 @@ class DailyStepChecks:
         self.runner = runner
         self.screenshot = screenshot or Path(__file__).resolve().parent.parent/'_runtime_screenshot.png'
 
-    def transition(self, label, destination, action=None, *, timeout=15, require_action=False, recovery=None):
+    def transition(self, label, destination, action=None, *, timeout=15, require_action=False, recovery=None,
+                   capture=None):
+        capture = capture or self.runner._capture_for_matching
         deadline = time.monotonic()+timeout
         frames = attempts = ready = recoveries = 0
         next_click = 0.
         while time.monotonic() < deadline and not self.runner.stop_event.is_set():
-            self.runner._capture_for_matching(self.screenshot)
+            if capture(self.screenshot) is False:
+                ready = 0
+                self.runner._sleep_interruptible(.2)
+                continue
             if self.runner.stop_event.is_set():
                 return False
             frames += 1

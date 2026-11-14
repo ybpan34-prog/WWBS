@@ -110,7 +110,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
 APP_VERSION = "1.6.3"
-APP_BUILD = 6
+APP_BUILD = 8
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -1012,7 +1012,7 @@ class App:
         self.pet_name = str(self.pet_definition["name"])
         COLORS.clear()
         COLORS.update(THEME_DEFINITIONS.get(self.theme_id, {}).get("colors", SIMPLE_COLORS))
-        self.root.title(f"wwbs {APP_VERSION}")
+        self.root.title(f"wwbs {APP_VERSION}（构建 {APP_BUILD}）")
         self._app_icon_photo = None
         if APP_ICON.exists():
             self.root.iconbitmap(str(APP_ICON))

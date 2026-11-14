@@ -189,33 +189,64 @@ class VerifiedDailyNavigation(Daily154Navigation):
             return not self.stop_event.is_set()
         return self._tap(point)
 
+    def _locate_zone_row(self, path, template, width, height):
+        if template in DAILY_ZONE_BUTTON_Y_OFFSETS:
+            result = self._find_new_daily_zone(path, template)
+            if result is None:
+                return None, None
+            title, button = result
+            point = button.center if button and height*.20 < button.center[1] < height*.88 else None
+            return title, point
+
+        numbered = template in ('zone_huangshi_gaodi_1.png', 'zone_huangshi_gaodi_2.png')
+        threshold = .97 if numbered else .88
+        if template == 'zone_luori_diyu.png':
+            # The recorded title scores about .82 even when the full row is visible.
+            threshold = .80
+        base = self._fast_scales()[0]
+        title = self._find_daily_template(template, threshold=threshold, screenshot=path,
+            template_crop=(6, 18, 304 if numbered else 201, 58),
+            scales=[base, base*.97, base*1.03],
+            region=(round(width*.36), round(height*.16), round(width*.71), round(height*.92)))
+        if title is None:
+            return None, None
+        y = title.center[1]
+        # The button is commonly lower than the title, within the same card.
+        # Restrict both the search and the accepted click to that card's span.
+        top = max(round(height*.19), y-round(height*.022))
+        bottom = min(round(height*.885), y+round(height*.080))
+        if bottom-top < round(height*.024):
+            return title, None
+        for name, scale in (('zone_direct_challenge.png', base), ('zone_go_native.png', base*1600/1920)):
+            button = self._find_daily_template(name, threshold=.78 if template == 'zone_luori_diyu.png' else .80, screenshot=path,
+                scales=[scale, scale*.94, scale*1.06],
+                region=(round(width*.79), top, round(width*.97), bottom))
+            if button and self._runner._daily_row_button_ready(
+                    path, button.center[1], center_x=button.center[0], matched_label=True):
+                return title, button.center
+        return title, None
+
     def _enter_zone(self, zone_template):
         def source_action(path):
             if team_start_target(path) is not None or not tacet_card_list_present(path):
                 return False
             if not self._runner._guide_tacet_section_selected(path, self._ratio_point(path, 0, .73)[1]):
                 return False
-            if zone_template in ('zone_chenxin_yu.png', 'zone_jinxin_yu.png'):
-                found = self._find_new_daily_zone(path, zone_template)
-                return self._tap(found[1].center) if found and found[1] is not None else False
             with Image.open(path) as image:
                 width, height = image.size
-            numbered = zone_template in ('zone_huangshi_gaodi_1.png', 'zone_huangshi_gaodi_2.png')
-            title = self._find_daily_template(zone_template, threshold=.97 if numbered else .9, screenshot=path,
-                template_crop=(6, 18, 304 if numbered else 190, 64), scales=[self._fast_scales()[0]],
-                region=(round(width*.34), round(height*.12), round(width*.98), round(height*.92)))
-            if (title is not None and height*.17 < title.center[1] < height*.87
-                    and self._daily_row_button_ready(path, title.center[1])):
-                return self._tap((round(width*.895), title.center[1]))
-            return False
+            _title, point = self._locate_zone_row(path, zone_template, width, height)
+            return point is not None and self._tap(point)
         return self._checks.transition('进入所选无音区的队伍页面',
-            lambda p: self._battle(p) or self._start_target(p) is not None, source_action, timeout=35)
+            lambda p: self._restart_battle_visible(p) or self._start_target(p) is not None,
+            source_action, timeout=35, capture=lambda path: self._capture_for_matching(path, loading=True))
 
     def _tap_ratio(self, x_ratio, y_ratio, pause=1.):
         if abs(x_ratio-.86) < .005 and abs(y_ratio-.92) < .005:
-            return self._checks.transition('开启挑战并进入战斗', self._battle,
+            ready = self._checks.transition('开启挑战并进入战斗', self._restart_battle_visible,
                 self._tap_start,
-                timeout=60)
+                timeout=90, capture=lambda path: self._capture_for_matching(path, loading=True))
+            self._runner._daily_entry_ready = ready
+            return ready
         if abs(x_ratio-.957) < .005 and abs(y_ratio-.058) < .005:
             return self._close_page()
         if abs(x_ratio-.744) < .005 and abs(y_ratio-.257) < .005:
@@ -443,77 +474,53 @@ class VerifiedDailyNavigation(Daily154Navigation):
         self._select_daily_tacet_section()
 
         screenshot = APP_DIR / "_runtime_screenshot.png"
-        found = None
-        numbered_huangshi = self.daily_zone_name in {
-            "荒石高地无音区 I",
-            "荒石高地无音区 II",
-        }
-        zone_threshold = 0.97 if numbered_huangshi else 0.90
-        zone_crop = (6, 18, 304, 64) if numbered_huangshi else (6, 18, 190, 64)
-        for page_index in range(32):
+        previous_panel = None
+        search_direction = -1
+        reversed_search = False
+        stationary = 0
+        partial_attempts = 0
+        for _ in range(40):
             if self.stop_event.is_set():
                 return False
             _path, width, height = self._capture_size(screenshot)
-            if zone_template in DAILY_ZONE_BUTTON_Y_OFFSETS:
-                result = self._find_new_daily_zone(screenshot, zone_template)
-                found = result[0] if result else None
-                if found is None and page_index == 0:
-                    wx, wy = round(width*.91), round(height*.60)
-                    if hasattr(self.controller, 'screenshot_to_client'):
-                        wx, wy = self.controller.screenshot_to_client(wx, wy)
-                    self.controller.wheel_at(wx, wy, 7200)
-                    self._sleep_interruptible(.25)
+            title, point = self._locate_zone_row(screenshot, zone_template, width, height)
+            if point is not None:
+                self.log(f"    已定位「{self.daily_zone_name}」同行按钮，复核后点击。")
+                if not self._enter_zone(zone_template):
+                    return False
+                self.log("    队伍界面点击“开启挑战”，不修改队伍。")
+                return self._tap_ratio(.86, .92, 5.0)
+
+            with Image.open(screenshot) as image:
+                panel = image.crop((round(width*.37), round(height*.19),
+                                    round(width*.96), round(height*.88))).convert('L')
+                sample = np.asarray(panel.resize((64, 48)), dtype=np.int16)
+            stationary = stationary+1 if previous_panel is not None and np.abs(sample-previous_panel).mean() < 1.5 else 0
+            previous_panel = sample
+            if title is not None:
+                partial_attempts += 1
+                if partial_attempts > 6 or stationary >= 2:
+                    raise RuntimeError(f'已找到「{self.daily_zone_name}」，但同一行的挑战按钮无法确认。')
+                # Move the card toward the middle. At the middle, a missing
+                # button is not evidence that scrolling would make it appear.
+                row_y = title.center[1]/height
+                if .34 <= row_y <= .66:
+                    self._sleep_interruptible(.35)
                     continue
+                scroll = 120 if row_y < .34 else -120
             else:
-                found = self._find_daily_template(
-                zone_template,
-                threshold=zone_threshold,
-                region=(round(width * 0.34), round(height * 0.12), round(width * 0.98), round(height * 0.92)),
-                template_crop=zone_crop,
-                scales=[self._fast_scales()[0]],
-                screenshot=screenshot,
-            )
-            if found is not None:
-                if zone_template in DAILY_ZONE_BUTTON_Y_OFFSETS:
-                    _title, button = result
-                    if button is None:
-                        self.log(f"    已看到“{self.daily_zone_name}”，同行按钮尚未完整可点，小幅滚动后重新识别。")
-                        wx, wy = round(width*.91), round(height*.60)
-                        if hasattr(self.controller, 'screenshot_to_client'):
-                            wx, wy = self.controller.screenshot_to_client(wx, wy)
-                        self.controller.wheel_at(wx, wy, -120)
-                        self._sleep_interruptible(.25)
-                        continue
-                    self.log(f"    已识别“{self.daily_zone_name}”及同一行前往按钮，点击 {button.center}。")
-                    self._enter_zone(zone_template)
-                    self._sleep_interruptible(.15)
-                    break
-                row_y = found.center[1] + round(DAILY_ZONE_BUTTON_Y_OFFSETS.get(zone_template, 0) * self._fast_scales()[0])
-                if not height*.17 < row_y < height*.87 or not self._daily_row_button_ready(screenshot, row_y):
-                    wheel_x, wheel_y = round(width * 0.91), round(height * 0.60)
-                    if hasattr(self.controller, "screenshot_to_client"):
-                        wheel_x, wheel_y = self.controller.screenshot_to_client(wheel_x, wheel_y)
-                    self.log(f"    已看到“{self.daily_zone_name}”，等待同一行按钮完整出现。")
-                    scroll = 120 if row_y < round(height*.30) else -120
-                    self.controller.wheel_at(wheel_x, wheel_y, scroll)
-                    self._sleep_interruptible(0.38)
-                    found = None
-                    continue
-                self._sleep_interruptible(0.32)
-                self.log(
-                    f"    精确找到“{self.daily_zone_name}”（第{page_index + 1}屏，相似度 {found.score:.3f}），"
-                    "点击同一行的直接挑战/前往。"
-                )
-                self._enter_zone(zone_template)
-                self._sleep_interruptible(.15)
-                break
-            wheel_x, wheel_y = round(width * 0.91), round(height * 0.60)
-            if hasattr(self.controller, "screenshot_to_client"):
-                wheel_x, wheel_y = self.controller.screenshot_to_client(wheel_x, wheel_y)
-            self.controller.wheel_at(wheel_x, wheel_y, -720)
-            self._sleep_interruptible(0.28)
-        if found is None:
-            raise RuntimeError(f"无音清剿列表中没有找到“{self.daily_zone_name}”。")
-        self.log("    队伍界面点击“开启挑战”，不修改队伍。")
-        self._tap_ratio(0.86, 0.92, 5.0)
-        return True
+                if stationary >= 2:
+                    if reversed_search:
+                        break
+                    search_direction = 1
+                    reversed_search = True
+                    stationary = 0
+                scroll = 120*search_direction
+            x, y = round(width*.91), round(height*.60)
+            if hasattr(self.controller, 'screenshot_to_client'):
+                x, y = self.controller.screenshot_to_client(x, y)
+            self.controller.wheel_at(x, y, scroll)
+            self._sleep_interruptible(.40)
+        if self.stop_event.is_set():
+            return False
+        raise RuntimeError(f'无音清剿列表中未确认「{self.daily_zone_name}」的挑战入口。')
