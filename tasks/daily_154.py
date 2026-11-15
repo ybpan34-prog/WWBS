@@ -600,8 +600,10 @@ class Daily154Navigation:
         self.log("    日常战斗将按已分配的预设切换角色并执行模块。")
         try:
             if not self._open_daily_tacet_field(template_name):
+                if self.stop_event.is_set():
+                    return
                 completed_message = "今日日常已经完成，不再挑战无音区。"
-                self.log(f"    【提示】检测到索拉指南已自动跳过活跃度页面，{completed_message}")
+                self.log(f"    【提示】{completed_message}正在检查周常进度。")
                 self.notice(completed_message)
                 self._continue_daily_from_open_guide_page()
                 self.log("    日常已完成后的周度游历检查结束。")

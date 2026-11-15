@@ -42,6 +42,7 @@
   "exception": "_guide_tacet_section_selected",
   "exceptions": [
     "_guide_tacet_section_selected",
-    "_select_daily_tacet_section"
+    "_select_daily_tacet_section",
+    "_run_daily_routine"
   ]
 }

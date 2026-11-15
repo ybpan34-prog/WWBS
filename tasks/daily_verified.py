@@ -403,20 +403,21 @@ class VerifiedDailyNavigation(Daily154Navigation):
         self._continue_daily_from_open_guide_page()
 
     def _continue_daily_from_open_guide_page(self):
+        vision = WeeklyRewardsVision(ROOT/'templates/weekly')
         state = ['']
         def classify(screen):
-            if not self._panel(screen):
-                state[0] = ''
-                return False
-            current = ('completed' if self._weekly_completion_confirmed(screen) else
-                       'pending' if self._weekly_travel_page_present(screen) else '')
+            current = vision.guide_status(screen) if self._panel(screen) else None
             stable = bool(current) and state[0] == current
             state[0] = current
             return stable
-        # Reopen the activity entry if the guide remembered its material page.
-        # Only an explicit completed check, never an unknown page, skips weekly.
+
         def select_progress(screen):
             if not state[0] and self._panel(screen):
+                weekly_tab = vision.inactive_tab(screen)
+                if weekly_tab is not None:
+                    return self._tap(weekly_tab.center)
+                if self._match(screen, 'activity_title.png', .82) and self._daily_activity_page_present(screen):
+                    return self._tap(self._ratio_point(screen, .345, .14))
                 return self._tap(self._ratio_point(screen, .039, .174))
             return False
         if not self._checks.transition('周常完成状态', classify, select_progress):
@@ -424,7 +425,7 @@ class VerifiedDailyNavigation(Daily154Navigation):
         if self.stop_event.is_set():
             return
         if state[0] == 'completed':
-            self.log('    已复核周度游历完成勾，本周周常已完成。')
+            self.log('任务完成：周常已完成')
             self._close_page()
         else:
             self.log('    已复核周度游历仍未完成，接入1.5.0周常流程。')
@@ -434,29 +435,35 @@ class VerifiedDailyNavigation(Daily154Navigation):
         from tasks.weekly_150 import continue_from_daily
         return continue_from_daily(self._runner)
 
-    def _weekly_completion_confirmed(self, screen):
-        # A light patch on a material card is not a completion check.
-        return self._weekly_travel_completed(screen) and WeeklyRewardsVision(ROOT/'templates/weekly').matches(
-            screen, 'weekly_tab.png', (540, 105, 745, 195), threshold=.78)
-
-
     def _open_daily_tacet_field(self, zone_template: str) -> bool:
         self.log("    打开索拉指南 → 素材获取 → 无音清剿。")
-        self._open_terminal_destination("索拉指南", 0.515, 0.671)
-        if not self._daily_activity_still_pending():
-            screenshot = APP_DIR / "_runtime_screenshot.png"
-            if self._weekly_travel_page_present(screenshot):
-                self.log("    索拉指南自动进入周度游历，今日日常已完成。")
-                return False
-            # The guide may reopen on its previously selected material page.
-            # That page is not evidence that the daily activity is complete.
-            self.log("    索拉指南未停留在活跃度页，尝试切回左侧活跃度入口。")
-            self._tap_ratio(0.04, 0.18, 0.45)
-            if not self._daily_activity_still_pending():
-                if self._weekly_travel_page_present(screenshot):
-                    self.log("    活跃度入口已自动跳转周度游历，今日日常已完成。")
-                    return False
-                raise RuntimeError("索拉指南未显示活跃度或周度游历页面，已停止以避免跳过日常。")
+        if not self._open_terminal_destination("索拉指南", 0.515, 0.671):
+            return False
+        vision = WeeklyRewardsVision(ROOT/'templates/weekly')
+        state = ['']
+
+        def daily_state(screen):
+            previous = state[0]
+            if not self._panel(screen):
+                state[0] = ''
+            elif self._weekly_travel_page_present(screen):
+                state[0] = 'complete'
+            elif self._daily_activity_page_present(screen) and (
+                    vision.inactive_tab(screen) or self._match(screen, 'activity_title.png', .82)):
+                state[0] = 'complete' if self._daily_activity_score_full(screen) else 'pending'
+            else:
+                state[0] = ''
+            return bool(state[0]) and previous == state[0]
+
+        def select_activity(screen):
+            if not state[0] and self._panel(screen):
+                return self._tap(self._ratio_point(screen, .039, .174))
+            return False
+
+        if not self._checks.transition('日常活跃度或周度游历页面', daily_state, select_activity):
+            return False
+        if state[0] == 'complete':
+            return False
         self._click_daily_template(
             "guide_battle_tab.png",
             "索拉指南左侧战斗按钮",

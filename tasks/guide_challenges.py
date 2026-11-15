@@ -18,6 +18,7 @@ from windows_ocr import WindowsOcr
 
 APP_DIR = Path(__file__).resolve().parent.parent
 SCREENSHOT = APP_DIR / "_runtime_screenshot.png"
+FORGERY_ZONES = ("陨翼云渊", "静灭云渊", "裂斩云渊", "碎蚀云渊", "沉熄云渊")
 
 
 def _icon_edges(image):
@@ -156,13 +157,26 @@ class ForgeryChallenge(GuideFrames):
         return None
 
     def select_row(self, path):
+        title = None
+        if self.target in FORGERY_ZONES:
+            with Image.open(path) as image:
+                width, height = image.size
+            number = FORGERY_ZONES.index(self.target)+1
+            title = self._find_row_label(path, f'forgery_zone_{number}.png', width, height,
+                                         (.36, .15, .56, .90))
+            if title is not None:
+                row = title.center[1]/height
+                button = self._find_row_label(path, 'forgery_direct.png', width, height,
+                                              (.81, max(.16, row-.018), .98, min(.89, row+.068)))
+                if button is not None:
+                    return self.tap(button.center)
         frame = self.read(path)
-        title = frame.find(self.target, region=(.34,.13,.76,.93))
+        title = title or frame.find(self.target, region=(.34,.13,.76,.93))
         if title is not None:
             height = frame.image.height
             row = title.center[1] / height
             button = frame.find('直接挑战', '前往', '传送',
-                                region=(.75, max(.15,row-.035), .985, min(.91,row+.15)))
+                                region=(.75, max(.15,row-.025), .985, min(.91,row+.085)))
             if button is not None:
                 return self.tap(button.center)
         x, y = round(frame.image.width*.90), round(frame.image.height*.62)
@@ -170,6 +184,14 @@ class ForgeryChallenge(GuideFrames):
         x, y = controller.screenshot_to_client(x, y)
         controller.wheel_at(x, y, 120 if title is not None and row < .30 else -120 if title else -480)
         return True
+
+    def _find_row_label(self, path, template, width, height, region):
+        scale = width/1920
+        return self.runner._find_daily_template(
+            str(APP_DIR/'templates/daily'/template), threshold=.86, screenshot=path,
+            scales=[scale, scale*.97, scale*1.03],
+            region=tuple(round(v*(width if i%2 == 0 else height)) for i, v in enumerate(region)),
+        )
 
     def enter(self):
         runner = self.runner

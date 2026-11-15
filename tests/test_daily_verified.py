@@ -49,7 +49,12 @@ class DailyVerifiedTests(unittest.TestCase):
     def test_scrolls_and_recaptures_when_tacet_title_is_at_bottom(self):
         nav, runner = self.navigation()
         runner._open_terminal_destination = Mock(return_value=True)
-        runner._daily_activity_still_pending = Mock(return_value=True)
+        runner._panel = Mock(return_value=True)
+        runner._weekly_travel_page_present = Mock(return_value=False)
+        runner._match = Mock(return_value=True)
+        runner._daily_activity_page_present = Mock(return_value=True)
+        runner._daily_activity_score_full = Mock(return_value=False)
+        runner._capture_for_matching = Mock()
         runner._click_daily_template = Mock()
         runner._select_daily_tacet_section = Mock()
         runner._capture_size = Mock(return_value=(nav._checks.screenshot, 1920, 1080))
@@ -66,6 +71,54 @@ class DailyVerifiedTests(unittest.TestCase):
         runner.controller.wheel_at.assert_called_once_with(1747, 648, -120)
         runner._enter_zone.assert_called_once_with('zone_luori_diyu.png')
         self.assertEqual(runner._capture_size.call_count, 2)
+
+    def test_full_activity_skips_tacet_selection(self):
+        nav, runner = self.navigation()
+        runner._open_terminal_destination = Mock(return_value=True)
+        runner._panel = Mock(return_value=True)
+        runner._weekly_travel_page_present = Mock(return_value=False)
+        runner._match = Mock(return_value=None)
+        runner._daily_activity_score_full = Mock(return_value=True)
+        runner._capture_for_matching = Mock()
+        runner._sleep_interruptible = Mock()
+        runner._click_daily_template = Mock()
+        with tempfile.TemporaryDirectory() as tmp:
+            nav._checks.screenshot = Path(tmp) / 'screen.png'
+            fixture = Path(__file__).parent/'fixtures'/'daily-guide-activity-wrong-category.png'
+            with Image.open(fixture) as source:
+                source.resize((1920, 1080)).save(nav._checks.screenshot)
+            self.assertFalse(nav._open_daily_tacet_field('zone_luori_diyu.png'))
+        runner._click_daily_template.assert_not_called()
+        runner.controller.tap.assert_not_called()
+
+    def test_pending_weekly_opens_tab_then_starts_after_confirmation(self):
+        nav, runner = self.navigation()
+        runner._capture_for_matching = Mock()
+        runner._sleep_interruptible = Mock()
+        runner._panel = Mock(return_value=True)
+        runner._start_weekly_travel_from_selected_page = Mock()
+        runner._close_page = Mock()
+        with patch('tasks.daily_verified.WeeklyRewardsVision') as vision:
+            vision.return_value.guide_status.side_effect = [None, 'pending', 'pending', 'pending']
+            vision.return_value.inactive_tab.return_value = Mock(center=(665, 140))
+            nav._continue_daily_from_open_guide_page()
+        runner.controller.tap.assert_called_once_with(665, 140)
+        runner._start_weekly_travel_from_selected_page.assert_called_once()
+        runner._close_page.assert_not_called()
+
+    def test_completed_weekly_reports_completion_and_closes(self):
+        nav, runner = self.navigation()
+        runner._capture_for_matching = Mock()
+        runner._sleep_interruptible = Mock()
+        runner._panel = Mock(return_value=True)
+        runner._start_weekly_travel_from_selected_page = Mock()
+        runner._close_page = Mock()
+        with patch('tasks.daily_verified.WeeklyRewardsVision') as vision:
+            vision.return_value.guide_status.return_value = 'completed'
+            nav._continue_daily_from_open_guide_page()
+        runner.log.assert_any_call('任务完成：周常已完成')
+        runner._close_page.assert_called_once()
+        runner._start_weekly_travel_from_selected_page.assert_not_called()
 
     def test_start_click_waits_through_blank_loading_frames_without_reclicking(self):
         nav, runner = self.navigation()

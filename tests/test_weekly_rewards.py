@@ -39,6 +39,22 @@ class WeeklyRewardsTests(unittest.TestCase):
             self.fixture(claimed=range(6)).save(path)
             self.assertTrue(self.vision.all_claimed(path))
             self.assertIsNone(self.vision.rightmost_claimable(path))
+            self.assertEqual(self.vision.guide_status(path), 'completed')
+            self.fixture(claimed=range(5)).save(path)
+            self.assertEqual(self.vision.guide_status(path), 'pending')
+
+    def test_inactive_weekly_tab_needs_the_completion_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'screen.png'
+            fixture = Path(__file__).parent/'fixtures'/'daily-guide-activity-wrong-category.png'
+            with Image.open(fixture) as source:
+                report = source.resize((1920, 1080))
+            report.save(path)
+            self.assertEqual(self.vision.guide_status(path), 'completed')
+            ImageDraw.Draw(report).rectangle((755, 113, 815, 163), fill='#40484b')
+            report.save(path)
+            self.assertIsNotNone(self.vision.inactive_tab(path))
+            self.assertIsNone(self.vision.guide_status(path))
 
     def test_requires_weekly_page_and_red_hint(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -27,6 +27,7 @@ from image_matcher import TemplateMatcher
 from tasks.reward_orb_scan import REWARD_SEARCH_SECONDS, orb_confidence
 from tasks.models import TaskNeedsReview
 from tasks.combat_4c_entrance import BOSS_AVATARS, BossChallengeEntrance
+from tasks.guide_challenges import FORGERY_ZONES
 from windows_client import ClientWindowController
 from display_environment import FILTER_GUIDANCE, display_findings, read_game_display
 from desktop_pet import DesktopPet
@@ -110,7 +111,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
 APP_VERSION = "1.6.3"
-APP_BUILD = 9
+APP_BUILD = 10
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -1056,7 +1057,7 @@ class App:
         self.weekly_test_mode = BooleanVar(value=self._load_app_flag("weekly_test_mode"))
         self.story_skip_enabled = BooleanVar(value=False)
         self.four_c_location = StringVar(value="副本")
-        self.forgery_target = StringVar(value="")
+        self.forgery_target = StringVar(value=FORGERY_ZONES[0])
         self.forgery_count = StringVar(value="1")
         self.pet_size = StringVar(value=f"{self._load_pet_size_percent()}%")
         self.pet_visible = self._load_pet_visible()
@@ -3294,8 +3295,8 @@ class App:
         self._make_start_action_card(action_list, "tower", "深塔挑战", "靠近光球开战，已有怪物时直接战斗",
                                      self._start_tower_challenge, "tower")
         self._make_start_action_card(action_list, "forgery", "凝素领域挑战",
-                                     "输入索拉指南里的关卡名称，使用分配的战斗轴", self._start_forgery, "forgery",
-                                     controls=(("关卡", self.forgery_target, None, lambda *_: None),
+                                     "选择关卡和次数，使用分配的战斗轴", self._start_forgery, "forgery",
+                                     controls=(("关卡", self.forgery_target, FORGERY_ZONES, lambda *_: None),
                                                ("次数", self.forgery_count, None, lambda *_: None)))
         self._repack_start_action_cards()
         Label(left, text="提示：将鼠标放在无音区或键位上滚动滚轮，可快速切换选项。",
@@ -3416,7 +3417,7 @@ class App:
     def _show_run_notice(self, notice_key: str) -> None:
         if notice_key == 'forgery':
             messagebox.showinfo('凝素领域挑战',
-                '从可传送的大世界启动。填写索拉指南中显示的关卡名称和次数。\n\n'
+                '从可传送的大世界启动。选择关卡并填写次数。\n\n'
                 '在战斗排轴中为「凝素领域」选择预设。每轮领取一次奖励，需要补充体力时停止。',
                 parent=self.root)
             return
@@ -5448,10 +5449,16 @@ class App:
                             findings.append(("error", f"日常与衔接周常模板不完整：{', '.join(missing)}。"))
                         else:
                             findings.append(("ok", "日常与衔接周常模板齐全；日常从大世界开始，运行中无需匹配周常起始界面。"))
-                        if TaskRunner._daily_activity_page_present(preview):
+                        from tasks.weekly_rewards import WeeklyRewardsVision
+                        weekly_status = WeeklyRewardsVision(TEMPLATES_DIR/'weekly').guide_status(preview)
+                        if weekly_status == 'completed':
+                            findings.append(('ok', '任务完成：周常已完成'))
+                        elif weekly_status == 'pending':
+                            findings.append(('info', '周常尚未完成，一键日常将继续执行周常。'))
+                        elif TaskRunner._daily_activity_page_present(preview):
                             from tasks.daily_activity import activity_counter_full
                             if activity_counter_full(preview,TEMPLATES_DIR/'daily'/'activity_full.png'):
-                                findings.append(('ok','当前活跃度已达到100（包含150等更高分数）；直接领取剩余奖励，无需再刷无音区。'))
+                                findings.append(('ok', '当前活跃度已达到100，一键日常将检查周常进度。'))
                             else:
                                 findings.append(('info','当前活跃度数字尚未确认；正常日常流程的奖励领取不会被数字识别结果阻止。'))
                     elif navigation_task is not None:
@@ -6833,10 +6840,10 @@ class App:
         target = self.forgery_target.get().strip()
         try:
             count = int(self.forgery_count.get())
-            if len(target) < 2 or not 1 <= count <= 9999:
+            if target not in FORGERY_ZONES or not 1 <= count <= 9999:
                 raise ValueError
         except ValueError:
-            messagebox.showerror("凝素领域", "请填写关卡名称和 1 至 9999 的次数。", parent=self.root)
+            messagebox.showerror("凝素领域", "请选择关卡，并填写 1 至 9999 的次数。", parent=self.root)
             return
         if self.target_mode.get() != "client":
             messagebox.showerror("模式不支持", "凝素领域需要 PC 客户端。", parent=self.root)

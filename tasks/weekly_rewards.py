@@ -15,18 +15,20 @@ class WeeklyRewardsVision:
     def __init__(self, templates: Path):
         self.matcher = TemplateMatcher(templates)
 
-    def matches(self, screenshot: Path, name: str, region: tuple[int, int, int, int], threshold: float = 0.88) -> bool:
+    def _find(self, screenshot: Path, name: str, region: tuple[int, int, int, int], threshold: float = 0.88):
         with Image.open(screenshot) as image:
             width, height = image.size
         if abs(width / height - 16 / 9) > 0.04:
-            return False
+            return None
         scale = width / 1920
         try:
-            self.matcher.find_fast(screenshot, name, threshold=threshold, scale=scale,
-                                   region=tuple(round(p * scale) for p in region))
-            return True
+            return self.matcher.find_fast(screenshot, name, threshold=threshold, scale=scale,
+                                          region=tuple(round(p * scale) for p in region))
         except (RuntimeError, FileNotFoundError):
-            return False
+            return None
+
+    def matches(self, screenshot: Path, name: str, region: tuple[int, int, int, int], threshold: float = 0.88) -> bool:
+        return self._find(screenshot, name, region, threshold) is not None
 
     def cap_page(self, screenshot: Path) -> str | None:
         if self.matches(screenshot, "cap_result.png", (1380, 580, 1640, 680)) and self.matches(
@@ -39,6 +41,17 @@ class WeeklyRewardsVision:
 
     def weekly_page(self, screenshot: Path) -> bool:
         return self.matches(screenshot, "weekly_tab.png", (540, 105, 745, 195))
+
+    def inactive_tab(self, screenshot: Path):
+        return self._find(screenshot, 'weekly_tab_inactive.png', (540, 105, 745, 195), threshold=.80)
+
+    def guide_status(self, screenshot: Path) -> str | None:
+        if self.weekly_page(screenshot):
+            return 'completed' if self.all_claimed(screenshot) else 'pending'
+        if self.inactive_tab(screenshot) and self.matches(
+                screenshot, 'weekly_tab_complete.png', (748, 102, 837, 192), threshold=.86):
+            return 'completed'
+        return None
 
     def all_claimed(self, screenshot: Path) -> bool:
         return self.weekly_page(screenshot) and all(self.matches(

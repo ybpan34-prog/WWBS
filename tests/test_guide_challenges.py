@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 from PIL import Image, ImageOps
 
 from tasks.combat_4c_entrance import EntranceFrame
-from tasks.guide_challenges import ForgeryChallenge, SCREENSHOT, _skip_target, forgery_category
+from tasks.guide_challenges import FORGERY_ZONES, ForgeryChallenge, SCREENSHOT, _skip_target, forgery_category
 from tasks.models import Step
 from tasks.runner import TaskRunner
 
@@ -29,6 +29,18 @@ class StoryTests(unittest.TestCase):
 
 
 class ForgeryTests(unittest.TestCase):
+    def test_five_selectable_domains_open_their_own_rows(self):
+        screenshot = Path(__file__).parent/'fixtures/forgery-five-zones.png'
+        runner = TaskRunner(Mock(), Mock(), dry_run=False)
+        for target, expected_y in zip(FORGERY_ZONES, (266, 419, 572, 725, 878)):
+            with self.subTest(target=target):
+                ocr = Mock()
+                challenge = ForgeryChallenge(runner, ocr, target)
+                runner.controller.tap.reset_mock()
+                self.assertTrue(challenge.select_row(screenshot))
+                runner.controller.tap.assert_called_once_with(1741, expected_y)
+                ocr.recognize.assert_not_called()
+
     def test_approaches_start_orb_and_interacts_before_accepting_combat(self):
         runner = Mock(stop_event=Event())
         challenge = ForgeryChallenge(runner, Mock(), '目标领域')
