@@ -9,7 +9,7 @@ class DailyStepChecks:
         self.screenshot = screenshot or Path(__file__).resolve().parent.parent/'_runtime_screenshot.png'
 
     def transition(self, label, destination, action=None, *, timeout=15, require_action=False, recovery=None,
-                   capture=None):
+                   capture=None, max_recoveries=3, recovery_delay=1.8):
         capture = capture or self.runner._capture_for_matching
         deadline = time.monotonic()+timeout
         frames = attempts = ready = recoveries = 0
@@ -32,9 +32,9 @@ class DailyStepChecks:
                     attempts += 1
                     next_click = time.monotonic()+1.8
                     self.runner.log(f'    「{label}」已操作，等待目标状态复核（第{attempts}次）。')
-                elif recovery is not None and recoveries < 3 and recovery(self.screenshot):
+                elif recovery is not None and recoveries < max_recoveries and recovery(self.screenshot):
                     recoveries += 1
-                    next_click = time.monotonic()+1.8
+                    next_click = time.monotonic()+recovery_delay
             self.runner._sleep_interruptible(.2)
         if self.runner.stop_event.is_set():
             return False

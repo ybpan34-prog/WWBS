@@ -28,6 +28,21 @@ class Controller:
 
 
 class DailySettlementTests(unittest.TestCase):
+    def test_real_countdown_and_missing_digits_at_supported_window_scales(self):
+        runner = TaskRunner(Controller(), Mock())
+        runner.matcher.templates_dir = ROOT/'templates/daily'
+        fixture = ROOT/'tests/fixtures/daily-battle-timer-reported.png'
+        with tempfile.TemporaryDirectory() as directory, Image.open(fixture) as source:
+            frame = Path(directory)/'timer.png'
+            clock_only = source.copy()
+            clock_only.paste((25, 28, 39), (911, 135, 1052, 171))
+            for width in (1280, 1600, 1920, 2560):
+                for image, expected in ((source, True), (clock_only, False)):
+                    with self.subTest(width=width, expected=expected):
+                        image.resize((width, width*9//16), Image.Resampling.LANCZOS).save(frame)
+                        self.assertEqual(runner._daily_combat_visible(frame), expected)
+        self.assertFalse(runner._daily_combat_visible(FIXTURE))
+
     def runner(self, directory):
         runner = TaskRunner(Controller(), Mock(), dry_run=False)
         runner._fast_scales = lambda: [1280/1920]
@@ -119,21 +134,23 @@ class DailySettlementTests(unittest.TestCase):
             runner.controller.left_click.assert_not_called()
             runner.controller.release_keys.assert_called_once()
 
-    def test_background_ending_callback_stops_input_before_main_loop_polls(self):
+    def test_timed_battle_ignores_reward_marker_and_stops_when_countdown_is_gone(self):
         runner = self.runner(None)
         runner._select_daily_slot_after_loading = Mock(return_value=True)
         runner._capture_for_matching = Mock()
-        runner._read_daily_settlement = Mock(return_value=None)
-        runner._daily_reward_stage_present = Mock(return_value=False)
-        runner._daily_battle_task_present = Mock(return_value=True)
-        def monitor(_inspect, _initial, _stop, *, on_result):
-            on_result((True, False))
-            return Mock(error=None, poll=Mock(return_value=None))
+        runner._daily_battle_end_present = Mock(return_value=True)
+        runner._daily_combat_visible = Mock(side_effect=[True, False, False, False])
+        runner.controller.left_click = Mock()
+        runner._run_rotation_action = Mock(return_value=True)
+        def monitor(inspect, initial, _stop):
+            self.assertTrue(initial)
+            return Mock(error=None, poll=lambda: (inspect(),))
         with patch('tasks.other.BattleMonitor', side_effect=monitor):
             runner._run_daily_battle(Mock(timeout=180), 'E', 'R', 1)
         self.assertTrue(runner._combat_input_cancel.is_set())
-        runner.controller.press_key.assert_not_called()
-        runner.controller.left_click.assert_not_called()
+        self.assertEqual(runner._daily_combat_visible.call_count, 4)
+        runner._daily_battle_end_present.assert_not_called()
+        runner._run_rotation_action.assert_called_once()
 
     def test_loading_timeout_and_old_settlement_after_restart_never_force_role(self):
         for pending in (False, True):

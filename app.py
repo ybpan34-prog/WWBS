@@ -110,7 +110,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
 APP_VERSION = "1.6.3"
-APP_BUILD = 8
+APP_BUILD = 9
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -5438,7 +5438,7 @@ class App:
                             findings.append(('info', '当前画面未显示素材获取页面的凝素领域入口。'))
                     elif self._task_with_action(diagnostic_tasks, "daily_routine") is not None:
                         required = [
-                            "activity_full.png", "battle_task_text.png", "reward_prompt.png",
+                            "activity_full.png", "battle_timer_clock.png", "reward_prompt.png",
                             "guide_battle_tab.png", "guide_tacet_section.png", "guide_material_title.png",
                         ]
                         missing = [name for name in required if not (TEMPLATES_DIR / "daily" / name).exists()]

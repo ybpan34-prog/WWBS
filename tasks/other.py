@@ -94,18 +94,22 @@ class OtherTask:
                 self.controller.release_keys()
                 self.log("    未发现光球，已识别敌方血条，直接进入深塔战斗。")
                 return True
-            with Image.open(screenshot) as source:
-                width = source.width
-            keys = ("W",)
-            if target_x is not None and abs(target_x-width*.5) > width*.05:
-                keys = ("W", "A" if target_x < width*.5 else "D")
             if self.stop_event.is_set():
                 return False
-            self.controller.press_keys(keys, 300)
+            self._step_toward_challenge_orb(screenshot, target_x)
             self._sleep_interruptible(.08)
         if self.stop_event.is_set():
             return False
         raise RuntimeError("未识别到深塔开始提示或敌方血条，请从塔内光球前或已出现怪物的战斗画面启动。")
+
+    def _step_toward_challenge_orb(self, screenshot, target_x):
+        with Image.open(screenshot) as source:
+            width = source.width
+        keys = ("W",)
+        if target_x is not None and abs(target_x-width*.5) > width*.05:
+            keys += ("A" if target_x < width*.5 else "D",)
+        if not self.stop_event.is_set():
+            self.controller.press_keys(keys, 300)
 
     def _run_tower_challenge(self, step: Step) -> None:
         required = ("press_keys", "press_key", "press_binding", "left_click", "hold_left_button",
@@ -879,23 +883,22 @@ class OtherTask:
         local_y = int(row_y)-top
         return any(len(run) >= minimum and run[0] <= local_y <= run[-1] for run in runs)
 
-    def _daily_battle_task_present(self, screenshot: Path) -> bool:
-        with Image.open(screenshot) as captured:
-            width, height = captured.size
-        return self._find_daily_template(
-            "battle_task_text.png",
-            threshold=0.67,
-            region=(0, round(height * 0.15), round(width * 0.43), round(height * 0.42)),
-            scales=[self._fast_scales()[0]],
-            screenshot=screenshot,
-        ) is not None
-
     def _daily_combat_visible(self, screenshot: Path) -> bool:
-        if self._daily_battle_task_present(screenshot):
-            return True
         with Image.open(screenshot) as image:
-            # Require the boss's two aligned HUD tracks, not a floating mob bar.
-            return boss_bar_present(image)
+            width, height = image.size
+            scale = width / 1920
+            clock = self._find_daily_template(
+                "battle_timer_clock.png", threshold=.80,
+                region=(round(width*.437), round(height*.09), round(width*.478), round(height*.195)),
+                scales=[scale, scale*.96, scale*1.04], screenshot=screenshot,
+            )
+            if clock is None:
+                return False
+            # Check for the bright digits to the right of the fixed clock glyph.
+            x, y = clock.center
+            digits = np.asarray(image.crop((x+round(23*scale), y-round(11*scale),
+                                            x+round(158*scale), y+round(13*scale))).convert('L'))
+            return .11 <= float((digits > 195).mean()) <= .58
 
     def _select_daily_slot_after_loading(self, screenshot: Path, slot: int = 1) -> bool:
         """Return whether the first role was already verified on the battle frame."""
@@ -909,7 +912,7 @@ class OtherTask:
                 return False
             self._capture_for_matching(screenshot)
             combat_visible = self._daily_combat_visible(screenshot)
-            if self._daily_battle_end_present(screenshot, combat_visible=combat_visible):
+            if not combat_visible and self._daily_battle_end_present(screenshot, combat_visible=False):
                 if getattr(self, '_daily_restart_pending', False):
                     self._sleep_interruptible(.15)
                     continue
@@ -945,12 +948,12 @@ class OtherTask:
         first_slot = self._rotation_first_slot(modules, "daily")
         self._rotation_slot = first_slot
         self._rotation_battle_finished = False
-        self._rotation_end_check = self._daily_battle_end_present
+        self._rotation_end_check = None
         self._combat_input_cancel.clear()
         self._combat_animation_until = 0.
         self._rotation_continuous_started = False
         last_task_check = 0.0
-        task_seen = False
+        timer_seen = False
         screenshot = APP_DIR / "_runtime_screenshot.png"
         try:
             first_slot_ready = self._select_daily_slot_after_loading(screenshot, first_slot) is True
@@ -981,45 +984,27 @@ class OtherTask:
         try:
             def inspect():
                 self._capture_for_matching(screenshot)
-                present = self._daily_combat_visible(screenshot)
-                reward = self._daily_battle_end_present(screenshot, combat_visible=present)
-                return reward, present and not reward
-
-            def stop_on_end(result):
-                if result[0]:
-                    self._rotation_battle_finished = True
-                    self._combat_input_cancel.set()
-                    idle_worker.close()
-                    attack_enabled.clear()
-                    self.controller.release_keys()
+                return self._daily_combat_visible(screenshot)
 
             rotation = RotationClock(modules, time.monotonic(), self.MAIN_ATTACK_CLICK_INTERVAL,
                                      self.rotation_times.get("daily"), background_idle=True,
                                      slot_order=self.rotation_orders.get("daily"))
             if first_slot_ready:
                 rotation.needs_select = False
-            monitor = BattleMonitor(inspect, (False, True), self.stop_event, on_result=stop_on_end)
+            monitor = BattleMonitor(inspect, True, self.stop_event)
             while time.monotonic() < deadline:
                 if self.stop_event.is_set():
                     return
                 now = time.monotonic()
                 checked = monitor.poll()
                 if checked is not None:
-                    reward, present = checked[0]
-                    if reward:
-                        idle_worker.pause()
-                        attack_enabled.clear()
-                        with attack_lock:
-                            pass
-                        self.controller.release_keys()
-                        self.log("    已识别奖励／挑战成功结算，停止战斗并进入收尾。")
-                        return
+                    present = checked[0]
                     last_task_check = time.monotonic()
                     if present:
-                        task_seen = True
+                        timer_seen = True
                     elif time.monotonic() < self._combat_animation_until:
                         pass
-                    elif task_seen:
+                    elif timer_seen:
                         idle_worker.pause()
                         monitor.pause()
                         attack_enabled.clear()
@@ -1029,7 +1014,7 @@ class OtherTask:
                         if self._confirm_daily_battle_finished(screenshot):
                             self._rotation_battle_finished = True
                             self._combat_input_cancel.set()
-                            self.log("    左侧清理目标文字快速复核后仍消失，进入奖励获取阶段。")
+                            self.log("    连续三张截图确认顶部倒计时已消失，进入奖励获取阶段。")
                             return
                         monitor.resume()
                         last_task_check = time.monotonic()
@@ -1039,11 +1024,11 @@ class OtherTask:
                 action = rotation.next_action(time.monotonic())
                 if not self._run_rotation_action(action, rotation, skill_key, ultimate_key,
                                                  attack_enabled, attack_lock, daily=True,
-                                                 task_seen=task_seen, screenshot=screenshot):
+                                                 task_seen=timer_seen, screenshot=screenshot):
                     return
                 self._sleep_interruptible(0.025)
-            if not task_seen:
-                raise RuntimeError("没有识别到无音区清理目标文字，请确认已进入无音区挑战。")
+            if not timer_seen:
+                raise RuntimeError("没有识别到无音区顶部倒计时，请确认已进入无音区挑战。")
             raise RuntimeError("无音区单轮战斗达到安全时限，已自动停止。")
         finally:
             idle_worker.close()
@@ -1315,10 +1300,8 @@ class OtherTask:
                 break
             with Image.open(screenshot) as captured:
                 width, height = captured.size
-                combat = self._daily_combat_visible(screenshot) and (
-                    (not orb_locked and not self._daily_marker_confirms_reward(score, direction))
-                    or enemy_health_bar_present(captured)
-                )
+                combat = (enemy_health_bar_present(captured) if claim_dialog
+                          else self._daily_combat_visible(screenshot))
             if combat:
                 arrow_free_frames = 0
                 orb_locked = False
@@ -1386,8 +1369,7 @@ class OtherTask:
                 state = 'claim'
             elif self._read_daily_settlement(screenshot) is not None:
                 state = 'settlement'
-            elif (self._daily_combat_visible(screenshot)
-                  and not self._daily_battle_end_present(screenshot, combat_visible=True)):
+            elif self._daily_combat_visible(screenshot):
                 state = 'combat'
             else:
                 state = ''
@@ -1843,7 +1825,7 @@ class OtherTask:
             self._capture_for_matching(screenshot)
             if time.monotonic() < self._combat_animation_until:
                 return False
-            if self._daily_battle_task_present(screenshot):
+            if self._daily_combat_visible(screenshot):
                 return False
         return True
 

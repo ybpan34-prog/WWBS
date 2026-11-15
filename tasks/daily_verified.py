@@ -5,7 +5,6 @@ import time
 import numpy as np
 from PIL import Image
 
-from combat_vision import enemy_health_bar_present
 from tasks.daily_154 import (Daily154Navigation, DAILY_ZONE_BUTTON_Y_OFFSETS)
 from tasks.daily_checks import DailyStepChecks
 from tasks.daily_radio import DailyRadioVision
@@ -42,7 +41,7 @@ class VerifiedDailyNavigation(Daily154Navigation):
         return self._runner._terminal_destination_ready(path, label)
 
     def _battle(self, path):
-        return self._runner._overworld_hud_ready(path) and self._runner._daily_combat_visible(path)
+        return self._runner._daily_combat_visible(path)
 
     def _world(self, path):
         if not self._runner._overworld_hud_ready(path):
@@ -360,12 +359,7 @@ class VerifiedDailyNavigation(Daily154Navigation):
                 if template_name == 'one_click_claim.png' and not self._normal(p) else False)
 
     def _restart_battle_visible(self, path):
-        if self._battle(path):
-            return True
-        if not self._runner._overworld_hud_ready(path):
-            return False
-        with Image.open(path) as image:
-            return enemy_health_bar_present(image)
+        return self._battle(path)
 
     def _click_optional_daily_template(self, template_name, label, *, timeout=3., threshold=.72):
         if self.stop_event.is_set():

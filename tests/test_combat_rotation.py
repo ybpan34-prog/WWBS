@@ -282,7 +282,7 @@ class RotationTests(unittest.TestCase):
         runner._select_daily_slot_after_loading = Mock(return_value=True)
         runner._capture_for_matching = Mock()
         runner._daily_reward_stage_present = Mock(return_value=False)
-        runner._daily_battle_task_present = Mock(return_value=True)
+        runner._daily_combat_visible = Mock(return_value=True)
         controller.press_key.side_effect = lambda key, _: runner.stop_event.set() if key == 'Q' else None
         ticks = iter(i / 10 for i in range(1, 3000))
         with patch.object(app.time, 'monotonic', side_effect=lambda: next(ticks)):
@@ -749,7 +749,7 @@ class RotationTests(unittest.TestCase):
                 else:
                     runner._capture_for_matching = inspect
                     runner._daily_reward_stage_present = Mock(return_value=False)
-                    runner._daily_battle_task_present = Mock(return_value=True)
+                    runner._daily_combat_visible = Mock(return_value=True)
                     runner._run_daily_battle(Mock(timeout=180), 'E', 'R', 1)
                 self.assertEqual(len(capture_span), 2)
                 during = [t for t in click_times if capture_span[0] < t < capture_span[1]]
@@ -793,7 +793,7 @@ class RotationTests(unittest.TestCase):
                 else:
                     runner._capture_for_matching = inspect
                     runner._daily_reward_stage_present = Mock(return_value=False)
-                    runner._daily_battle_task_present = Mock(return_value=True)
+                    runner._daily_combat_visible = Mock(return_value=True)
                     runner._run_daily_battle(Mock(timeout=180), 'E', 'R', 1)
                 during = [key for tick, key in events if capture_span[0] < tick < capture_span[1]]
                 self.assertGreaterEqual(during.count('click'), 2)
@@ -850,7 +850,7 @@ class RotationTests(unittest.TestCase):
                 else:
                     runner._capture_for_matching = inspect
                     runner._daily_reward_stage_present = Mock(return_value=False)
-                    runner._daily_battle_task_present = Mock(return_value=True)
+                    runner._daily_combat_visible = Mock(return_value=True)
                     run = runner._run_daily_battle
                 with self.assertRaisesRegex(RuntimeError, 'capture failed'):
                     run(Mock(timeout=30), 'E', 'R', 1)

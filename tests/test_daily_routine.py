@@ -571,14 +571,14 @@ class DailyRoutineTests(unittest.TestCase):
         self.assertFalse(TaskRunner._daily_reward_movement_stalled(0.24, 0.25))
         self.assertFalse(TaskRunner._daily_reward_movement_stalled(None, 0.25))
 
-    def test_reward_search_returns_to_combat_when_task_text_reappears(self):
+    def test_reward_search_returns_to_combat_when_countdown_reappears(self):
         controller = Mock()
         runner = TaskRunner(controller, lambda _message: None, dry_run=False)
         runner._capture_for_matching = Mock()
         runner._daily_reward_dialog_present = Mock(return_value=False)
         runner._find_daily_reward_prompt = Mock(return_value=None)
         runner._daily_reward_marker_location = Mock(return_value=(None, None, 0.0))
-        runner._daily_battle_task_present = Mock(return_value=True)
+        runner._daily_combat_visible = Mock(return_value=True)
 
         self.assertFalse(runner._collect_daily_reward(1))
         controller.release_keys.assert_called_once()
@@ -590,7 +590,7 @@ class DailyRoutineTests(unittest.TestCase):
         runner = TaskRunner(controller, lambda _: None, dry_run=False)
         runner._capture_for_matching = Mock()
         runner._find_daily_reward_prompt = Mock(return_value=None)
-        runner._daily_battle_task_present = Mock(return_value=False)
+        runner._daily_combat_visible = Mock(return_value=False)
         runner._daily_reward_marker_location = Mock(return_value=(None, None, 0))
         runner._sleep_interruptible = lambda _: runner.stop_event.set()
         image = Image.new('RGB', (1920, 1080), (20,30,40))
@@ -620,11 +620,11 @@ class DailyRoutineTests(unittest.TestCase):
         runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)
         runner._sleep_interruptible = Mock()
         runner._capture_for_matching = Mock()
-        runner._daily_battle_task_present = Mock(return_value=False)
+        runner._daily_combat_visible = Mock(return_value=False)
 
         self.assertTrue(runner._confirm_daily_battle_finished(Path("screen.png")))
         self.assertEqual(
-            runner._daily_battle_task_present.call_count,
+            runner._daily_combat_visible.call_count,
             runner.DAILY_TASK_MISSING_CONFIRMATIONS - 1,
         )
 
@@ -632,10 +632,10 @@ class DailyRoutineTests(unittest.TestCase):
         runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)
         runner._sleep_interruptible = Mock()
         runner._capture_for_matching = Mock()
-        runner._daily_battle_task_present = Mock(return_value=True)
+        runner._daily_combat_visible = Mock(return_value=True)
 
         self.assertFalse(runner._confirm_daily_battle_finished(Path("screen.png")))
-        runner._daily_battle_task_present.assert_called_once_with(Path("screen.png"))
+        runner._daily_combat_visible.assert_called_once_with(Path("screen.png"))
 
     def test_pending_battle_end_prevents_due_heal_rotation(self):
         controller = Mock()
@@ -681,7 +681,7 @@ class DailyRoutineTests(unittest.TestCase):
         runner._capture_for_matching = Mock()
         runner._find_daily_reward_prompt = Mock(return_value=None)
         runner._daily_reward_orb_location = Mock(return_value=(900, 360, 0.82))
-        runner._daily_battle_task_present = Mock(return_value=True)
+        runner._daily_combat_visible = Mock(return_value=True)
         runner._sleep_interruptible = Mock()
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -690,7 +690,7 @@ class DailyRoutineTests(unittest.TestCase):
             with patch("tasks.other.APP_DIR", Path(temp_dir)):
                 self.assertFalse(runner._collect_daily_reward(1))
 
-        self.assertEqual(runner._daily_battle_task_present.call_count, 2)
+        self.assertEqual(runner._daily_combat_visible.call_count, 2)
         controller.press_keys.assert_not_called()
 
     def test_refill_never_selects_star_currency_card(self):

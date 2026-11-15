@@ -216,7 +216,7 @@ class DailyArrowTests(unittest.TestCase):
             runner.controller.move_mouse_relative.assert_not_called()
             runner.controller.press_keys.assert_not_called()
 
-    def test_reward_arrow_takes_priority_over_stale_combat_hint(self):
+    def test_reward_arrow_guides_search_after_countdown_disappears(self):
         with tempfile.TemporaryDirectory() as folder, patch('tasks.other.APP_DIR', Path(folder)):
             runner = self.runner(folder)
             runner._daily_combat_visible.return_value = True
@@ -226,6 +226,7 @@ class DailyArrowTests(unittest.TestCase):
             self.assertTrue(runner._daily_battle_end_present(frame, combat_visible=True))
             with patch('tasks.other.enemy_health_bar_present', return_value=True):
                 self.assertFalse(runner._daily_battle_end_present(frame, combat_visible=True))
+            runner._daily_combat_visible.return_value = False
             runner._find_daily_reward_prompt.side_effect = [None, Mock()]
             self.assertTrue(runner._collect_daily_reward(1))
             runner.controller.move_mouse_relative.assert_called_once_with(-440, 0)

@@ -56,7 +56,7 @@ class OrbDirectionTests(unittest.TestCase):
         runner._daily_reward_orb_location=Mock(side_effect=locations)
         runner._daily_reward_marker_location=Mock(return_value=(None, None, 0.))
         runner._find_daily_reward_prompt=Mock(side_effect=prompts)
-        runner._daily_battle_task_present=Mock(return_value=False)
+        runner._daily_combat_visible=Mock(return_value=False)
         runner._sleep_interruptible=Mock()
         runner._claim_daily_double_reward=Mock()
         runner._wait_daily_reward_dialog=Mock(return_value='claim')
@@ -114,14 +114,6 @@ class OrbDirectionTests(unittest.TestCase):
             runner.controller.press_keys.assert_not_called()
             runner.controller.press_key.assert_not_called()
             runner._claim_daily_double_reward.assert_not_called()
-
-    def test_boss_hud_alone_prevents_reward_search_even_without_objective(self):
-        with tempfile.TemporaryDirectory() as directory, patch('tasks.other.APP_DIR', Path(directory)):
-            runner = self.runner(directory, [(None, None, .3)], [None, None])
-            with patch('tasks.other.boss_bar_present', return_value=True):
-                self.assertFalse(runner._collect_daily_reward(1))
-            runner.controller.move_mouse_relative.assert_not_called()
-            runner.controller.press_keys.assert_not_called()
 
     def test_confidence_save_keeps_zone_and_loads_for_task(self):
         from tasks.reward_orb_scan import orb_confidence

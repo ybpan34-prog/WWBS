@@ -60,9 +60,9 @@ class UltimateTransitionTests(unittest.TestCase):
     def test_daily_missing_task_is_not_finished_during_ultimate(self):
         runner = self.runner()
         runner._combat_animation_until = float('inf')
-        runner._daily_battle_task_present = Mock(return_value=False)
+        runner._daily_combat_visible = Mock(return_value=False)
         self.assertFalse(runner._confirm_daily_battle_finished(Path('screen.png')))
-        runner._daily_battle_task_present.assert_not_called()
+        runner._daily_combat_visible.assert_not_called()
 
 
 if __name__ == '__main__':

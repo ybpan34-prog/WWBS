@@ -65,7 +65,7 @@ class RoleOrderTests(unittest.TestCase):
                 runner._inspect_4c_battle_state = Mock(return_value=(True, False))
                 runner._capture_for_matching = Mock()
                 runner._daily_reward_stage_present = Mock(return_value=False)
-                runner._daily_battle_task_present = Mock(return_value=True)
+                runner._daily_combat_visible = Mock(return_value=True)
                 controller.press_binding.side_effect = lambda *_: (events.append("cast"), runner.stop_event.set())
                 if mode == "daily":
                     runner._run_daily_battle(Mock(timeout=180), "E", "R", 1)

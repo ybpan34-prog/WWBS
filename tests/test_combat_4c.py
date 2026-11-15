@@ -223,7 +223,7 @@ class Combat4CTests(unittest.TestCase):
         runner._sleep_interruptible = Mock()
         runner._select_daily_slot_one_after_loading = Mock()
         runner._daily_reward_stage_present = Mock(return_value=False)
-        runner._daily_battle_task_present = Mock(return_value=True)
+        runner._daily_combat_visible = Mock(return_value=True)
         runner._capture_for_matching = Mock()
         runner._run_4c_continuous_attack = Mock()
         runner._ultimate_indicator_ready = Mock(side_effect=AssertionError("unused"))

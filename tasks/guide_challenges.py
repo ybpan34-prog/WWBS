@@ -131,6 +131,8 @@ class ForgeryChallenge(GuideFrames):
 
     def challenge_prompt(self, path):
         if self.runner._overworld_hud_ready(path):
+            if self.runner._tower_template_present(path, 'start_prompt.png', (.50, .32, .95, .75)):
+                return True
             return self.read(path).find('开启挑战', '开始挑战', region=(.47,.27,.90,.77))
         return None
 
@@ -220,19 +222,32 @@ class ForgeryChallenge(GuideFrames):
                                       require_action=True, timeout=60)
 
     def start_combat(self, *, approach):
+        interacted = False
+
+        def fighting(path):
+            return (self.battle(path) and not self.challenge_prompt(path)
+                    and (interacted or self.runner._daily_reward_orb_location(path)[0] is None))
+
         def interact(path):
+            nonlocal interacted
             if self.read(path).find('体力不足', '结晶波片不足', region=(.20,.22,.80,.72)):
                 raise TaskNeedsReview('凝素领域体力不足，已停止刷取。')
-            if self.challenge_prompt(path):
+            if self.challenge_prompt(path) and not self.runner.stop_event.is_set():
+                self.runner.controller.release_keys()
                 self.runner.controller.press_key('F', 100)
+                interacted = True
+                self.runner.log('    已识别光球的开始挑战提示，按 F 开启凝素领域战斗。')
                 return True
             return False
         def walk(path):
             if approach and self.loaded(path):
-                self.runner.controller.press_keys(('W',), 350)
+                target_x, _, _ = self.runner._daily_reward_orb_location(path)
+                self.runner._step_toward_challenge_orb(path, target_x)
                 return True
             return False
-        return self.checks.transition('凝素领域战斗出现', self.battle, interact, timeout=35, recovery=walk)
+        return self.checks.transition('通过光球开启凝素领域战斗', fighting, interact, timeout=35,
+                                      recovery=walk, max_recoveries=18, recovery_delay=.2,
+                                      capture=lambda path: self.runner._capture_for_matching(path, loading=True))
 
     def claim_button(self, path):
         with Image.open(path) as image:

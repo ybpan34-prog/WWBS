@@ -29,6 +29,23 @@ class StoryTests(unittest.TestCase):
 
 
 class ForgeryTests(unittest.TestCase):
+    def test_approaches_start_orb_and_interacts_before_accepting_combat(self):
+        runner = Mock(stop_event=Event())
+        challenge = ForgeryChallenge(runner, Mock(), '目标领域')
+        challenge.read = Mock(return_value=frame())
+        challenge.loaded = Mock(return_value=True)
+        runner._daily_reward_orb_location.return_value = (1280, 350, .9)
+        # Enemy bars by themselves cannot bypass an unactivated orb.
+        challenge.battle = lambda _path: True
+        challenge.challenge_prompt = lambda _path: (
+            runner._step_toward_challenge_orb.called and not runner.controller.press_key.called)
+        time_now = [0.]
+        runner._sleep_interruptible.side_effect = lambda seconds: time_now.__setitem__(0, time_now[0]+seconds)
+        with patch('tasks.daily_checks.time.monotonic', side_effect=lambda: time_now[0]):
+            self.assertTrue(challenge.start_combat(approach=True))
+        runner._step_toward_challenge_orb.assert_called_once_with(SCREENSHOT, 1280)
+        runner.controller.press_key.assert_called_once_with('F', 100)
+
     def test_reported_sidebar_opens_even_when_ocr_cannot_read_the_category(self):
         fixture = Path(__file__).parent/'fixtures/forgery-guide-sidebar-reported.png'
         with Image.open(fixture) as source:
