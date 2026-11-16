@@ -14,32 +14,23 @@ def task(name: str, group: str, enabled: bool, action: str) -> app.WeeklyTask:
 
 
 class TemplateTaskSwitchingTests(unittest.TestCase):
-    def setUp(self):
-        self.dream = task("幻梦游园", "default", False, "tap_image_cycle")
-        self.chorus = task("群声共振模拟域", "群声共振模拟域", True, "move_to_visual_target")
-        self.combat = task("4C刷取", "4c", False, "combat_4c")
-        self.tasks = [self.dream, self.chorus, self.combat]
+    def test_built_in_tasks_choose_templates_even_with_stale_saved_groups(self):
+        cases = (
+            ('幻梦游园', 'tap_image_cycle', 'default'),
+            ('群声共振模拟域', 'move_to_visual_target', '群声共振模拟域'),
+            ('4C刷取', 'combat_4c', '4c'),
+            ('一键日常', 'daily_routine', 'daily'),
+            ('凝素领域挑战', 'forgery_challenge', 'daily'),
+            ('深塔挑战', 'tower_challenge', 'tower'),
+            ('剧情跳过对话', 'story_skip', 'default'),
+        )
+        for name, action, expected in cases:
+            with self.subTest(name=name):
+                self.assertEqual(app.App._task_template_group(task(name, 'stale', True, action)), expected)
 
-    def test_switching_to_default_disables_chorus(self):
-        active = app.App._activate_template_group_task(self.tasks, "幻梦游园")
-        self.assertIs(active, self.dream)
-        self.assertTrue(self.dream.enabled)
-        self.assertFalse(self.chorus.enabled)
-        self.assertFalse(self.combat.enabled)
-
-    def test_switching_to_chorus_disables_default(self):
-        self.dream.enabled = True
-        self.chorus.enabled = False
-        active = app.App._activate_template_group_task(self.tasks, "群声共振模拟域")
-        self.assertIs(active, self.chorus)
-        self.assertFalse(self.dream.enabled)
-        self.assertTrue(self.chorus.enabled)
-
-    def test_4c_group_does_not_replace_normal_task(self):
-        active = app.App._activate_template_group_task(self.tasks, "4c")
-        self.assertIsNone(active)
-        self.assertTrue(self.chorus.enabled)
-        self.assertFalse(self.combat.enabled)
+    def test_legacy_custom_task_retains_its_own_template_group(self):
+        custom = task('自定义', 'my_templates', True, 'tap_image')
+        self.assertEqual(app.App._task_template_group(custom), 'my_templates')
 
     def test_packaged_default_template_is_dream_park(self):
         tasks = app.ConfigStore(app.DEFAULT_CONFIG).load()

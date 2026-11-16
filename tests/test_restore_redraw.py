@@ -41,8 +41,15 @@ class RestoreRedrawTests(unittest.TestCase):
         canvas.create_rectangle(100, 500, 200, 600, fill='#70c0e0')
         ready = Mock()
         try:
-            ui_controls.show_ready_main_window(root, ready)
-            pump(root, .2)
+            startup_alphas = []
+            def record_native_paint(window):
+                startup_alphas.append(window.attributes('-alpha'))
+                return native_redraw(window)
+            native_redraw = ui_controls._redraw_native_window
+            with patch('ui_controls._redraw_native_window', side_effect=record_native_paint):
+                ui_controls.show_ready_main_window(root, ready)
+                pump(root, .25)
+            self.assertEqual(startup_alphas, [0.0, 1.0, 1.0])
             canvas.yview_moveto(.35)
             root.update_idletasks()
             position = canvas.yview()

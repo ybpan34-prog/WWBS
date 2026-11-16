@@ -15,7 +15,7 @@ class VisibleStartupNoticeTests(unittest.TestCase):
     def test_slow_first_paint_still_shows_main_window_before_the_announcement(self):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as patches:
             patches.enter_context(patch.object(app, 'UPDATE_NOTICE_CONFIG', Path(directory)/'notice.json'))
-            for method in ('_load_config', '_refresh_templates', '_drain_logs', '_start_stop_hotkey',
+            for method in ('_load_config', '_drain_logs', '_start_stop_hotkey',
                            '_start_desktop_pet', '_scan_local_models', '_report_settings_import'):
                 patches.enter_context(patch.object(app.App, method))
             patches.enter_context(patch.object(app.sys, 'argv', ['app.py']))

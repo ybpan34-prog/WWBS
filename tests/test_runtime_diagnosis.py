@@ -101,15 +101,13 @@ class RuntimeDiagnosisTests(unittest.TestCase):
         app._preflight_running = False
         app.target_mode = Mock()
         app.target_mode.get.return_value = "client"
-        app.tasks = [SimpleNamespace(enabled=True)]
+        app.tasks = [app_module.WeeklyTask(name='测试任务', template_group='custom')]
         app._is_due = Mock(return_value=True)
         app._pet_feedback = Mock()
         app._event_line = Mock(return_value="正在检查")
         app.window_title = Mock()
         app.window_title.get.return_value = "鸣潮"
         app._parse_resolution = Mock(return_value=(1920, 1080))
-        app.template_group = Mock()
-        app.template_group.get.return_value = "default"
         app._template_group_dir = Mock(return_value=Path("templates"))
         app._run_enabled = Mock()
         app._show_task_error_feedback = Mock()
@@ -131,6 +129,7 @@ class RuntimeDiagnosisTests(unittest.TestCase):
         ):
             app._preflight_enabled_run()
         app._run_enabled.assert_called_once_with()
+        app._template_group_dir.assert_called_once_with('custom')
         app._show_task_error_feedback.assert_not_called()
         self.assertFalse(app._preflight_running)
 

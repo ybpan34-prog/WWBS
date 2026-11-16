@@ -18,7 +18,7 @@ import zipfile
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from tkinter import BOTH, END, LEFT, RIGHT, TOP, X, BooleanVar, Canvas, Checkbutton, Entry, Frame, Label, Listbox, StringVar, Text, Tk, TclError, filedialog, messagebox, simpledialog, ttk
+from tkinter import BOTH, END, LEFT, RIGHT, TOP, X, BooleanVar, Canvas, Checkbutton, Entry, Frame, Label, Listbox, StringVar, Text, Tk, TclError, filedialog, messagebox, ttk
 from tkinter import font as tkfont
 
 from PIL import Image, ImageTk
@@ -103,7 +103,6 @@ from sillytavern_bridge import PORT as SILLYTAVERN_BRIDGE_PORT, SillyTavernBridg
 APP_DIR = Path(__file__).resolve().parent
 messagebox = ParentDialogs(messagebox)
 filedialog = ParentDialogs(filedialog)
-simpledialog = ParentDialogs(simpledialog)
 USER_SETTINGS_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else APP_DIR
 BUNDLED_DEFAULT_CONFIG = APP_DIR / "weekly_tasks.json"
 DEFAULT_CONFIG = USER_SETTINGS_DIR / "weekly_tasks.json"
@@ -111,7 +110,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
 APP_VERSION = "1.6.3"
-APP_BUILD = 11
+APP_BUILD = 12
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -923,82 +922,6 @@ PET_AGENT_DIALOG_THEMES = {
 }
 
 COLORS = dict(SIMPLE_COLORS)
-class TemplateCropper:
-    def __init__(self, parent: Tk, source_path: Path, templates_dir: Path, log, ui=None):
-        self.ui = ui
-        self.source_path = source_path
-        self.templates_dir = templates_dir
-        self.log = log
-        self.window = Toplevel(parent)
-        self.window.title("制作识别模板")
-        self.window.geometry("1120x760")
-        self.window.configure(bg=COLORS["panel"])
-        self.image = Image.open(source_path).convert("RGB")
-        self.scale = min(1060 / self.image.width, 660 / self.image.height, 1.0)
-        preview_size = (int(self.image.width * self.scale), int(self.image.height * self.scale))
-        self.preview = self.image.resize(preview_size, Image.Resampling.BILINEAR)
-        self.photo = ImageTk.PhotoImage(self.preview)
-        self.start_x = 0
-        self.start_y = 0
-        self.rect_id: int | None = None
-        self.selection: tuple[int, int, int, int] | None = None
-
-        Label(self.window, text="在截图上拖框选择按钮或图标，建议包含文字/边框等明显特征。", bg=COLORS["panel"], fg=COLORS["text"]).pack(side=TOP, fill=X, padx=10, pady=6)
-        self.canvas = Canvas(self.window, width=preview_size[0], height=preview_size[1], cursor="crosshair")
-        self.canvas.pack(side=TOP, padx=10, pady=6)
-        self.canvas.create_image(0, 0, anchor="nw", image=self.photo)
-        self.canvas.bind("<ButtonPress-1>", self._start)
-        self.canvas.bind("<B1-Motion>", self._drag)
-        self.canvas.bind("<ButtonRelease-1>", self._finish)
-
-        buttons = Frame(self.window, padx=10, pady=8, bg=COLORS["panel"])
-        buttons.pack(side=TOP, fill=X)
-        RoundedButton(buttons, colors=COLORS, text="保存模板", primary=True, command=self._save).pack(side=LEFT)
-        RoundedButton(buttons, colors=COLORS, text="关闭", command=self.window.destroy).pack(side=LEFT, padx=8)
-
-    def _start(self, event) -> None:
-        self.start_x = event.x
-        self.start_y = event.y
-        if self.rect_id is not None:
-            self.canvas.delete(self.rect_id)
-        self.rect_id = self.canvas.create_rectangle(event.x, event.y, event.x, event.y, outline="#00d084", width=2)
-
-    def _drag(self, event) -> None:
-        if self.rect_id is not None:
-            self.canvas.coords(self.rect_id, self.start_x, self.start_y, event.x, event.y)
-
-    def _finish(self, event) -> None:
-        x1, x2 = sorted((self.start_x, event.x))
-        y1, y2 = sorted((self.start_y, event.y))
-        self.selection = (x1, y1, x2, y2)
-
-    def _save(self) -> None:
-        if not self.selection:
-            messagebox.showinfo("提示", "请先拖框选择一个模板区域。", parent=self.window)
-            return
-        name = self.ui._ask_text("模板文件名", "输入模板文件名，例如 menu.png", parent=self.window) if self.ui else simpledialog.askstring("模板文件名", "输入模板文件名，例如 menu.png", parent=self.window)
-        if not name:
-            return
-        if not name.lower().endswith(".png"):
-            name += ".png"
-        safe_name = Path(name).name
-        x1, y1, x2, y2 = self.selection
-        if abs(x2 - x1) < 8 or abs(y2 - y1) < 8:
-            messagebox.showinfo("提示", "选择区域太小，请框大一点。", parent=self.window)
-            return
-        crop_box = (
-            int(x1 / self.scale),
-            int(y1 / self.scale),
-            int(x2 / self.scale),
-            int(y2 / self.scale),
-        )
-        target = self.templates_dir / safe_name
-        self.image.crop(crop_box).save(target)
-        self.log(f"模板已保存: {target}")
-        messagebox.showinfo("已保存", f"模板已保存:\n{target}", parent=self.window)
-        self.window.destroy()
-
-
 class App:
     def __init__(self, root: Tk):
         self.root = root
@@ -1112,7 +1035,7 @@ class App:
         self._boss_rain_active = False
         self._rain_music_error = ''
         self.device_status = StringVar(value="窗口未检测")
-        self.template_status = StringVar(value="模板 0 个")
+        self.template_status = StringVar(value="尚未启动任务")
         self.prob_astrite = StringVar(value="0")
         self.prob_pulls = StringVar(value="0")
         self.prob_character_pity = StringVar(value="0")
@@ -1125,7 +1048,6 @@ class App:
         self._syncing_probability_inputs = False
         self.prob_astrite.trace_add("write", self._sync_pulls_from_astrite)
         self.prob_pulls.trace_add("write", self._sync_astrite_from_pulls)
-        self.template_group = StringVar(value=DEFAULT_GROUP_NAME)
         self.log_queue: queue.Queue[str] = queue.Queue()
         try:
             self.rotation_store = load_store(COMBAT_PRESETS_CONFIG)
@@ -1169,7 +1091,6 @@ class App:
         for key in ('target_mode','window_title','expected_resolution','adb_path','device_id'):
             getattr(self,key).trace_add('write', self._save_connection_settings)
         self._load_config(silent=True)
-        self._refresh_templates()
         self._drain_logs()
         self.root.protocol("WM_DELETE_WINDOW", self._close_app)
         self._start_stop_hotkey()
@@ -2199,7 +2120,6 @@ class App:
         self.tabs.rowconfigure(0, weight=1)
 
         self.start_tab = Frame(self.tabs, padx=20, pady=18, bg=COLORS["panel"])
-        self.template_tab = Frame(self.tabs, padx=20, pady=18, bg=COLORS["panel"])
         rotation_shell = Frame(self.tabs, bg=COLORS["panel"])
         self.rotation_tab, self.rotation_scroll_canvas = self._create_scrollable_tab(rotation_shell, stretch=True)
         probability_shell = Frame(self.tabs, bg=COLORS["panel"])
@@ -2207,11 +2127,11 @@ class App:
         settings_shell = Frame(self.tabs, bg=COLORS["panel"])
         self.settings_tab, self.settings_scroll_canvas = self._create_scrollable_tab(settings_shell)
         self.log_tab = Frame(self.tabs, padx=20, pady=18, bg=COLORS["panel"])
-        self._tab_panels = (self.start_tab, rotation_shell, self.template_tab,
+        self._tab_panels = (self.start_tab, rotation_shell,
                             probability_shell, settings_shell, self.log_tab)
         self._nav_buttons = []
         nav_font = tkfont.Font(root=self.root, family=FONT_FAMILY, size=11)
-        for index, title in enumerate(("快捷任务", "战斗排轴", "模板", "概率", "设置", "日志")):
+        for index, title in enumerate(("快捷任务", "战斗排轴", "概率", "设置", "日志")):
             button = Canvas(nav, width=max(84, nav_font.measure(title) + 34),
                             height=max(48, nav_font.metrics("linespace") + 19),
                             bg=COLORS["app_bg"], highlightthickness=0,
@@ -2233,7 +2153,6 @@ class App:
 
         self._build_start_tab()
         self._build_rotation_tab()
-        self._build_template_tab()
         self._build_probability_tab()
         self._build_settings_tab()
         self._build_log_tab()
@@ -4553,51 +4472,6 @@ class App:
         if hasattr(self, 'rotation_scroll_canvas'):
             self._bind_mousewheel_tree(self.rotation_tab, self.rotation_scroll_canvas)
 
-    def _build_template_tab(self) -> None:
-        Label(self.template_tab, text="制作识别模板", font=("Microsoft YaHei UI", 13, "bold")).pack(anchor="w")
-        template_help = Label(
-            self.template_tab,
-            text="让游戏停在目标界面，点击“制作新模板”，在截图上框住按钮或图标。保存后任务就可以自动找图点击。",
-            fg="#5f6b7a",
-            justify=LEFT,
-        )
-        template_help.pack(anchor="w", fill=X, pady=(2, 10))
-        template_help.bind("<Configure>", lambda event: template_help.configure(wraplength=max(160, event.width - 8)))
-
-        top = Frame(self.template_tab)
-        top.pack(fill=X, pady=(0, 10))
-        self._ui_button(top, text="制作新模板", style="Primary.TButton", command=self._make_template).pack(side=LEFT)
-        self._ui_button(top, text="刷新模板列表", command=self._refresh_templates).pack(side=LEFT, padx=8)
-        self._ui_button(top, text="删除当前模板组", command=self._delete_selected_template).pack(side=LEFT)
-        self._ui_button(top, text="测试选中任务识别", command=self._preview_selected).pack(side=LEFT, padx=8)
-
-        self._wrap_button_row(top)
-
-        group_row = Frame(self.template_tab)
-        group_row.pack(fill=X, pady=(0, 8))
-        Label(group_row, text="当前模板组", width=12, anchor="w").pack(side=LEFT)
-        self.template_group_combo = self._rounded_picker(group_row, self.template_group, [], self._on_template_group_selected)
-        self.template_group_combo.pack(side=LEFT, fill=X, expand=True, padx=(0, 8))
-        self._ui_button(group_row, text="新建模板组", command=self._create_template_group).pack(side=LEFT, padx=(0, 8))
-        self._ui_button(group_row, text="绑定到选中任务", command=self._assign_selected_task_group).pack(side=LEFT)
-        self._reserve_row_controls(group_row, self.template_group_combo)
-
-        Label(self.template_tab, text="当前已有模板", font=("Microsoft YaHei UI", 11, "bold")).pack(anchor="w")
-        list_shell, list_body = self._rounded_panel(self.template_tab, color=COLORS['panel'])
-        list_shell.pack(fill=BOTH, expand=True, pady=6)
-        self.template_list = Listbox(list_body, height=14, font=(FONT_FAMILY, 10),
-                                     relief='flat', bd=0, highlightthickness=0)
-        list_scrollbar = self._thin_scrollbar(list_body, command=self.template_list.yview)
-        self.template_list.configure(yscrollcommand=list_scrollbar.set)
-        self.template_list.pack(side=LEFT, fill=BOTH, expand=True)
-        list_scrollbar.pack(side=RIGHT, fill='y')
-
-        Label(
-            self.template_tab,
-            text="提示：选择模板组会同步切换普通启动任务；选择幻梦游园后不会再执行群声。4C请使用专用按钮。",
-            fg="#5f6b7a",
-        ).pack(anchor="w", pady=(6, 0))
-
     def _build_probability_tab(self) -> None:
         Label(self.probability_tab, text="抽取概率计算", font=(FONT_FAMILY, 15, "bold"),
               bg=COLORS["panel"], fg=COLORS["text"]).pack(anchor="w")
@@ -5313,7 +5187,7 @@ class App:
         )
         diagnostic_task = combat_task or navigation_task or (diagnostic_tasks[0] if diagnostic_tasks else None)
         template_dir = self._template_group_dir(
-            diagnostic_task.template_group if diagnostic_task is not None else self.template_group.get()
+            self._task_template_group(diagnostic_task) if diagnostic_task is not None else DEFAULT_GROUP_KEY
         )
 
         def work() -> None:
@@ -6655,7 +6529,6 @@ class App:
         try:
             store = ConfigStore(Path(self.config_path.get()))
             self.tasks = store.load()
-            self._sync_template_group_to_enabled_task()
             self._refresh_task_list()
             self._log(f"已加载配置: {store.path}")
         except Exception as exc:
@@ -6732,7 +6605,8 @@ class App:
         self.dry_run.set(False)
         if not self._ensure_admin_for_real_run():
             return
-        self._preflight_enabled_run()
+        from tasks.weekly_150 import original_task
+        self._start_worker([original_task()])
 
     def _start_named_task_real(
         self,
@@ -6948,7 +6822,7 @@ class App:
         self._pet_feedback("review", self._event_line("check_start"), 2600)
         window_title = self.window_title.get()
         base_size = self._parse_resolution()
-        template_dir = self._template_group_dir(self.template_group.get())
+        template_dir = self._template_group_dir(self._task_template_group(enabled_tasks[0]))
 
         def finish_success(elapsed: float) -> None:
             self._preflight_running = False
@@ -7040,6 +6914,7 @@ class App:
                 order = [n for n in selected['slot_order'] if any(m['slot'] == n for m in selected['modules'])]
                 route = ' → '.join(f"{SLOT_NAMES[n]} {selected['slot_times'][str(n)]:g}秒" for n in order)
                 self._log(f"本次{COMBAT_MODES[mode]}战斗轴：{selected['name']}，运行顺序：{route}（启动时快照）。")
+        tasks = [replace(task, template_group=self._task_template_group(task)) for task in tasks]
         self._last_started_tasks = copy.deepcopy(tasks)
         self._last_job_options = {'max_cycles': self.max_cycles,
             'dry_run': self.dry_run.get(),
@@ -7050,7 +6925,7 @@ class App:
         if len(tasks) == 1:
             task = tasks[0]
             self.template_status.set(
-                f"当前任务 {task.name} · 模板组 {self._template_group_name(task.template_group)}"
+                f"当前任务 {task.name}"
             )
         self.stop_event = threading.Event()
         self._pet_feedback("running", self._event_line("task_start"))
@@ -7280,33 +7155,6 @@ class App:
 
         threading.Thread(target=work, daemon=True).start()
 
-    def _make_template(self) -> None:
-        def work() -> None:
-            try:
-                TEMPLATES_DIR.mkdir(exist_ok=True)
-                target = APP_DIR / "_template_source.png"
-                controller = self._make_controller()
-                if hasattr(controller, "connect"):
-                    self._log(controller.connect())
-                capture_method = controller.screencap(target)
-                if capture_method:
-                    self._log(f"模板来源截图方式: {capture_method}")
-                group_dir = self._template_group_dir(self.template_group.get())
-                group_dir.mkdir(parents=True, exist_ok=True)
-                self.root.after(0, lambda: TemplateCropper(self.root, target, group_dir, self._after_template_saved, ui=self))
-            except Exception as exc:
-                self._log(f"制作模板失败: {exc}")
-
-        threading.Thread(target=work, daemon=True).start()
-
-    def _after_template_saved(self, message: str) -> None:
-        self._log(message)
-        self._refresh_templates()
-        template_path = message.split("模板已保存:", 1)[-1].strip()
-        template_name = Path(template_path).name
-        if template_name.lower().endswith(".png"):
-            self._ensure_template_task(template_name, self._template_group_key(self.template_group.get()))
-
     def _stop(self) -> None:
         self._request_stop_now()
         self._pet_feedback("waiting", self._event_line("stop_requested"))
@@ -7315,84 +7163,15 @@ class App:
     def _open_config_dir(self) -> None:
         messagebox.showinfo("程序目录", f"程序文件都在这里：\n{APP_DIR}")
 
-    def _refresh_templates(self) -> None:
-        TEMPLATES_DIR.mkdir(exist_ok=True)
-        groups = self._template_groups()
-        current_group = self._template_group_key(self.template_group.get())
-        if current_group not in groups:
-            current_group = groups[0] if groups else DEFAULT_GROUP_KEY
-        self.template_group.set(self._template_group_name(current_group))
-        if hasattr(self, "template_group_combo"):
-            self.template_group_combo.set_choices([self._template_group_name(group) for group in groups])
-        group_dir = self._template_group_dir(self.template_group.get())
-        templates = sorted(path.name for path in group_dir.glob("*.png")) if group_dir.exists() else []
-        self.template_status.set(f"模板组 {self._template_group_name(current_group)} · {len(templates)} 张图片")
-        if hasattr(self, "template_list"):
-            self.template_list.delete(0, END)
-            if templates:
-                for name in templates:
-                    self.template_list.insert(END, name)
-            else:
-                self.template_list.insert(END, "当前模板组还没有图片，请点击“制作新模板”。")
-
     @staticmethod
-    def _is_dedicated_launcher_task(task: WeeklyTask) -> bool:
-        return any(step.action in {"combat_4c", "tower_challenge", "forgery_challenge", "story_skip"} for step in task.steps)
-
-    @classmethod
-    def _activate_template_group_task(
-        cls,
-        tasks: list[WeeklyTask],
-        group: str,
-    ) -> WeeklyTask | None:
-        group_key = cls._template_group_key(group)
-        ordinary_tasks = [task for task in tasks if not cls._is_dedicated_launcher_task(task)]
-        active = next((task for task in ordinary_tasks if task.template_group == group_key), None)
-        if active is None:
-            return None
-        for task in ordinary_tasks:
-            task.enabled = task is active
-        return active
-
-    def _sync_template_group_to_enabled_task(self) -> None:
-        active = next(
-            (
-                task
-                for task in self.tasks
-                if task.enabled and not self._is_dedicated_launcher_task(task)
-            ),
-            None,
-        )
-        if active is not None:
-            self.template_group.set(self._template_group_name(active.template_group))
-
-    def _on_template_group_selected(self, _event=None) -> None:
-        selected_group = self._template_group_key(self.template_group.get())
-        active = self._activate_template_group_task(self.tasks, selected_group)
-        self._refresh_templates()
-        if active is None:
-            self._log(
-                f"模板组 {self._template_group_name(selected_group)} 没有普通启动任务；"
-                "4C请使用10次或自定义次数按钮。"
-            )
-            return
-        ConfigStore(Path(self.config_path.get())).save(self.tasks)
-        self._refresh_task_list()
-        index = self.tasks.index(active)
-        self.task_list.selection_clear(0, END)
-        self.task_list.selection_set(index)
-        self.task_list.see(index)
-        self._show_task(active)
-        self.status.set(f"当前任务：{active.name}")
-        self._log(
-            f"已切换到 {self._template_group_name(selected_group)}，"
-            f"普通启动按钮将执行：{active.name}。"
-        )
-
-    def _template_groups(self) -> list[str]:
-        groups = [DEFAULT_GROUP_KEY] if any(TEMPLATES_DIR.glob("*.png")) else []
-        groups.extend(sorted(path.name for path in TEMPLATES_DIR.iterdir() if path.is_dir() and not path.name.startswith(".")))
-        return groups or [DEFAULT_GROUP_KEY]
+    def _task_template_group(task: WeeklyTask) -> str:
+        built_in = {'幻梦游园': DEFAULT_GROUP_KEY, '群声共振模拟域': '群声共振模拟域'}
+        if task.name in built_in:
+            return built_in[task.name]
+        by_action = {'combat_4c': '4c', 'daily_routine': 'daily', 'forgery_challenge': 'daily',
+                     'tower_challenge': 'tower', 'story_skip': DEFAULT_GROUP_KEY}
+        return next((by_action[step.action] for step in task.steps if step.action in by_action),
+                    App._template_group_key(task.template_group))
 
     @staticmethod
     def _template_group_key(group: str) -> str:
@@ -7407,94 +7186,11 @@ class App:
         group_key = cls._template_group_key(group)
         return TEMPLATES_DIR if group_key == DEFAULT_GROUP_KEY else TEMPLATES_DIR / group_key
 
-    def _create_template_group(self) -> None:
-        name = self._ask_text("新建模板组", "输入模板组名称，例如 周本任务2", parent=self.root)
-        if not name:
-            return
-        safe_name = re.sub(r"[^\w\u4e00-\u9fff-]+", "_", name.strip()).strip("._")
-        if not safe_name or safe_name in (DEFAULT_GROUP_KEY, DEFAULT_GROUP_NAME):
-            messagebox.showerror("模板组名称无效", "请使用有效的模板组名称。")
-            return
-        group_dir = self._template_group_dir(safe_name)
-        if group_dir.exists():
-            messagebox.showinfo("提示", "这个模板组已经存在。")
-            self.template_group.set(safe_name)
-        else:
-            group_dir.mkdir(parents=True)
-            self.template_group.set(safe_name)
-        self._refresh_templates()
-
-    def _assign_selected_task_group(self) -> None:
-        task = self._selected_task()
-        if not task:
-            messagebox.showinfo("提示", "请先在开始页面选择要绑定的任务。")
-            return
-        task.template_group = self._template_group_key(self.template_group.get())
-        ConfigStore(Path(self.config_path.get())).save(self.tasks)
-        self._show_task(task)
-        self._log(f"任务 {task.name} 已切换到模板组 {self._template_group_name(task.template_group)}。")
-
-    def _delete_selected_template(self) -> None:
-        if not hasattr(self, "template_list"):
-            return
-        selection = self.template_list.curselection()
-        if not selection:
-            messagebox.showinfo("提示", "请先在模板列表里选择一个模板。")
-            return
-        group = self._template_group_key(self.template_group.get())
-        if group == DEFAULT_GROUP_KEY:
-            messagebox.showinfo("提示", "默认模板组不能整体删除。你可以先新建并切换到其他模板组。")
-            return
-        target = self._template_group_dir(group)
-        if not target.exists():
-            self._refresh_templates()
-            return
-        if not messagebox.askyesno("删除模板组", f"确定删除模板组 {group} 及其中的全部图片吗？"):
-            return
-        shutil.rmtree(target)
-        affected = 0
-        for task in self.tasks:
-            if task.template_group == group:
-                task.template_group = "default"
-                affected += 1
-        if affected:
-            ConfigStore(Path(self.config_path.get())).save(self.tasks)
-            self._refresh_task_list()
-        self._refresh_templates()
-        self._log(f"已删除模板组 {group}。" + (f" 已将 {affected} 个任务切回默认模板组。" if affected else ""))
-
     def _update_mode_label(self) -> None:
         if self.target_mode.get() == "client":
             self.device_status.set("PC 窗口未检测")
         else:
             self.device_status.set("ADB 设备未检测")
-
-    def _ensure_template_task(self, template_name: str, template_group: str = "default") -> None:
-        for task in self.tasks:
-            for step in task.steps:
-                if step.action == "tap_image":
-                    step.template = template_name
-                    task.template_group = template_group
-                    task.enabled = True
-                    ConfigStore(Path(self.config_path.get())).save(self.tasks)
-                    self._refresh_task_list()
-                    self._log(f"已把任务“{task.name}”绑定到模板 {template_name}。")
-                    return
-        task = WeeklyTask(
-            name=f"点击模板 {template_name}",
-            enabled=True,
-            weekday="any",
-            description="自动创建的图像识别点击任务。",
-            template_group=template_group,
-            steps=[
-                Step(action="wait", label="等待画面稳定", seconds=1),
-                Step(action="tap_image", label=f"识别并点击 {template_name}", template=template_name, threshold=0.82, timeout=8, seconds=1),
-            ],
-        )
-        self.tasks.insert(0, task)
-        ConfigStore(Path(self.config_path.get())).save(self.tasks)
-        self._refresh_task_list()
-        self._log(f"已创建任务：点击模板 {template_name}。")
 
     def _show_preview(self, image_path: Path, title: str) -> None:
         if not hasattr(self, "preview_canvas") or not image_path.exists():
@@ -7650,7 +7346,7 @@ def ensure_default_config() -> None:
             name="图像识别点击示例",
             enabled=False,
             weekday="any",
-            description="先点主界面的“制作模板”保存 menu.png，再启用本任务。",
+            description="",
             steps=[
                 Step(action="wait", label="等待画面稳定", seconds=1),
                 Step(action="tap_image", label="识别并点击菜单按钮", template="menu.png", threshold=0.82, timeout=8, seconds=1),

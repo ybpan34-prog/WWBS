@@ -113,7 +113,7 @@ class BetaUiTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp, ExitStack() as stack:
                 stack.enter_context(patch.object(root, "after", return_value="test-job"))
                 stack.enter_context(patch.object(root, "after_idle", return_value="test-idle"))
-                for method in ("_load_config", "_refresh_templates", "_drain_logs", "_start_stop_hotkey"):
+                for method in ("_load_config", "_drain_logs", "_start_stop_hotkey"):
                     stack.enter_context(patch.object(app.App, method))
                 stack.enter_context(patch.object(app, "ChatHistory", return_value=ChatHistory(Path(tmp) / "history.json")))
                 instance = app.App(root)
@@ -126,9 +126,12 @@ class BetaUiTests(unittest.TestCase):
                     for child in widget.winfo_children():
                         visit(child)
                 visit(root)
-                for removed in ("ADB 路径", "设备 ID", "任务配置", "保存一张当前截图", "查看程序目录"):
+                for removed in ("ADB 路径", "设备 ID", "任务配置", "保存一张当前截图", "查看程序目录",
+                                "模板", "制作新模板", "绑定到选中任务"):
                     self.assertNotIn(removed, labels)
-                self.assertIn("4C刷取（自定义次数）", labels)
+                self.assertEqual([title for _, title in instance._nav_buttons],
+                                 ['快捷任务', '战斗排轴', '概率', '设置', '日志'])
+                self.assertIn("副本／大世界刷4C声骸", labels)
                 self.assertTrue(any("关闭后恢复主动发言" in text for text in labels))
                 def texts_under(widget):
                     result = []
@@ -170,10 +173,9 @@ class BetaUiTests(unittest.TestCase):
                     return None
                 weekly_card = card_with_title(instance.start_tab, "周常拿满奖励")
                 self.assertIsNotNone(weekly_card)
-                self.assertEqual(len(instance._start_action_cards), 8)
-                self.assertIn('match3', instance._start_action_cards)
-                self.assertIn('4C刷取（10次）',start_texts)
-                self.assertIn('4C刷取（自定义次数）',start_texts)
+                self.assertEqual(len(instance._start_action_cards), 7)
+                self.assertNotIn('match3', instance._start_action_cards)
+                self.assertIn('副本／大世界刷4C声骸',start_texts)
                 self.assertIn('战歌重奏自动刷取',start_texts)
                 auto_card=instance._start_action_cards['boss_challenge']
                 inputs=[entry for row in auto_card.winfo_children()
@@ -187,7 +189,7 @@ class BetaUiTests(unittest.TestCase):
                                     for row in daily_card.winfo_children() for child in row.winfo_children()))
                 self.assertEqual(
                     instance._normalize_start_action_order(["daily", "daily", "unknown"]),
-                    ["daily", "weekly_rewards", "weekly_astrite", "combat_4c_10", "combat_4c_custom", "boss_challenge", "tower", "match3"],
+                    ["daily", "weekly_rewards", "weekly_astrite", "combat_4c_custom", "boss_challenge", "forgery", "tower"],
                 )
                 second = instance._start_action_cards["weekly_astrite"]
                 third = instance._start_action_cards["daily"]

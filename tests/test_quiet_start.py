@@ -42,7 +42,6 @@ class QuietStartTests(unittest.TestCase):
         ui.target_mode = Mock(get=Mock(return_value='client'))
         ui.dry_run = Mock()
         ui._ensure_admin_for_real_run = Mock(return_value=True)
-        ui._preflight_enabled_run = Mock()
         ui._start_worker = Mock()
         ui.tasks = [app.WeeklyTask(name='4C刷取', enabled=False, weekday='any',
                                  steps=[app.Step(action='combat_4c')])]
@@ -52,8 +51,9 @@ class QuietStartTests(unittest.TestCase):
             ui._start_enabled_real(15)
             ui._start_named_task_real('4C刷取', 10)
             ui._start_daily_routine()
-        self.assertEqual(ui._start_worker.call_count, 2)
-        ui._preflight_enabled_run.assert_called_once()
+        self.assertEqual(ui._start_worker.call_count, 3)
+        weekly = ui._start_worker.call_args_list[0].args[0][0]
+        self.assertEqual((weekly.name, weekly.template_group), ('幻梦游园', 'default'))
 
 
 if __name__ == '__main__':

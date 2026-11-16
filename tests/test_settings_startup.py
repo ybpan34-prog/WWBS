@@ -28,7 +28,7 @@ class SettingsStartupTests(unittest.TestCase):
                     'COMBAT_PRESETS_CONFIG', 'DAILY_CONFIG', 'APP_SETTINGS_CONFIG', 'UI_CONFIG',
                     'CARTETHYIA_AGENT_CONFIG', 'CONNECTION_CONFIG'):
                 patches.enter_context(patch.object(app, constant, target/(constant+'.json')))
-            for method in ('_load_config', '_refresh_templates', '_start_stop_hotkey', '_start_desktop_pet',
+            for method in ('_load_config', '_start_stop_hotkey', '_start_desktop_pet',
                            '_scan_local_models', '_show_startup_notice_once'):
                 patches.enter_context(patch.object(app.App, method))
             patches.enter_context(patch.object(app, 'discover_latest', return_value=installation))
@@ -98,7 +98,7 @@ class SettingsStartupTests(unittest.TestCase):
                     'CARTETHYIA_AGENT_CONFIG': 'cartethyia-agent-settings.json',
                     'CONNECTION_CONFIG': 'connection-settings.json', 'RAIN_CONFIG': 'rain-settings.json'}.items():
                 patches.enter_context(patch.object(app, constant, target/name))
-            for method in ('_load_config', '_refresh_templates', '_start_stop_hotkey', '_start_desktop_pet',
+            for method in ('_load_config', '_start_stop_hotkey', '_start_desktop_pet',
                            '_scan_local_models', '_show_startup_notice_once'):
                 patches.enter_context(patch.object(app.App, method))
             root = tk.Tk()

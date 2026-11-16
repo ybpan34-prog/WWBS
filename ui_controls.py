@@ -101,8 +101,9 @@ def _redraw_native_window(root):
         hwnd = user32.GetAncestor(root.winfo_id(), 2) or root.winfo_id()
         user32.RedrawWindow.argtypes = [wintypes.HWND, ctypes.c_void_p, ctypes.c_void_p, wintypes.UINT]
         user32.RedrawWindow.restype = wintypes.BOOL
-        # INVALIDATE | ERASE | ALLCHILDREN | UPDATENOW | FRAME
-        return bool(user32.RedrawWindow(hwnd, None, None, 0x585))
+        # Invalidate all children without erasing their backing surfaces first.
+        # INVALIDATE | ALLCHILDREN | UPDATENOW | FRAME
+        return bool(user32.RedrawWindow(hwnd, None, None, 0x581))
     except (AttributeError, OSError, TypeError, tk.TclError):
         return False
 
@@ -131,7 +132,7 @@ class RestoreRedraw:
         self.root.after_idle(lambda: self._paint(generation))
         self.root.after(140, lambda: self._paint(generation))
 
-    def _paint(self, generation):
+    def _paint(self, generation, *, restoring=True):
         try:
             if generation != self.generation or not self.root.winfo_exists() or not self.root.winfo_ismapped():
                 return
@@ -143,12 +144,13 @@ class RestoreRedraw:
             while pending:
                 widget = pending.pop()
                 if widget.winfo_ismapped():
-                    widget.event_generate('<Expose>', when='tail')
+                    widget.event_generate('<Expose>', when='now')
                     pending.extend(widget.winfo_children())
             self.root.update_idletasks()
             _redraw_native_window(self.root)
             try:
-                self.on_restore()
+                if restoring:
+                    self.on_restore()
             except (tk.TclError, OSError):
                 pass  # A preview file may be getting replaced by the worker.
             self.paint_count += 1
@@ -169,8 +171,13 @@ def show_ready_main_window(root, on_ready=lambda: None, on_restore=lambda: None)
     root.update_idletasks()
 
     def reveal():
+        redraw = root._restore_redraw
+        generation = redraw.generation
+        redraw._paint(generation, restoring=False)
         root.attributes('-alpha', 1.0)
+        redraw._paint(generation, restoring=False)
         root._main_frame_ready = True
+        root.after(140, lambda: redraw._paint(generation, restoring=False))
         on_ready()
     root.after(40, reveal)
 
