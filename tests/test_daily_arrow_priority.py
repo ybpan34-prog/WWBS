@@ -111,6 +111,28 @@ class DailyArrowTests(unittest.TestCase):
             runner._daily_reward_orb_location.assert_not_called()
             runner.controller.press_keys.assert_not_called()
 
+    def test_reported_steep_diagonal_blocks_orb_search(self):
+        fixture = ROOT/'tests/fixtures/daily-marker-steep-reported.png'
+        with Image.open(fixture) as sample:
+            for width in (1600, 1920):
+                for sign in (-1, 1):
+                    with self.subTest(width=width, sign=sign), tempfile.TemporaryDirectory() as folder, \
+                            patch('tasks.other.APP_DIR', Path(folder)):
+                        runner = self.runner(folder)
+                        crop = sample if sign == 1 else sample.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+                        screen = Image.new('RGB', (1920, 1080), (40, 45, 60))
+                        screen.paste(crop, (1027, 791))
+                        screen.resize((width, width*9//16), Image.Resampling.LANCZOS).save(
+                            Path(folder)/'_runtime_screenshot.png')
+                        del runner._daily_reward_marker_location, runner._daily_reward_marker_direction
+                        runner._daily_reward_orb_location = Mock(return_value=(960, 350, .99))
+                        self.assertTrue(runner._collect_daily_reward(1))
+                        dx, dy = runner.controller.move_mouse_relative.call_args.args
+                        self.assertGreater(dx*sign, 0)
+                        self.assertEqual(dy, 0)
+                        runner._daily_reward_orb_location.assert_not_called()
+                        runner.controller.press_keys.assert_not_called()
+
     def runner(self, folder):
         Image.new('RGB', (1920, 1080), (40, 45, 60)).save(Path(folder)/'_runtime_screenshot.png')
         runner = TaskRunner(Mock(), Mock(), dry_run=False, daily_orb_confidence=.8)

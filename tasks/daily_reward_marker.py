@@ -49,6 +49,8 @@ def _arrow_templates():
     left_low = _arrow_mask(directory/'reward_arrow_left_low.png')
     left_tilted = _arrow_mask(directory/'reward_arrow_left_tilted.png')
     down_right = _arrow_mask(directory/'reward_arrow_down_right.png')
+    down_right_steep = _arrow_mask(directory/'reward_arrow_down_right_steep.png')
+    down_right_steep_small = _arrow_mask(directory/'reward_arrow_down_right_steep_1600.png')
     return {
         'left': ((left, 1600), (left_low, 1920), (left_tilted, 1920)),
         'right': ((left.transpose(Image.Transpose.ROTATE_180), 1600),
@@ -56,8 +58,10 @@ def _arrow_templates():
                   (left_tilted.transpose(Image.Transpose.FLIP_LEFT_RIGHT), 1920)),
         'up': ((left.transpose(Image.Transpose.ROTATE_270), 1600),),
         'down': ((left.transpose(Image.Transpose.ROTATE_90), 1600),),
-        'down_right': ((down_right, 1600),),
-        'down_left': ((down_right.transpose(Image.Transpose.FLIP_LEFT_RIGHT), 1600),),
+        'down_right': ((down_right, 1600), (down_right_steep, 1920), (down_right_steep_small, 1600)),
+        'down_left': ((down_right.transpose(Image.Transpose.FLIP_LEFT_RIGHT), 1600),
+                      (down_right_steep.transpose(Image.Transpose.FLIP_LEFT_RIGHT), 1920),
+                      (down_right_steep_small.transpose(Image.Transpose.FLIP_LEFT_RIGHT), 1600)),
     }
 
 
@@ -77,8 +81,8 @@ def reward_marker_direction(screenshot, x, y):
              'right': (x+side*.52, y-side*.65, x+side*1.7, y+side*.65),
              'up': (x-side*.65, y-side*1.7, x+side*.65, y-side*.52),
              'down': (x-side*.65, y+side*.52, x+side*.65, y+side*1.7),
-             'down_right': (x+side*.49, y+side*.35, x+side*1.55, y+side*1.55),
-             'down_left': (x-side*1.55, y+side*.35, x-side*.49, y+side*1.55)}
+             'down_right': (x+side*.08, y+side*.35, x+side*1.55, y+side*1.55),
+             'down_left': (x-side*1.55, y+side*.35, x-side*.08, y+side*1.55)}
     best = (0., None)
     possible_arrow = False
     for direction, box in boxes.items():
@@ -97,6 +101,8 @@ def reward_marker_direction(screenshot, x, y):
                     continue
                 patch = np.asarray(template.resize(size, Image.Resampling.NEAREST), dtype=np.float64)/255
                 match = _match_single_scale_gray(scene, patch)
+                if direction.startswith('down_') and abs(left+match.center[0]-x) < side*.15:
+                    continue
                 # A corner glyph on either side of the ring must turn horizontally.
                 if direction == 'down' and abs(left+match.center[0]-x) >= side*.49:
                     continue

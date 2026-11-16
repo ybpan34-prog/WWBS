@@ -1245,7 +1245,13 @@ class OtherTask:
         camera = RewardCamera()
         self.log(f'    最多搜索{REWARD_SEARCH_SECONDS}秒。先找奖励标志，有箭头就按方向转动；连续确认标志无箭头后，才寻找置信度至少{threshold:.0%}的光球。')
         while not self.stop_event.is_set():
-            self._capture_for_matching(screenshot)
+            if self._capture_for_matching(screenshot) is False:
+                arrow_free_frames = 0
+                orb_locked = False
+                if time.monotonic() >= deadline:
+                    break
+                self._sleep_interruptible(.15)
+                continue
             if detect_dialog(screenshot):
                 self.controller.release_keys()
                 state = wait_dialog()
@@ -1315,9 +1321,9 @@ class OtherTask:
             combat_frames = 0
             if direction:
                 arrow_free_frames = 0
+                orb_locked = False
                 missed_turns = 0
                 if direction != 'uncertain':
-                    orb_locked = False
                     turn = 'left' if direction == 'down' else direction
                     dx, dy = camera.follow(turn, marker_x, marker_y, width, height)
                     self.controller.move_mouse_relative(dx, dy)
