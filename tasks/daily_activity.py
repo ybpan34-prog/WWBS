@@ -6,6 +6,26 @@ import numpy as np
 from PIL import Image
 
 
+def claimable_activity_chest(screenshot: Path, tier: int) -> tuple[int, int] | None:
+    """A claimable milestone shows a gold chest and a red notification diamond."""
+    with Image.open(screenshot) as image:
+        width, height = image.size
+        x = round((754 + (tier // 20 - 1) * 256) * width / 1920)
+        y = round(958 * height / 1080)
+        dx, dy = width / 1920, height / 1080
+        hint = np.asarray(image.crop((x+round(18*dx), y-round(55*dy),
+                                      x+round(50*dx), y-round(18*dy))).convert('RGB'))
+        body = np.asarray(image.crop((x-round(26*dx), y-round(15*dy),
+                                      x+round(26*dx), y+round(16*dy))).convert('RGB'))
+    red, green, blue = hint.transpose(2, 0, 1)
+    notification = (red > 140) & (red > green*1.35) & (red > blue*1.22)
+    red, green, blue = body.transpose(2, 0, 1)
+    gold = (red > 175) & (green > 155) & (blue < green*.88)
+    if notification.mean() >= .06 and gold.mean() >= .20:
+        return x, y
+    return None
+
+
 def _yellow_digits(image: Image.Image) -> np.ndarray:
     rgb = np.asarray(image.convert('RGB')).astype(np.int16)
     red, green, blue = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]

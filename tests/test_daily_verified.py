@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from tasks.daily_verified import VerifiedDailyNavigation
 from tasks.daily_team import team_start_target
@@ -231,10 +231,46 @@ class DailyVerifiedTests(unittest.TestCase):
 
     def test_cancelled_menu_never_attempts_next_destination(self):
         nav, runner = self.navigation()
-        runner._open_menu = Mock(return_value=False)
-        runner._enter = Mock()
+        runner._capture_for_matching = Mock(side_effect=lambda path: runner.stop_event.set())
+        runner._panel = Mock()
         self.assertFalse(nav._open_terminal_destination('索拉指南'))
-        runner._enter.assert_not_called()
+        runner._panel.assert_not_called()
+        runner.controller.tap.assert_not_called()
+
+    def test_open_destination_continues_from_an_already_open_activity_page(self):
+        nav, runner = self.navigation()
+        runner.matcher.templates_dir = Path(__file__).parents[1]/'templates/daily'
+        nav._checks.screenshot = Path(__file__).parent/'fixtures'/'daily-activity-claims-reported.jpg'
+        runner._capture_for_matching = Mock()
+        runner._sleep_interruptible = Mock()
+        self.assertTrue(nav._open_terminal_destination('索拉指南'))
+        self.assertTrue(nav._open_activity_page())
+        runner.controller.press_key.assert_not_called()
+        runner.controller.tap.assert_not_called()
+
+    def test_activity_claims_reported_rows_then_visible_chest_and_closes(self):
+        nav, runner = self.navigation()
+        runner.matcher.templates_dir = Path(__file__).parents[1]/'templates/daily'
+        fixture = Path(__file__).parent/'fixtures'/'daily-activity-claims-reported.jpg'
+        runner._open_terminal_destination = Mock(return_value=True)
+        runner._sleep_interruptible = Mock()
+        runner._close_page = Mock(return_value=True)
+        with tempfile.TemporaryDirectory() as folder, Image.open(fixture) as screen:
+            nav._checks.screenshot = Path(folder)/'screen.png'
+            runner._capture_for_matching = screen.save
+            rows = runner._yellow_claim_rows(fixture)
+            self.assertEqual(len(rows), 4)
+            def claim(x, y):
+                draw = ImageDraw.Draw(screen)
+                if x > 1600:
+                    draw.rectangle((1550, y-26, 1820, y+26), fill='#d0d7d9')
+                else:
+                    draw.rectangle((720, 900, 805, 990), fill='#587381')
+            runner.controller.tap.side_effect = claim
+            nav._collect_daily_activity_rewards()
+        self.assertEqual([call.args for call in runner.controller.tap.call_args_list],
+                         [(1690, y) for y in rows] + [(754, 958)])
+        runner._close_page.assert_called_once()
 
     def test_already_world_exit_does_not_wait_for_or_click_settlement(self):
         nav, runner = self.navigation()

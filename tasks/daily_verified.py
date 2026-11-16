@@ -6,6 +6,7 @@ import numpy as np
 from PIL import Image
 
 from tasks.daily_154 import (Daily154Navigation, DAILY_ZONE_BUTTON_Y_OFFSETS)
+from tasks.daily_activity import claimable_activity_chest
 from tasks.daily_checks import DailyStepChecks
 from tasks.daily_radio import DailyRadioVision
 from tasks.daily_team import team_start_target
@@ -88,35 +89,30 @@ class VerifiedDailyNavigation(Daily154Navigation):
                 return None  # Disabled grey claim buttons are not pending rewards.
         return match
 
-    def _open_menu(self):
-        def action(path):
-            if not self._world(path) or self.stop_event.is_set():
-                return False
-            self.controller.press_key('ESC', 70)
-            return True
-        return self._checks.transition('打开终端菜单', self._terminal, action)
-
-    def _enter(self, label):
+    def _open_terminal_destination(self, label, x_ratio=None, y_ratio=None, *, require_transition=False):
         def action(path):
             point = terminal_target(path, ROOT/'templates/daily', label)
-            return self._tap(point) if point is not None else False
-        return self._checks.transition('进入'+label, lambda p: self._panel(p, label), action)
+            if point is not None:
+                return self._tap(point)
+            if self._world(path) and not self.stop_event.is_set():
+                self.controller.press_key('ESC', 70)
+                return True
+            return self._tap_page_close(path)
+        return self._checks.transition('进入'+label, lambda p: self._panel(p, label), action,
+                                       timeout=22, max_actions=6)
 
-    def _open_terminal_destination(self, label, x_ratio=None, y_ratio=None, *, require_transition=False):
-        if self._open_menu():
-            return self._enter(label)
-        return False
+    def _tap_page_close(self, path):
+        if self._panel(path, '先约电台'):
+            match = DailyRadioVision(ROOT/'templates/daily').close(path)
+        elif self._panel(path):
+            match = self._match(path, 'guide_close.png', .87)
+        else:
+            return False
+        return self._tap(match.center) if match else False
 
     def _close_page(self):
-        def action(path):
-            if not (self._panel(path) or self._panel(path, '先约电台')):
-                return False
-            match = self._match(path, 'guide_close.png', .87)
-            if match is None:
-                match = DailyRadioVision(ROOT/'templates/daily').close(path)
-            return self._tap(match.center) if match else False
         return self._checks.transition('退出页面并返回终端／大世界',
-                                       lambda p: self._terminal(p) or self._world(p), action)
+                                       lambda p: self._terminal(p) or self._world(p), self._tap_page_close)
 
     def _start_target(self, path):
         target = team_start_target(path)
@@ -249,60 +245,82 @@ class VerifiedDailyNavigation(Daily154Navigation):
         if abs(x_ratio-.957) < .005 and abs(y_ratio-.058) < .005:
             return self._close_page()
         if abs(x_ratio-.744) < .005 and abs(y_ratio-.257) < .005:
-            self._open_menu()
-            return self._enter('先约电台')
+            return self._open_terminal_destination('先约电台')
         if abs(x_ratio-.515) < .005 and abs(y_ratio-.671) < .005:
-            self._open_menu()
-            return self._enter('索拉指南')
+            return self._open_terminal_destination('索拉指南')
         if abs(x_ratio-.039) < .005 and abs(y_ratio-.174) < .012:
-            return self._checks.transition('打开活跃行迹',
-                lambda p: self._match(p, 'activity_title.png', .82) is not None and self._daily_activity_page_present(p),
-                lambda p: self._tap(self._ratio_point(p, x_ratio, y_ratio)) if self._panel(p) else False)
-        if abs(x_ratio-.945) < .005 and abs(y_ratio-.868) < .005:
-            result = self._checks.transition('活跃度里程碑领取后的页面',
-                lambda p: self._match(p, 'activity_title.png', .82) is not None and not self._yellow_claim_rows(p),
-                lambda p: self._tap(self._ratio_point(p, x_ratio, y_ratio))
-                    if self._match(p, 'activity_title.png', .82) is not None else False,
-                require_action=True, recovery=lambda p: self._tap(self._ratio_point(p, .13, .86)))
-            return result
+            return self._open_activity_page()
         return super()._tap_ratio(x_ratio, y_ratio, pause)
 
+    def _activity_ready(self, path):
+        if not self._daily_activity_page_present(path) or self._weekly_travel_page_present(path):
+            return False
+        return self._match(path, 'activity_title.png', .82) is not None
+
+    def _open_activity_page(self):
+        def select(path):
+            if self._weekly_travel_page_present(path):
+                return self._tap(self._ratio_point(path, .174, .13))
+            return self._panel(path) and self._tap(self._ratio_point(path, .039, .174))
+        return self._checks.transition('打开活跃度领取页面', self._activity_ready, select, max_actions=5)
+
     def _collect_daily_activity_rewards(self):
+        self.log('    无音区结算完成，进入活跃行迹领取任务与里程碑奖励。')
         if not self._open_terminal_destination('索拉指南') or self.stop_event.is_set():
             return
-        if not self._tap_ratio(.039, .174) or self.stop_event.is_set():
+        if not self._open_activity_page():
             return
         path = self._checks.screenshot
         for _ in range(36):
             if self.stop_event.is_set():
                 return
             self._capture_for_matching(path)
-            rows = self._yellow_claim_rows(path)
+            rows = self._yellow_claim_rows(path) if self._activity_ready(path) else []
             if not rows:
                 self._sleep_interruptible(.2)
                 self._capture_for_matching(path)
-                if not self._yellow_claim_rows(path) and self._match(path, 'activity_title.png', .82):
+                if self._activity_ready(path) and not self._yellow_claim_rows(path):
                     break
                 continue
             count, row_y = len(rows), rows[0]
             def action(screen):
-                fresh = self._yellow_claim_rows(screen)
+                fresh = self._yellow_claim_rows(screen) if self._activity_ready(screen) else []
                 return self._tap((self._ratio_point(screen, .88, 0)[0], fresh[0])) if fresh else False
             def claimed(screen):
                 fresh = self._yellow_claim_rows(screen)
-                return self._match(screen, 'activity_title.png', .82) is not None and (
+                return self._activity_ready(screen) and (
                     len(fresh) < count or all(abs(y-row_y) > 25 for y in fresh))
             self._checks.transition('领取当前黄色任务奖励', claimed, action, require_action=True,
                 recovery=lambda p: self._tap(self._ratio_point(p, .13, .86)) if not self._normal(p) else False)
         else:
             raise RuntimeError('已逐项复核36次，任务奖励尚未清空；未提前推进。')
-        if self.stop_event.is_set():
+        def highest_chest(screen):
+            for tier in (100, 80, 60, 40, 20):
+                point = claimable_activity_chest(screen, tier)
+                if point is not None:
+                    return point
+            return None
+
+        def claim_chest(screen):
+            point = highest_chest(screen) if self._activity_ready(screen) else None
+            return point is not None and self._tap(point)
+
+        if not self._checks.transition('领取并复核活跃度里程碑宝箱',
+                lambda screen: self._activity_ready(screen) and highest_chest(screen) is None,
+                claim_chest, timeout=30, max_actions=8, max_recoveries=8,
+                recovery=lambda screen: not self._activity_ready(screen)
+                and self._tap(self._ratio_point(screen, .13, .86))):
             return
-        self.log('    已复核上方任务奖励，领取100里程碑；不按显示数字拦截。')
-        self._tap_ratio(.945, .868)
-        if self.stop_event.is_set():
+        self._close_page()
+
+    def _collect_daily_battlepass_rewards(self):
+        if not self._open_terminal_destination('先约电台'):
             return
-        self._dismiss_reward_overlay_safely()
+        for tab, label in ((2, '电台任务一键领取'), (1, '大众频道一键领取')):
+            if not self._wait_daily_battlepass_tab(tab):
+                return
+            if self._click_optional_daily_template('one_click_claim.png', label, timeout=5., threshold=.66):
+                self._dismiss_reward_overlay_safely()
         self._close_page()
 
     def _click_daily_template(self, template_name, label, *, timeout=10., threshold=.72, region_ratio=None):
@@ -393,8 +411,11 @@ class VerifiedDailyNavigation(Daily154Navigation):
                                       lambda p: self._runner._read_daily_settlement(p) is not None, timeout=25)
 
     def _wait_daily_battlepass_tab(self, tab):
-        # Reuse its existing selected-icon + page-title confirmation.
-        return self._runner._wait_daily_battlepass_tab(tab)
+        def select(path):
+            return self._panel(path, '先约电台') and self._tap(
+                self._ratio_point(path, .039, .174 if tab == 1 else .299))
+        return self._checks.transition(f'打开先约电台第{tab}个标签',
+            lambda path: self._daily_battlepass_tab_selected(path, tab), select)
 
     def _continue_daily_into_weekly_travel(self):
         self.log('    电台领取结束，返回索拉指南复核周常完成情况。')
