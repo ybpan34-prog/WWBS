@@ -7,6 +7,8 @@ import tkinter as tk
 import unittest
 from unittest.mock import patch
 
+from PIL import ImageGrab
+
 import app
 from combat_rotation import default_store
 from local_settings import Installation, apply_import, prepare_import, save_import_receipt, settings_files
@@ -143,13 +145,22 @@ class SettingsStartupTests(unittest.TestCase):
                     exposed.append(root.attributes('-alpha'))
                     real_show()
                 ready = []
-                with patch.object(root, 'deiconify', side_effect=show):
-                    show_ready_main_window(root, lambda: ready.append(True))
+                root.attributes('-topmost', True)
+                def record_first_frame():
+                    x, y = root.winfo_rootx(), root.winfo_rooty()
+                    frame = ImageGrab.grab((x, y, x+root.winfo_width(), y+root.winfo_height()))
+                    black_pixels = frame.convert('L').histogram()[0]
+                    ready.append(black_pixels < frame.width*frame.height*.15)
+                with patch.object(root, 'deiconify', side_effect=show), \
+                        patch.object(root, 'attributes', wraps=root.attributes) as attributes:
+                    show_ready_main_window(root, record_first_frame)
+                    self.assertFalse(any(call.args[:1] == ('-alpha',) and len(call.args) > 1
+                                         for call in attributes.call_args_list))
                 root.after(80, root.quit)
                 root.mainloop()
                 self.assertTrue(root.winfo_ismapped())
                 self.assertTrue(exposed)
-                self.assertEqual(exposed[0], 0.0)
+                self.assertEqual(exposed[0], 1.0)
                 self.assertEqual(root.attributes('-alpha'), 1.0)
                 self.assertEqual(ready, [True])
                 self.assertTrue(all(canvas.find_all() for canvas, _title in ui._nav_buttons))

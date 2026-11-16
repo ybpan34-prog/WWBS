@@ -14,14 +14,29 @@ def _templates():
     return tuple(Image.open(directory/f'reward_marker_{i}.png').convert('L') for i in (1, 2, 3, 4, 5))
 
 
-def reward_marker_location(screenshot):
+def reward_marker_location(screenshot, near=None):
     with Image.open(screenshot) as source:
         width, height = source.size
         # Exclude minimap, party portraits and the bottom skill bar. Markers
         # can be below the old white-core search band, including the 6m sample.
-        left, top = round(width*.005), round(height*.12)
-        region = source.convert('L').crop((left, top, round(width*.995), round(height*.88)))
+        bounds = (round(width*.005), round(height*.12), round(width*.995), round(height*.88))
+        image = source.convert('L')
     reduction = min(1., 960/width)
+    if near is not None:
+        x, y = near
+        left, top, right, bottom = bounds
+        local = (max(left, x-round(width*.10)), max(top, y-round(height*.12)),
+                 min(right, x+round(width*.10)), min(bottom, y+round(height*.12)))
+        if local[0] < local[2] and local[1] < local[3]:
+            match = _find_marker_in_region(image, local, width, reduction)
+            if match[0] is not None:
+                return match
+    return _find_marker_in_region(image, bounds, width, reduction)
+
+
+def _find_marker_in_region(image, bounds, width, reduction):
+    left, top, _, _ = bounds
+    region = image.crop(bounds)
     region = region.resize((round(region.width*reduction), round(region.height*reduction)), Image.Resampling.LANCZOS)
     scene = np.asarray(region, dtype=np.float64)/255
     best = None

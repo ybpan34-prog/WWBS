@@ -1210,17 +1210,17 @@ class OtherTask:
         return left + cell_x * block + block // 2, top + cell_y * block + block // 2, density
 
     @staticmethod
-    def _daily_reward_marker_location(screenshot):
+    def _daily_reward_marker_location(screenshot, near=None):
         from tasks.daily_reward_marker import reward_marker_location
-        return reward_marker_location(screenshot)
+        return reward_marker_location(screenshot, near)
 
     @staticmethod
     def _daily_reward_marker_direction(screenshot, x, y):
         from tasks.daily_reward_marker import reward_marker_direction
         return reward_marker_direction(screenshot, x, y)
 
-    def _daily_reward_marker(self, screenshot):
-        x, y, score = self._daily_reward_marker_location(screenshot)
+    def _daily_reward_marker(self, screenshot, near=None):
+        x, y, score = self._daily_reward_marker_location(screenshot, near)
         if x is None or score < .82:
             return None, None, 0., None
         return x, y, score, self._daily_reward_marker_direction(screenshot, x, y)
@@ -1237,17 +1237,16 @@ class OtherTask:
         screenshot = APP_DIR / "_runtime_screenshot.png"
         deadline = time.monotonic() + REWARD_SEARCH_SECONDS
         threshold = getattr(self, 'daily_orb_confidence', .45)
-        missed_turns = 0
         interactions = 0
         arrow_free_frames = 0
-        orb_locked = False
         combat_frames = 0
+        last_marker = None
         camera = RewardCamera()
         self.log(f'    最多搜索{REWARD_SEARCH_SECONDS}秒。先找奖励标志，有箭头就按方向转动；连续确认标志无箭头后，才寻找置信度至少{threshold:.0%}的光球。')
         while not self.stop_event.is_set():
             if self._capture_for_matching(screenshot) is False:
                 arrow_free_frames = 0
-                orb_locked = False
+                last_marker = None
                 if time.monotonic() >= deadline:
                     break
                 self._sleep_interruptible(.15)
@@ -1267,10 +1266,6 @@ class OtherTask:
                 if time.monotonic() >= deadline:
                     raise RuntimeError('已看到领取奖励界面，但未能连续确认双倍领取按钮。')
                 continue
-            if self._read_daily_settlement(screenshot) is not None:
-                self.controller.release_keys()
-                self.log(f'    第{cycle_index}轮已在挑战成功结算页，跳过找光球和再次领取。')
-                return True
             if time.monotonic() >= deadline:
                 break
             prompt = self._find_daily_reward_prompt(screenshot)
@@ -1296,21 +1291,24 @@ class OtherTask:
                     raise RuntimeError('重新寻找光球并再次按F后，仍未确认进入领取界面；未当作领取成功。')
                 self.log('    按F后未进入领取界面，可能提示闪过未按到；重新寻找一次光球并接近后重试。')
                 deadline = max(deadline, time.monotonic() + 12.0)
-                missed_turns = 0
                 arrow_free_frames = combat_frames = 0
-                orb_locked = False
+                last_marker = None
                 camera = RewardCamera()
                 continue
-            marker_x, marker_y, score, direction = self._daily_reward_marker(screenshot)
+            marker_x, marker_y, _, direction = self._daily_reward_marker(screenshot, last_marker)
             if self.stop_event.is_set():
                 break
+            last_marker = (marker_x, marker_y) if marker_x is not None else None
+            if last_marker is None and self._read_daily_settlement(screenshot) is not None:
+                self.controller.release_keys()
+                self.log(f'    第{cycle_index}轮已在挑战成功结算页，跳过找光球和再次领取。')
+                return True
             with Image.open(screenshot) as captured:
                 width, height = captured.size
-                combat = (enemy_health_bar_present(captured) if claim_dialog
-                          else self._daily_combat_visible(screenshot))
+                # Forgery can enter collection from its own battle-end detector.
+                combat = claim_dialog is not None and enemy_health_bar_present(captured)
             if combat:
                 arrow_free_frames = 0
-                orb_locked = False
                 combat_frames += 1
                 if combat_frames >= 2:
                     self.controller.release_keys()
@@ -1321,8 +1319,6 @@ class OtherTask:
             combat_frames = 0
             if direction:
                 arrow_free_frames = 0
-                orb_locked = False
-                missed_turns = 0
                 if direction != 'uncertain':
                     turn = 'left' if direction == 'down' else direction
                     dx, dy = camera.follow(turn, marker_x, marker_y, width, height)
@@ -1331,23 +1327,19 @@ class OtherTask:
                              +f'，转动步长{abs(dx or dy)}。')
                 self._sleep_interruptible(.15)
                 continue
-            if marker_x is None and not orb_locked:
+            camera.previous_turn = None
+            if marker_x is None:
                 arrow_free_frames = 0
-                self.controller.move_mouse_relative(camera.sweep(missed_turns), 0)
-                missed_turns += 1
                 self._sleep_interruptible(.22)
                 continue
-            camera.previous_turn = None
-            missed_turns = 0
             arrow_free_frames += 1
-            if not orb_locked and arrow_free_frames < 2:
+            if arrow_free_frames < 2:
                 self._sleep_interruptible(.15)
                 continue
             orb_x, _orb_y, confidence = self._daily_reward_orb_location(screenshot)
             if self.stop_event.is_set():
                 break
             if orb_x is not None and confidence >= threshold:
-                orb_locked = True
                 offset = orb_x - width * 0.5
                 keys = ("W",)
                 if abs(offset) > width * .05:

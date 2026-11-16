@@ -159,27 +159,22 @@ class RestoreRedraw:
 
 
 def show_ready_main_window(root, on_ready=lambda: None, on_restore=lambda: None):
-    """Finish layout and paint while invisible, then expose the first complete frame."""
+    """Lay out the withdrawn window and map it as an ordinary opaque window."""
     root.update_idletasks()
     if not hasattr(root, '_restore_redraw'):
         root._restore_redraw = RestoreRedraw(root, on_restore)
-    root.attributes('-alpha', 0.0)
     root.deiconify()
     # Mapping delivers native Map/Expose events as well as Tk idle redraws.
     # Idle-only flushing leaves child controls unpainted on Windows.
     root.update()
     root.update_idletasks()
 
-    def reveal():
-        redraw = root._restore_redraw
-        generation = redraw.generation
-        redraw._paint(generation, restoring=False)
-        root.attributes('-alpha', 1.0)
-        redraw._paint(generation, restoring=False)
-        root._main_frame_ready = True
-        root.after(140, lambda: redraw._paint(generation, restoring=False))
-        on_ready()
-    root.after(40, reveal)
+    redraw = root._restore_redraw
+    generation = redraw.generation
+    redraw._paint(generation, restoring=False)
+    root._main_frame_ready = True
+    root.after(140, lambda: redraw._paint(generation, restoring=False))
+    on_ready()
 
 
 @lru_cache(maxsize=64)

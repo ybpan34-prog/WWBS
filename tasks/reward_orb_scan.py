@@ -15,7 +15,6 @@ ORB_DIRECT_CONFIDENCE = .8
 class RewardCamera:
     def __init__(self):
         self.previous_turn = None
-        self.scan_sign = 1
 
     def follow(self, direction, x, y, width, height):
         horizontal = direction in ('left', 'right')
@@ -34,13 +33,8 @@ class RewardCamera:
                 step = min(step, max(minimum, previous_step // 2))
         self.previous_turn = (direction, distance, step)
         if horizontal:
-            self.scan_sign = sign
             return sign * step, 0
         return 0, sign * step
-
-    def sweep(self, misses):
-        self.previous_turn = None
-        return self.scan_sign * min(600, ORB_SCAN_STEP // 2 + 75 * misses)
 
 
 @dataclass

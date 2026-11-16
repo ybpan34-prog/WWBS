@@ -49,7 +49,7 @@ class RestoreRedrawTests(unittest.TestCase):
             with patch('ui_controls._redraw_native_window', side_effect=record_native_paint):
                 ui_controls.show_ready_main_window(root, ready)
                 pump(root, .25)
-            self.assertEqual(startup_alphas, [0.0, 1.0, 1.0])
+            self.assertEqual(startup_alphas, [1.0, 1.0])
             canvas.yview_moveto(.35)
             root.update_idletasks()
             position = canvas.yview()

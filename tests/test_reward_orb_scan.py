@@ -23,8 +23,6 @@ class OrbDirectionTests(unittest.TestCase):
         self.assertEqual(dy, 0)
         self.assertGreater(correction, 0)
         self.assertLess(correction, abs(near))
-        camera.follow('left', 394, 576, 1920, 1080)
-        self.assertEqual([camera.sweep(i) for i in (0, 1, 11)], [-225, -300, -600])
 
     def test_scan_waits_for_full_lap_and_remembers_highest_direction(self):
         panorama = np.random.default_rng(34).random((72,864))
@@ -84,15 +82,13 @@ class OrbDirectionTests(unittest.TestCase):
                 runner.controller.press_keys.assert_called_once_with(('W',),1000)
                 runner.controller.move_mouse_relative.assert_not_called()
 
-    def test_missing_marker_only_rotates_even_after_twelve_searches(self):
+    def test_missing_marker_never_rotates_even_after_twelve_searches(self):
         with tempfile.TemporaryDirectory() as directory, patch('tasks.other.APP_DIR', Path(directory)):
             runner = self.runner(directory, [(None, None, .3)]*14, [None]*13+[Mock()])
+            runner._read_daily_settlement = Mock(return_value=None)
             self.assertTrue(runner._collect_daily_reward(1))
-            turns = runner.controller.move_mouse_relative.call_args_list
-            self.assertEqual([call.args for call in turns[:12]],
-                             [(step, 0) for step in (225, 300, 375, 450, 525, 600, 600, 600, 600, 600, 600, 600)])
-            self.assertEqual(len(turns), 13)
-            self.assertEqual(turns[-1].args, (600, 0))
+            runner.controller.move_mouse_relative.assert_not_called()
+            runner._daily_reward_orb_location.assert_not_called()
             runner.controller.press_keys.assert_not_called()
             runner.controller.press_key.assert_called_once_with('F', 100)
 
@@ -105,12 +101,14 @@ class OrbDirectionTests(unittest.TestCase):
             runner.controller.move_mouse_relative.assert_not_called()
             runner.controller.press_keys.assert_called_once_with(('W',), 1000)
 
-    def test_combat_return_during_camera_search_stops_without_claiming(self):
+    def test_daily_collection_does_not_recheck_combat_while_waiting_for_marker(self):
         with tempfile.TemporaryDirectory() as directory, patch('tasks.other.APP_DIR', Path(directory)):
-            runner = self.runner(directory, [(None, None, .3)]*15, [None]*15)
-            runner._daily_combat_visible = Mock(side_effect=[False]*13+[True]*2)
+            runner = self.runner(directory, [], [None])
+            runner._read_daily_settlement = Mock(return_value=None)
+            runner._sleep_interruptible = lambda _: runner.stop_event.set()
             self.assertFalse(runner._collect_daily_reward(1))
-            self.assertEqual(runner.controller.move_mouse_relative.call_count, 13)
+            runner._daily_combat_visible.assert_not_called()
+            runner.controller.move_mouse_relative.assert_not_called()
             runner.controller.press_keys.assert_not_called()
             runner.controller.press_key.assert_not_called()
             runner._claim_daily_double_reward.assert_not_called()

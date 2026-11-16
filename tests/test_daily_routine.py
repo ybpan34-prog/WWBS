@@ -571,21 +571,7 @@ class DailyRoutineTests(unittest.TestCase):
         self.assertFalse(TaskRunner._daily_reward_movement_stalled(0.24, 0.25))
         self.assertFalse(TaskRunner._daily_reward_movement_stalled(None, 0.25))
 
-    def test_reward_search_returns_to_combat_when_countdown_reappears(self):
-        controller = Mock()
-        runner = TaskRunner(controller, lambda _message: None, dry_run=False)
-        runner._capture_for_matching = Mock()
-        runner._daily_reward_dialog_present = Mock(return_value=False)
-        runner._find_daily_reward_prompt = Mock(return_value=None)
-        runner._daily_reward_marker_location = Mock(return_value=(None, None, 0.0))
-        runner._daily_combat_visible = Mock(return_value=True)
-
-        self.assertFalse(runner._collect_daily_reward(1))
-        controller.release_keys.assert_called_once()
-        controller.move_mouse_relative.assert_not_called()
-        controller.press_keys.assert_not_called()
-
-    def test_reward_search_rotates_without_changing_camera_height(self):
+    def test_reward_search_stays_still_without_a_marker(self):
         controller = Mock()
         runner = TaskRunner(controller, lambda _: None, dry_run=False)
         runner._capture_for_matching = Mock()
@@ -599,7 +585,7 @@ class DailyRoutineTests(unittest.TestCase):
         context.__exit__ = Mock(return_value=False)
         with patch.object(app.Image, 'open', return_value=context):
             self.assertFalse(runner._collect_daily_reward(1))
-        controller.move_mouse_relative.assert_called_once_with(225, 0)
+        controller.move_mouse_relative.assert_not_called()
 
     def test_daily_healing_is_disabled_by_default(self):
         runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)
@@ -674,24 +660,6 @@ class DailyRoutineTests(unittest.TestCase):
         runner._daily_reward_orb_location.return_value = (900, 360, 0.82)
         self.assertFalse(runner._daily_reward_stage_present(Path("screen.png")))
         runner._daily_reward_orb_location.assert_not_called()
-
-    def test_reward_search_returns_to_combat_when_white_enemy_is_visible(self):
-        controller = Mock()
-        runner = TaskRunner(controller, lambda _message: None, dry_run=False)
-        runner._capture_for_matching = Mock()
-        runner._find_daily_reward_prompt = Mock(return_value=None)
-        runner._daily_reward_orb_location = Mock(return_value=(900, 360, 0.82))
-        runner._daily_combat_visible = Mock(return_value=True)
-        runner._sleep_interruptible = Mock()
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            screenshot = Path(temp_dir) / "_runtime_screenshot.png"
-            Image.new("RGB", (1920, 1080)).save(screenshot)
-            with patch("tasks.other.APP_DIR", Path(temp_dir)):
-                self.assertFalse(runner._collect_daily_reward(1))
-
-        self.assertEqual(runner._daily_combat_visible.call_count, 2)
-        controller.press_keys.assert_not_called()
 
     def test_refill_never_selects_star_currency_card(self):
         runner = TaskRunner(Mock(), lambda _message: None, dry_run=False)

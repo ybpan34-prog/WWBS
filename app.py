@@ -110,7 +110,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
 APP_VERSION = "1.6.3"
-APP_BUILD = 12
+APP_BUILD = 13
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -1094,7 +1094,6 @@ class App:
         self._drain_logs()
         self.root.protocol("WM_DELETE_WINDOW", self._close_app)
         self._start_stop_hotkey()
-        self.root.after(120, self._start_desktop_pet)
         self.root.after(800, self._scan_local_models)
         if "--admin-restarted" in sys.argv and is_running_as_admin():
             self._log("检测到未开启管理员模式，已通过管理员模式打开")
@@ -1107,6 +1106,7 @@ class App:
             return
         self._startup_ui_scheduled = True
         signal_update_ready()
+        self.root.after(160, self._start_desktop_pet)
         self.root.after(200, self._report_settings_import)
         if not ('--admin-restarted' in sys.argv and is_running_as_admin()):
             self.root.after(300, self._show_startup_notice_once)
