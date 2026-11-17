@@ -35,6 +35,9 @@ class VerifiedDailyNavigation(Daily154Navigation):
             if self._ocr is not None:
                 self._ocr.close()
 
+    def _collect_daily_reward(self, cycle_index):
+        return self._runner._collect_daily_reward_in_stages(cycle_index)
+
     def _terminal(self, path):
         return terminal_target(path, ROOT/'templates/daily', '索拉指南') is not None
 

@@ -109,8 +109,8 @@ DEFAULT_CONFIG = USER_SETTINGS_DIR / "weekly_tasks.json"
 TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
-APP_VERSION = "1.6.3"
-APP_BUILD = 14
+APP_VERSION = "1.6.4beta"
+APP_BUILD = 1
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -204,6 +204,7 @@ UPDATE_NOTICE = """v1.3.5 更新内容
 2. 请将游戏窗口调整为 1920*1080p 或等比例缩放。
 3. 请先完成周本的新手教程，并将速度调整至 MAX。"""
 UPDATE_HISTORY = [
+    ('v1.6.4beta', 'WWBS 1.6.4 beta\n一键日常战后依次检查领取窗口、跟随箭头、寻找光球。\n每次向光球移动0.75秒，置信度相对下降超过30%时停步向身后找。'),
     ('v1.6.3', 'WWBS 1.6.3 正式版\n无音区选行自动滚动露出按钮，重开后直接接战。\n4C 自定义刷取支持副本与大世界，新增凝素领域刷取和剧情跳过对话。'),
     ('v1.6.2', 'WWBS 1.6.2 正式版\n日常奖励标志只用于转向。每识别三次光球重新复核箭头，纯向下的箭头触发水平左转。\n进场先用当前角色开打。排轴发送切人键后直接继续执行。'),
     ('v1.6.1', 'WWBS 1.6.1 正式版\n周常误打开频率晶体详情时，点击卡片外空白处，确认关闭后接续原步骤。menu2 单次识别未命中后，继续复核棋盘与选卡页面。\n一键日常进场已确认首发角色时，直接开始排轴，减少重复截图。'),

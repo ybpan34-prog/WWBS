@@ -1229,6 +1229,104 @@ class OtherTask:
     def _daily_marker_confirms_reward(score, direction):
         return score >= .90 or direction in ('left', 'right', 'up', 'down')
 
+    def _collect_daily_reward_in_stages(self, cycle_index: int) -> bool:
+        screenshot = APP_DIR / "_runtime_screenshot.png"
+        deadline = time.monotonic() + REWARD_SEARCH_SECONDS
+        threshold = getattr(self, "daily_orb_confidence", .45)
+
+        def capture():
+            return self._capture_for_matching(screenshot) is not False and not self.stop_event.is_set()
+
+        # Inspect the claim dialog only once on entry. The next phase is camera-only.
+        if not self.stop_event.is_set() and capture() and self._daily_reward_dialog_present(screenshot):
+            self._claim_daily_double_reward(cycle_index)
+            return True
+
+        camera = RewardCamera()
+        last_marker = None
+        clear_frames = 0
+        while time.monotonic() < deadline and not self.stop_event.is_set():
+            if not capture():
+                clear_frames = 0
+                last_marker = None
+                self._sleep_interruptible(.06)
+                continue
+            x, y, _, direction = self._daily_reward_marker(screenshot, last_marker)
+            last_marker = (x, y) if x is not None else None
+            if direction is None:
+                clear_frames += 1
+                if clear_frames >= 2:
+                    break
+            else:
+                clear_frames = 0
+                if direction != "uncertain" and not self.stop_event.is_set():
+                    with Image.open(screenshot) as frame:
+                        width, height = frame.size
+                    turn = "left" if direction == "down" else direction
+                    self.controller.move_mouse_relative(*camera.follow(turn, x, y, width, height))
+            self._sleep_interruptible(.06)
+        else:
+            if self.stop_event.is_set():
+                return False
+            raise RuntimeError("未确认奖励箭头消失，已停止寻找奖励。")
+
+        before_move = None
+        rear_turns = 0
+        interactions = 0
+        fresh = True  # The frame that confirmed arrow clearance can also show the orb.
+        while time.monotonic() < deadline and not self.stop_event.is_set():
+            if not fresh and not capture():
+                self._sleep_interruptible(.06)
+                continue
+            fresh = False
+            orb_x, _, confidence = self._daily_reward_orb_location(screenshot)
+            if self.stop_event.is_set():
+                return False
+            found = orb_x is not None and confidence >= threshold
+            if found and self._find_daily_reward_prompt(screenshot) is not None:
+                self.controller.press_key("F", 100)
+                interactions += 1
+                state = self._wait_daily_reward_dialog(timeout=2.0)
+                if self.stop_event.is_set():
+                    return False
+                if state == "claim":
+                    self._claim_daily_double_reward(cycle_index)
+                    return True
+                if state == "settlement":
+                    return True
+                if state == "combat":
+                    return False
+                if interactions >= 2:
+                    raise RuntimeError("两次按 F 后均未确认领取窗口。")
+                before_move = None
+                continue
+
+            if before_move is not None and confidence < before_move * .70:
+                self.log("    移动后光球置信度下降超过30%，停步并向身后找。")
+                rear_turns = 8
+                found = False
+            before_move = None
+            if rear_turns and not found:
+                self.controller.move_mouse_relative(ORB_SCAN_STEP, 0)
+                rear_turns -= 1
+                continue
+            if found:
+                rear_turns = 0
+                with Image.open(screenshot) as frame:
+                    width = frame.width
+                offset = orb_x - width / 2
+                keys = ("W",)
+                if abs(offset) > width * .05:
+                    keys += ("A" if offset < 0 else "D",)
+                if not self.stop_event.is_set():
+                    self.controller.press_keys(keys, 750)
+                    before_move = confidence
+                continue
+            self._sleep_interruptible(.06)
+        if self.stop_event.is_set():
+            return False
+        raise RuntimeError("奖励阶段未找到可领取的光球，已停止。")
+
     def _collect_daily_reward(self, cycle_index: int, *, claim_dialog=None, claim_reward=None) -> bool:
         detect_dialog = claim_dialog or self._daily_reward_dialog_present
         claim = claim_reward or self._claim_daily_double_reward
