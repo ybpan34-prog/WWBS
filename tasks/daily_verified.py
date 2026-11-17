@@ -93,7 +93,22 @@ class VerifiedDailyNavigation(Daily154Navigation):
         return match
 
     def _open_terminal_destination(self, label, x_ratio=None, y_ratio=None, *, require_transition=False):
+        radio_exit_attempts = 0
+        def ready(path):
+            return self._panel(path, label) and (label != '索拉指南' or not self._panel(path, '先约电台'))
+
         def action(path):
+            nonlocal radio_exit_attempts
+            if label == '索拉指南' and self._panel(path, '先约电台'):
+                # Esc also works when the radio close icon is obscured or fails to match.
+                use_close_button = radio_exit_attempts % 2 == 1
+                radio_exit_attempts += 1
+                if use_close_button and self._tap_page_close(path):
+                    return True
+                if not self.stop_event.is_set():
+                    self.controller.press_key('ESC', 70)
+                    return True
+                return False
             point = terminal_target(path, ROOT/'templates/daily', label)
             if point is not None:
                 return self._tap(point)
@@ -101,7 +116,7 @@ class VerifiedDailyNavigation(Daily154Navigation):
                 self.controller.press_key('ESC', 70)
                 return True
             return self._tap_page_close(path)
-        return self._checks.transition('进入'+label, lambda p: self._panel(p, label), action,
+        return self._checks.transition('进入'+label, ready, action,
                                        timeout=22, max_actions=6)
 
     def _tap_page_close(self, path):
@@ -324,7 +339,6 @@ class VerifiedDailyNavigation(Daily154Navigation):
                 return
             if self._click_optional_daily_template('one_click_claim.png', label, timeout=5., threshold=.66):
                 self._dismiss_reward_overlay_safely()
-        self._close_page()
 
     def _click_daily_template(self, template_name, label, *, timeout=10., threshold=.72, region_ratio=None):
         def source_action(path):

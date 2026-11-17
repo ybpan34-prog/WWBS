@@ -106,6 +106,43 @@ class DailyVerifiedTests(unittest.TestCase):
         runner._start_weekly_travel_from_selected_page.assert_called_once()
         runner._close_page.assert_not_called()
 
+    def test_radio_rewards_exits_through_terminal_and_starts_weekly(self):
+        from shutil import copyfile
+
+        nav, runner = self.navigation()
+        fixtures = Path(__file__).parent / 'fixtures'
+        runner.matcher.templates_dir = fixtures.parents[1] / 'templates/daily'
+        stage = 'daily-radio-rewards-reported.png'
+        now = [0.]
+        runner._sleep_interruptible = lambda seconds: now.__setitem__(0, now[0] + seconds)
+
+        def leave_radio(key, duration):
+            nonlocal stage
+            self.assertEqual((key, duration), ('ESC', 70))
+            self.assertEqual(stage, 'daily-radio-rewards-reported.png')
+            stage = 'daily-terminal-menu.png'
+
+        def open_guide(*point):
+            nonlocal stage
+            self.assertEqual(stage, 'daily-terminal-menu.png')
+            stage = 'daily-activity-claims-reported.jpg'
+
+        runner.controller.press_key.side_effect = leave_radio
+        runner.controller.tap.side_effect = open_guide
+        runner._capture_for_matching = lambda path: copyfile(fixtures / stage, path)
+        runner._start_weekly_travel_from_selected_page = Mock()
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch('tasks.daily_verified.time.monotonic', side_effect=lambda: now[0]),
+            patch('tasks.daily_verified.WeeklyRewardsVision') as weekly,
+        ):
+            nav._checks.screenshot = Path(directory) / 'screen.png'
+            weekly.return_value.guide_status.return_value = 'pending'
+            nav._continue_daily_into_weekly_travel()
+        runner.controller.press_key.assert_called_once()
+        runner.controller.tap.assert_called_once()
+        runner._start_weekly_travel_from_selected_page.assert_called_once()
+
     def test_completed_weekly_reports_completion_and_closes(self):
         nav, runner = self.navigation()
         runner._capture_for_matching = Mock()
