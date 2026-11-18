@@ -112,7 +112,7 @@ class DailyVerifiedTests(unittest.TestCase):
         nav, runner = self.navigation()
         fixtures = Path(__file__).parent / 'fixtures'
         runner.matcher.templates_dir = fixtures.parents[1] / 'templates/daily'
-        stage = 'daily-radio-rewards-reported.png'
+        stage = 'obtained'
         now = [0.]
         runner._sleep_interruptible = lambda seconds: now.__setitem__(0, now[0] + seconds)
 
@@ -124,12 +124,26 @@ class DailyVerifiedTests(unittest.TestCase):
 
         def open_guide(*point):
             nonlocal stage
+            if stage == 'obtained':
+                self.assertEqual(point, (1274, 975))
+                stage = 'daily-radio-rewards-reported.png'
+                return
             self.assertEqual(stage, 'daily-terminal-menu.png')
             stage = 'daily-activity-claims-reported.jpg'
 
+        def capture(path):
+            if stage != 'obtained':
+                return copyfile(fixtures / stage, path)
+            frame = Image.new('RGB', (1920, 1080))
+            for name, point in (('radio_obtained_title.png', (907, 247)),
+                                ('radio_obtained_confirm.png', (1234, 954))):
+                with Image.open(runner.matcher.templates_dir / name) as template:
+                    frame.paste(template, point)
+            frame.save(path)
+
         runner.controller.press_key.side_effect = leave_radio
         runner.controller.tap.side_effect = open_guide
-        runner._capture_for_matching = lambda path: copyfile(fixtures / stage, path)
+        runner._capture_for_matching = capture
         runner._start_weekly_travel_from_selected_page = Mock()
         with (
             tempfile.TemporaryDirectory() as directory,
@@ -140,7 +154,7 @@ class DailyVerifiedTests(unittest.TestCase):
             weekly.return_value.guide_status.return_value = 'pending'
             nav._continue_daily_into_weekly_travel()
         runner.controller.press_key.assert_called_once()
-        runner.controller.tap.assert_called_once()
+        self.assertEqual(runner.controller.tap.call_count, 2)
         runner._start_weekly_travel_from_selected_page.assert_called_once()
 
     def test_completed_weekly_reports_completion_and_closes(self):

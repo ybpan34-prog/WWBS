@@ -10,14 +10,14 @@ class DailyRadioVision:
     def __init__(self, templates):
         self.matcher = TemplateMatcher(Path(templates))
 
-    def find(self, path, name, box, threshold=.86):
+    def find(self, path, name, box, threshold=.86, *, native_width=1600):
         with Image.open(path) as source:
             width, height = source.size
         if abs(width/height-16/9) > .04:
             return None
         region = tuple(round(value*(width if i % 2 == 0 else height)) for i, value in enumerate(box))
         try:
-            return self.matcher.find_fast(path, name, threshold=threshold, scale=width/1600, region=region)
+            return self.matcher.find_fast(path, name, threshold=threshold, scale=width/native_width, region=region)
         except (OSError, RuntimeError):
             return None
 
@@ -29,3 +29,8 @@ class DailyRadioVision:
 
     def close(self, path):
         return self.find(path, 'radio_close_native.png', (.92, .015, .98, .105), .84) if self.page(path) else None
+
+    def obtained_confirmation(self, path):
+        if not self.find(path, 'radio_obtained_title.png', (.45, .224, .55, .298), native_width=1920):
+            return None
+        return self.find(path, 'radio_obtained_confirm.png', (.60, .865, .74, .94), native_width=1920)

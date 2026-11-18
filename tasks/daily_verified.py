@@ -95,10 +95,15 @@ class VerifiedDailyNavigation(Daily154Navigation):
     def _open_terminal_destination(self, label, x_ratio=None, y_ratio=None, *, require_transition=False):
         radio_exit_attempts = 0
         def ready(path):
-            return self._panel(path, label) and (label != '索拉指南' or not self._panel(path, '先约电台'))
+            return self._panel(path, label) and (label != '索拉指南' or (
+                not self._panel(path, '先约电台') and self._radio_obtained_confirmation(path) is None))
 
         def action(path):
             nonlocal radio_exit_attempts
+            if label == '索拉指南':
+                confirmation = self._radio_obtained_confirmation(path)
+                if confirmation is not None:
+                    return self._tap(confirmation.center)
             if label == '索拉指南' and self._panel(path, '先约电台'):
                 # Esc also works when the radio close icon is obscured or fails to match.
                 use_close_button = radio_exit_attempts % 2 == 1
@@ -340,6 +345,9 @@ class VerifiedDailyNavigation(Daily154Navigation):
             if self._click_optional_daily_template('one_click_claim.png', label, timeout=5., threshold=.66):
                 self._dismiss_reward_overlay_safely()
 
+    def _radio_obtained_confirmation(self, path):
+        return DailyRadioVision(ROOT/'templates/daily').obtained_confirmation(path)
+
     def _click_daily_template(self, template_name, label, *, timeout=10., threshold=.72, region_ratio=None):
         def source_action(path):
             match = self._match(path, template_name, threshold)
@@ -385,13 +393,24 @@ class VerifiedDailyNavigation(Daily154Navigation):
                 return self._tap(self._ratio_point(path, .657, .628)) if self._daily_exit_confirmation_present(path) else False
             return self._checks.transition('退出副本并回到大世界', self._world, source_action,
                                            timeout=45, recovery=recover)
+        elif template_name == 'one_click_claim.png':
+            def claim_finished(path):
+                return (self._radio_obtained_confirmation(path) is None
+                        and self._match(path, template_name, threshold) is None and self._normal(path))
+
+            def handle_claim(path):
+                confirmation = self._radio_obtained_confirmation(path)
+                if confirmation is not None:
+                    return self._tap(confirmation.center)
+                return source_action(path)
+
+            return self._checks.transition(label, claim_finished, handle_claim, timeout=max(12, timeout),
+                recovery=lambda p: not self._normal(p) and self._tap(self._ratio_point(p, .13, .86)))
         else:
             # Claim buttons can become disabled without disappearing. Confirm
             # the return to the same known page; callers recheck remaining claims.
             destination = lambda p: self._match(p, template_name, threshold) is None and self._normal(p)
-        return self._checks.transition(label, destination, source_action, timeout=max(12, timeout),
-            recovery=lambda p: self._tap(self._ratio_point(p, .13, .86))
-                if template_name == 'one_click_claim.png' and not self._normal(p) else False)
+        return self._checks.transition(label, destination, source_action, timeout=max(12, timeout))
 
     def _restart_battle_visible(self, path):
         return self._battle(path)
@@ -420,8 +439,13 @@ class VerifiedDailyNavigation(Daily154Navigation):
         raise RuntimeError(f'未确认「{label}」是否可领取，已等待并复核，保留当前页面。')
 
     def _dismiss_reward_overlay_safely(self):
-        return self._checks.transition('奖励提示关闭并返回原页面', self._normal,
-            lambda p: self._tap(self._ratio_point(p, .13, .86)))
+        def dismiss(path):
+            confirmation = self._radio_obtained_confirmation(path)
+            point = confirmation.center if confirmation is not None else self._ratio_point(path, .13, .86)
+            return self._tap(point)
+
+        return self._checks.transition('奖励提示关闭并返回原页面',
+            lambda p: self._radio_obtained_confirmation(p) is None and self._normal(p), dismiss)
 
     def _wait_for_daily_success(self, cycle_index):
         return self._checks.transition(f'第{cycle_index}轮挑战成功结算',
