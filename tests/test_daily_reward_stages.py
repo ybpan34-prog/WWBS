@@ -49,10 +49,22 @@ class DailyRewardStagesTest(unittest.TestCase):
         self.assertTrue(self.navigation._collect_daily_reward(2))
         self.assertEqual([event[0] for event in self.events.mock_calls if event[0] != "capture"], [
             "dialog", "arrow", "controller.move_mouse_relative", "arrow", "arrow",
-            "orb", "prompt", "controller.press_keys", "orb", "controller.move_mouse_relative",
-            "orb", "prompt", "controller.press_key", "claim",
+            "dialog", "orb", "prompt", "controller.press_keys", "dialog", "orb", "controller.move_mouse_relative",
+            "dialog", "orb", "prompt", "controller.press_key", "claim",
         ])
         self.runner.controller.press_keys.assert_called_once_with(("W",), 750)
         self.runner.controller.press_key.assert_called_once_with("F", 100)
         self.assertEqual(self.runner.controller.move_mouse_relative.call_args, call(450, 0))
         self.events.claim.assert_called_once_with(2)
+
+    def test_dialog_appearing_after_entry_is_claimed_before_orb_matching(self):
+        self.events.dialog.side_effect = [False, True]
+        self.events.arrow.side_effect = [
+            (600, 300, .9, "left"), (960, 300, .9, None), (960, 300, .9, None),
+        ]
+        self.assertTrue(self.navigation._collect_daily_reward(1))
+        self.events.orb.assert_not_called()
+        self.events.prompt.assert_not_called()
+        self.runner.controller.press_keys.assert_not_called()
+        self.events.claim.assert_called_once_with(1)
+        self.assertEqual(self.events.dialog.call_count, 2)

@@ -1279,6 +1279,11 @@ class OtherTask:
                 self._sleep_interruptible(.06)
                 continue
             fresh = False
+            # An F interaction or game transition may open this after the entry check.
+            # Check before orb matching: the white dialog itself resembles a bright orb.
+            if self._daily_reward_dialog_present(screenshot):
+                self._claim_daily_double_reward(cycle_index)
+                return True
             orb_x, _, confidence = self._daily_reward_orb_location(screenshot)
             if self.stop_event.is_set():
                 return False
