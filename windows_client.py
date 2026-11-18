@@ -255,7 +255,7 @@ class ClientWindowController:
         cancel_event = cancel_event or getattr(self, '_input_cancel_event', None)
         try:
             self._send_mouse_button(MOUSEEVENTF_LEFTDOWN)
-            duration = max(0.1, min(duration_ms, 2000) / 1000.0)
+            duration = max(0.1, min(duration_ms, 30_000) / 1000.0)
             if cancel_event is None:
                 time.sleep(duration)
             else:

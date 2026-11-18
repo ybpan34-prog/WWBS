@@ -37,7 +37,7 @@ from update_manager import (create_update_work, download_asset, refresh_release_
 from local_settings import (apply_import, bootstrap_own_settings, default_search_roots,
                             discover_latest, discovery_needed, prepare_import, save_discovery_state,
                             snapshot_settings, describe_import, save_import_receipt, verify_import_receipt, changed_settings, excluded_settings_source)
-from combat_rotation import ACTION_SPECS, COMBAT_MODES, SLOT_NAMES, active_modules, default_store, load_store, new_module, save_store, validate_store
+from combat_rotation import ACTION_SPECS, COMBAT_MODES, SLOT_NAMES, SWITCH_ACTIONS, active_modules, default_store, load_store, new_module, save_store, validate_store
 from combat_seed import decode_seed, export_seed, import_seed
 from seed_library import download_seed, search_seeds, upload_seed
 from rain_effect import RAIN_MODES, RAIN_LEVELS, RAIN_STRENGTHS, load_rain_settings, normalize_rain_settings
@@ -4027,13 +4027,13 @@ class App:
         kind = item["kind"]
         caption = {"idle_attack": "每多少下普攻穿插一次重击", "attack_count": "普攻次数",
                    "jump_attack": "跳跃后普攻次数", "attack_seconds": "普攻秒数",
-                   "heavy_count": "重击次数", "wait": "等待秒数", "approach": "向前移动秒数",
+                   "heavy_count": "重击次数", "heavy_seconds": "左键长按秒数", "wait": "等待秒数", "approach": "向前移动秒数",
                    "skill_count": "技能施放次数", "ultimate_count": "大招施放次数"}.get(kind, "执行次数")
         Label(body, text=ACTION_SPECS[kind][1], fg=COLORS["muted"], bg=COLORS["panel"],
               wraplength=380, justify=LEFT).pack(anchor="w", pady=(0, 12))
         Label(body, text="角色位", bg=COLORS["panel"], fg=COLORS["text"]).pack(anchor="w")
         self._rounded_picker(body, slot, list(SLOT_NAMES.values()), lambda: None).pack(fill=X, pady=(4, 10))
-        for title, variable in ([] if kind in {"skill", "ultimate", "echo", "execute", "dodge", "switch_2", "switch_3"} else [(caption, value)]) + ([("循环间隔（秒）", interval)]
+        for title, variable in ([] if kind in {"skill", "ultimate", "echo", "execute", "dodge", *SWITCH_ACTIONS} else [(caption, value)]) + ([("循环间隔（秒）", interval)]
                                                     if kind in {"skill", "ultimate", "echo", "approach"} else []):
             Label(body, text=title, bg=COLORS["panel"], fg=COLORS["text"],
                   wraplength=380, justify=LEFT).pack(anchor="w")
@@ -4123,9 +4123,11 @@ class App:
         kind, value = item["kind"], item["value"]
         detail = {"idle_attack": f"空闲普攻；每 {value:g} 下重击一次", "attack_count": f"普攻 {value:g} 次",
                   "jump_attack": f"跳跃后普攻 {value:g} 次", "heavy_count": f"长按重击 {value:g} 次",
+                  "heavy_seconds": f"持续按住左键 {value:g} 秒",
                   "attack_seconds": f"普攻 {value:g} 秒", "wait": f"等待 {value:g} 秒",
                   "execute": "按顺序点击 F 一次",
                   "dodge": "按顺序点击右键一次",
+                  "switch_1": "立即开始一号位排轴",
                   "switch_2": "立即开始2号位排轴",
                   "switch_3": "立即开始3号位排轴",
                   "skill_count": f"每次驻场施放技能 {value:g} 次，不循环",
@@ -7219,7 +7221,13 @@ class App:
     def _update_mode_label(self) -> None:
         if self.target_mode.get() != "client":
             self.device_status.set("ADB 设备未检测")
+        self.root.bind("<Destroy>", self._stop_pc_window_poll, add="+")
         self._poll_pc_window()
+
+    def _stop_pc_window_poll(self, event) -> None:
+        if event.widget is self.root and self._pc_window_poll_job is not None:
+            self.root.after_cancel(self._pc_window_poll_job)
+            self._pc_window_poll_job = None
 
     def _poll_pc_window(self) -> None:
         if self.target_mode.get() == "client":
@@ -7231,7 +7239,7 @@ class App:
                 status = "已找到 PC 窗口"
             if self.device_status.get() != status:
                 self.device_status.set(status)
-        self.root.after(2500, self._poll_pc_window)
+        self._pc_window_poll_job = self.root.after(2500, self._poll_pc_window)
 
     def _show_preview(self, image_path: Path, title: str) -> None:
         if not hasattr(self, "preview_canvas") or not image_path.exists():

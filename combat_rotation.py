@@ -15,10 +15,12 @@ ACTION_SPECS = {
     "attack_count": ("普攻 N 次", "按节奏点击左键 N 次", 1, 100),
     "jump_attack": ("跳跃普攻", "跳跃后普攻 N 次", 1, 20),
     "dodge": ("闪避（右键）", "按排轴顺序点击一次鼠标右键", 1, 1),
+    "switch_1": ("切换一号位", "立即切到一号位并开始该角色的排轴", 1, 1),
     "switch_2": ("切换2号位", "立即切到2号位并开始该角色的排轴", 1, 1),
     "switch_3": ("切换3号位", "立即切到3号位并开始该角色的排轴", 1, 1),
     "attack_seconds": ("普攻 N 秒", "按顺序执行的普攻时长", 0.2, 30),
     "heavy_count": ("重击 N 次", "长按左键进行重击", 1, 20),
+    "heavy_seconds": ("长按重击 N 秒", "持续按住左键 N 秒", 0.2, 30),
     "skill": ("施放技能", "使用任务设置中的技能键，按间隔循环触发", 1, 1),
     "ultimate": ("施放大招", "使用任务设置中的大招键，按间隔循环触发", 1, 1),
     "echo": ("施放声骸 Q", "施放当前角色的声骸技能，按间隔循环触发", 1, 1),
@@ -31,18 +33,18 @@ ACTION_SPECS = {
 
 DEFAULT_VALUES = {
     "idle_attack": (20, 0), "attack_count": (15, 0), "jump_attack": (3, 0),
-    "attack_seconds": (3, 0), "heavy_count": (1, 0),
+    "attack_seconds": (3, 0), "heavy_count": (1, 0), "heavy_seconds": (1, 0),
     "skill": (1, 5), "ultimate": (1, 15), "echo": (1, 20),
     "approach": (0.09, 0.75), "wait": (1, 0),
     "execute": (1, 0), "dodge": (1, 0), "skill_count": (1, 0), "ultimate_count": (1, 0),
-    "switch_2": (1, 0), "switch_3": (1, 0),
+    "switch_1": (1, 0), "switch_2": (1, 0), "switch_3": (1, 0),
 }
 COMBAT_MODES = {"combat_4c": "4C 刷取", "daily": "一键日常", "tower": "深塔挑战", "forgery": "凝素领域"}
 SLOT_NAMES = {1: "一号位", 2: "二号位", 3: "三号位"}
 MAX_PRESET_NAME = 64
 PERIODIC_ACTIONS = frozenset({"skill", "ultimate", "echo"})
 COUNTED_CASTS = {"skill_count": "skill", "ultimate_count": "ultimate"}
-SWITCH_ACTIONS = {"switch_2": 2, "switch_3": 3}
+SWITCH_ACTIONS = {"switch_1": 1, "switch_2": 2, "switch_3": 3}
 
 
 def new_module(kind: str, slot: int = 1) -> dict:

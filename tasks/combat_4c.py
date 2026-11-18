@@ -424,9 +424,12 @@ class Combat4CTask:
             return True
         if kind == "left_click":
             self.controller.left_click()
-        elif kind == "hold_left":
-            remaining_ms = max(1, round((rotation.visit_deadline - time.monotonic()) * 1000))
-            duration = min(self.HEAVY_ATTACK_HOLD_MS, remaining_ms)
+        elif kind in {"hold_left", "heavy_seconds"}:
+            if kind == "heavy_seconds":
+                duration = round(float(item["value"]) * 1000)
+            else:
+                remaining_ms = max(1, round((rotation.visit_deadline - time.monotonic()) * 1000))
+                duration = min(self.HEAVY_ATTACK_HOLD_MS, remaining_ms)
             if callable(getattr(type(self.controller), 'hold_left_button_cancelable', None)):
                 self.controller.hold_left_button_cancelable(duration, self._combat_input_cancel)
             else:

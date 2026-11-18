@@ -264,6 +264,24 @@ class RotationTests(unittest.TestCase):
                                         app.threading.Event(), app.threading.Lock())
         controller.hold_left_button.assert_called_once_with(200)
 
+    def test_timed_heavy_attack_holds_once_then_switches_to_first_slot(self):
+        controller = Mock()
+        runner = app.TaskRunner(controller, lambda _: None)
+        first = new_module('attack_count', 1)
+        hold = new_module('heavy_seconds', 2)
+        hold['value'] = 3.25
+        switch = new_module('switch_1', 2)
+        clock = RotationClock([first, hold, switch], 100, slot_order=[2, 1, 3])
+        enabled, lock = app.threading.Event(), app.threading.Lock()
+        for time_now, kind in ((100, 'select_slot'), (100.1, 'heavy_seconds'), (103.35, 'switch_1')):
+            with patch.object(app.time, 'monotonic', return_value=time_now):
+                action = clock.next_action(time_now)
+                self.assertEqual(action['kind'], kind)
+                self.assertTrue(runner._run_rotation_action(action, clock, 'E', 'R', enabled, lock))
+        controller.hold_left_button.assert_called_once_with(3250)
+        self.assertEqual(controller.press_key.call_args_list, [call('2', 65), call('1', 65)])
+        self.assertEqual(clock.next_action(103.4)['module'], first)
+
     def test_each_battle_uses_its_mode_and_station_times(self):
         controller = Mock()
         runner = app.TaskRunner(controller, lambda _: None, dry_run=False,
