@@ -18,7 +18,7 @@ import zipfile
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from tkinter import BOTH, END, LEFT, RIGHT, TOP, X, BooleanVar, Canvas, Checkbutton, Entry, Frame, Label, Listbox, StringVar, Text, Tk, TclError, filedialog, messagebox, ttk
+from tkinter import BOTH, END, LEFT, RIGHT, TOP, X, BooleanVar, Canvas, Checkbutton, Entry, Frame, Label, Listbox, Radiobutton, StringVar, Text, Tk, TclError, filedialog, messagebox, ttk
 from tkinter import font as tkfont
 
 from PIL import Image, ImageTk
@@ -110,7 +110,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
 APP_VERSION = "1.6.4beta"
-APP_BUILD = 4
+APP_BUILD = 5
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -3151,12 +3151,14 @@ class App:
             self._polish_widgets(child)
 
     def _build_start_tab(self) -> None:
-        self.start_tab.columnconfigure(0, weight=3, minsize=310, uniform="start_columns")
-        self.start_tab.columnconfigure(1, weight=2, minsize=280, uniform="start_columns")
+        self.start_tab.columnconfigure(1, weight=3, minsize=310, uniform="start_columns")
+        self.start_tab.columnconfigure(2, weight=2, minsize=280, uniform="start_columns")
         self.start_tab.rowconfigure(0, weight=1)
 
+        sidebar = Frame(self.start_tab, bg=COLORS["panel"])
+        sidebar.grid(row=0, column=0, sticky="ns", padx=(0, 12))
         left_shell = Frame(self.start_tab, bg=COLORS["panel"])
-        left_shell.grid(row=0, column=0, sticky="nsew", padx=(0, 18))
+        left_shell.grid(row=0, column=1, sticky="nsew", padx=(0, 18))
         left_shell.columnconfigure(0, weight=1)
         left_shell.rowconfigure(0, weight=1)
         self.start_left_canvas = Canvas(left_shell, highlightthickness=0, bg=COLORS["panel"])
@@ -3169,20 +3171,40 @@ class App:
         self.start_left_scrollbar.bind("<Configure>", lambda _event: self._draw_start_scrollbar())
         self.start_left_scrollbar.bind("<Button-1>", self._drag_start_scrollbar)
         self.start_left_scrollbar.bind("<B1-Motion>", self._drag_start_scrollbar)
-        left = Frame(self.start_left_canvas, bg=COLORS["panel"], padx=4, pady=4)
-        left_window = self.start_left_canvas.create_window((0, 0), window=left, anchor="nw")
-        left.bind("<Configure>", lambda _event: self.start_left_canvas.configure(scrollregion=self.start_left_canvas.bbox("all")))
+        content = Frame(self.start_left_canvas, bg=COLORS["panel"], padx=4, pady=4)
+        left_window = self.start_left_canvas.create_window((0, 0), window=content, anchor="nw")
+        content.bind("<Configure>", lambda _event: self.start_left_canvas.configure(scrollregion=self.start_left_canvas.bbox("all")))
         self.start_left_canvas.bind(
             "<Configure>",
             lambda event: self.start_left_canvas.itemconfigure(left_window, width=max(1, event.width)),
         )
 
         right = Frame(self.start_tab, bg=COLORS["panel"])
-        right.grid(row=0, column=1, sticky="nsew")
+        right.grid(row=0, column=2, sticky="nsew")
+
+        self.start_section = StringVar(master=self.root, value="快捷任务")
+        self._start_sections = {name: Frame(content, bg=COLORS["panel"])
+                                for name in ("快捷任务", "桌宠", "任务设置")}
+
+        def show_section():
+            for section in self._start_sections.values():
+                section.pack_forget()
+            self._start_sections[self.start_section.get()].pack(fill=X)
+            self.start_left_canvas.yview_moveto(0)
+
+        for name in self._start_sections:
+            Radiobutton(
+                sidebar, text=name, value=name, variable=self.start_section, command=show_section,
+                indicatoron=False, relief="flat", bd=0, padx=12, pady=8, anchor="w",
+                bg=COLORS["panel"], fg=COLORS["text"], selectcolor=COLORS["panel_alt"],
+                activebackground=COLORS["panel_alt"], activeforeground=COLORS["text"], cursor="hand2",
+                font=(FONT_FAMILY, 10),
+            ).pack(fill=X, pady=(0, 4))
 
         self.task_list = Listbox(self.start_tab, height=1, activestyle="none", font=(FONT_FAMILY, 10))
         self.task_list.bind("<<ListboxSelect>>", lambda _event: self._show_selected_task())
 
+        left = self._start_sections["快捷任务"]
         Label(left, text="快捷任务", font=(FONT_FAMILY, 14, "bold"), bg=COLORS["panel"]).pack(anchor="w", pady=(2, 2))
         Label(
             left, text="点击任务直接运行；按住左侧三点拖动排序。",
@@ -3226,7 +3248,8 @@ class App:
         Label(left, text='快捷键：运行时快速停止，空闲时重新运行上次任务。',
               fg=COLORS['muted'], bg=COLORS['panel'], wraplength=500).pack(anchor='w', pady=(0, 8))
 
-        Label(left, text="桌宠", font=(FONT_FAMILY, 13, "bold"), bg=COLORS["panel"]).pack(anchor="w", pady=(13, 0))
+        left = self._start_sections["桌宠"]
+        Label(left, text="桌宠", font=(FONT_FAMILY, 13, "bold"), bg=COLORS["panel"]).pack(anchor="w", pady=(2, 0))
         pet_shell, pet_box = self._rounded_panel(left, padding=12)
         pet_shell.pack(fill=X, pady=(8, 4))
         pet_box.configure(padx=14)
@@ -3242,7 +3265,8 @@ class App:
             justify=LEFT,
         ).pack(anchor="w", pady=(0, 10))
 
-        Label(left, text="任务设置", font=(FONT_FAMILY, 13, "bold"), bg=COLORS["panel"]).pack(anchor="w", pady=(12, 0))
+        left = self._start_sections["任务设置"]
+        Label(left, text="任务设置", font=(FONT_FAMILY, 13, "bold"), bg=COLORS["panel"]).pack(anchor="w", pady=(2, 0))
         settings_shell, quick_settings = self._rounded_panel(left, padding=12)
         settings_shell.pack(fill=X, pady=(8, 10))
         quick_settings.configure(padx=14)
@@ -3280,9 +3304,19 @@ class App:
             fg=COLORS["muted"], bg=COLORS["panel_alt"],
             wraplength=420, justify=LEFT,
         ).pack(anchor="w")
+        Checkbutton(
+            quick_settings, text="跳过剧情", variable=self.story_skip_enabled,
+            command=self._toggle_story_skip, bg=COLORS["panel_alt"],
+            activebackground=COLORS["panel_alt"], fg=COLORS["text"],
+        ).pack(anchor="w", pady=(8, 3))
+        Label(
+            quick_settings, text="开启后切回游戏，自动点击剧情跳过图标和确认按钮。请单独运行。",
+            fg=COLORS["muted"], bg=COLORS["panel_alt"], wraplength=420, justify=LEFT,
+        ).pack(anchor="w")
 
         self.start_left_canvas.bind("<MouseWheel>", lambda event: self._scroll_start_left(event), add="+")
-        self._bind_start_left_mousewheel(left)
+        self._bind_start_left_mousewheel(content)
+        show_section()
 
         right.columnconfigure(0, weight=1)
         right.rowconfigure(1, weight=1)
@@ -4575,11 +4609,6 @@ class App:
                     command=self._save_weekly_test_mode, bg=COLORS['panel_alt'],
                     activebackground=COLORS['panel_alt'], fg=COLORS['text']).pack(anchor='w')
         Label(weekly_box, text='下次启动幻梦游园时生效。忽略本周游历值上限与轮数限制，直到手动停止或流程报错。',
-              bg=COLORS['panel_alt'], fg=COLORS['muted'], wraplength=600, justify=LEFT).pack(anchor='w', pady=6)
-        Checkbutton(weekly_box, text='任务中跳过对话', variable=self.story_skip_enabled,
-                    command=self._toggle_story_skip, bg=COLORS['panel_alt'],
-                    activebackground=COLORS['panel_alt'], fg=COLORS['text']).pack(anchor='w')
-        Label(weekly_box, text='单独运行。开启后切回游戏，自动点击已识别的剧情跳过与确认按钮。',
               bg=COLORS['panel_alt'], fg=COLORS['muted'], wraplength=600, justify=LEFT).pack(anchor='w', pady=6)
         self._build_rain_settings()
         theme_box = self._card_body(self.settings_tab)
@@ -7188,10 +7217,21 @@ class App:
         return TEMPLATES_DIR if group_key == DEFAULT_GROUP_KEY else TEMPLATES_DIR / group_key
 
     def _update_mode_label(self) -> None:
-        if self.target_mode.get() == "client":
-            self.device_status.set("PC 窗口未检测")
-        else:
+        if self.target_mode.get() != "client":
             self.device_status.set("ADB 设备未检测")
+        self._poll_pc_window()
+
+    def _poll_pc_window(self) -> None:
+        if self.target_mode.get() == "client":
+            try:
+                ClientWindowController(self.window_title.get()).connect()
+            except RuntimeError:
+                status = "未找到 PC 窗口"
+            else:
+                status = "已找到 PC 窗口"
+            if self.device_status.get() != status:
+                self.device_status.set(status)
+        self.root.after(2500, self._poll_pc_window)
 
     def _show_preview(self, image_path: Path, title: str) -> None:
         if not hasattr(self, "preview_canvas") or not image_path.exists():

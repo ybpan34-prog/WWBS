@@ -27,6 +27,22 @@ class StoryTests(unittest.TestCase):
         self.assertEqual(_skip_target(popup, True), ('confirm', (1235, 691)))
         self.assertEqual(_skip_target(frame(('确认', 1200, 680)), True), (None, None))
 
+    def test_icon_only_skip_is_found_below_letterbox_and_ignores_right_side(self):
+        template_path = Path(__file__).parents[1]/'templates/daily/story_skip_icon.png'
+        with Image.open(template_path) as source:
+            icon = source.convert('RGB')
+        scene = Image.new('RGB', (1920, 1080))
+        scene.paste(icon, (1733, 160))
+        self.assertEqual(_skip_target(EntranceFrame(scene, []), False), (None, None))
+        scene.paste(icon, (54, 160))
+        for width in (1280, 1920, 2560):
+            with self.subTest(width=width):
+                scaled = scene.resize((width, width*9//16), Image.Resampling.BILINEAR)
+                action, point = _skip_target(EntranceFrame(scaled, []), False)
+                self.assertEqual(action, 'skip')
+                self.assertAlmostEqual(point[0], 78*width/1920, delta=2)
+                self.assertAlmostEqual(point[1], 184*width/1920, delta=2)
+
 
 class ForgeryTests(unittest.TestCase):
     def test_five_selectable_domains_open_their_own_rows(self):

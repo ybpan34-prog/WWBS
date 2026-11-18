@@ -82,12 +82,37 @@ class GuideFrames:
         return True
 
 
+@lru_cache(maxsize=16)
+def _story_skip_icon_edges(side):
+    with Image.open(APP_DIR/'templates/daily/story_skip_icon.png') as source:
+        return _icon_edges(source.convert('L').resize((side, side), Image.Resampling.LANCZOS))
+
+
+def _story_skip_icon(image):
+    width, height = image.size
+    left, top = round(width*.018), round(height*.018)
+    region = image.crop((left, top, round(width*.105), round(height*.245))).convert('L')
+    scene = _icon_edges(region)
+    best = None
+    for factor in (1., .94, 1.06):
+        side = max(8, round(49 * width / 1920 * factor))
+        if side >= min(scene.shape):
+            continue
+        candidate = _match_single_scale_gray(scene, _story_skip_icon_edges(side))
+        if best is None or candidate.score > best.score:
+            best = candidate
+    if best is not None and best.score >= .76:
+        return left+best.center[0], top+best.center[1]
+    return None
+
+
 def _skip_target(frame, pending):
     if pending and frame.find('是否跳过', '确认跳过', '跳过后', region=(.20,.25,.80,.67)):
         button = frame.find('确认', '确定', '跳过', region=(.49,.52,.79,.78))
         return ('confirm', button.center) if button else (None, None)
     button = frame.find('跳过', region=(.015,.018,.20,.15))
-    return ('skip', button.center) if button else (None, None)
+    point = button.center if button else _story_skip_icon(frame.image)
+    return ('skip', point) if point else (None, None)
 
 
 def run_story_skip(runner):
