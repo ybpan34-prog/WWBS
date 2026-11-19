@@ -173,7 +173,8 @@ class BetaUiTests(unittest.TestCase):
                     return None
                 weekly_card = card_with_title(instance.start_tab, "周常拿满奖励")
                 self.assertIsNotNone(weekly_card)
-                self.assertEqual(len(instance._start_action_cards), 7)
+                self.assertEqual(len(instance._start_action_cards), 8)
+                self.assertIn('lahai_blocks', instance._start_action_cards)
                 self.assertNotIn('match3', instance._start_action_cards)
                 self.assertIn('副本／大世界刷4C声骸',start_texts)
                 self.assertIn('战歌重奏自动刷取',start_texts)
@@ -189,7 +190,7 @@ class BetaUiTests(unittest.TestCase):
                                     for row in daily_card.winfo_children() for child in row.winfo_children()))
                 self.assertEqual(
                     instance._normalize_start_action_order(["daily", "daily", "unknown"]),
-                    ["daily", "weekly_rewards", "weekly_astrite", "combat_4c_custom", "boss_challenge", "forgery", "tower"],
+                    ["daily", "weekly_rewards", "weekly_astrite", "combat_4c_custom", "boss_challenge", "forgery", "tower", "lahai_blocks"],
                 )
                 second = instance._start_action_cards["weekly_astrite"]
                 third = instance._start_action_cards["daily"]
