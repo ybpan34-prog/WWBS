@@ -8,7 +8,9 @@ import numpy as np
 from PIL import Image
 
 from app import App
-from tasks.lahai import _anchor, first_difficulty, run_lahai
+from tasks.lahai import _anchor, _play, first_difficulty, run_lahai
+from tasks.lahai_reader import Board
+from tasks.lahai_solver import Piece
 from tasks.lahai_solver import Move, apply_move
 
 
@@ -38,7 +40,7 @@ class LahaiTests(unittest.TestCase):
 
     def test_completed_task_does_not_send_any_input(self):
         canvas = np.zeros((1080, 1920), dtype=np.uint8)
-        for name in ('first_complete', 'levels_title'):
+        for name in ('first_complete', 'levels_title', 'first_card'):
             x, y, ref, _ = _anchor(name)
             h, w = ref.shape
             canvas[y:y+h, x:x+w] = (ref - ref.min()).astype(np.uint8)
@@ -46,7 +48,57 @@ class LahaiTests(unittest.TestCase):
         runner.stop_event = threading.Event()
         with tempfile.TemporaryDirectory() as directory:
             runner.template_root = Path(directory) / 'templates' / 'lahai'
-            runner._capture_for_matching.side_effect = lambda path: Image.fromarray(canvas).save(path)
+            runner._capture_for_matching.side_effect = lambda path, **_: Image.fromarray(canvas).save(path)
             run_lahai(runner)
         runner.controller.tap.assert_not_called()
         runner.controller.drag_rotating.assert_not_called()
+
+    def test_unconfirmed_drop_replans_from_two_matching_consumed_frames(self):
+        from unittest.mock import patch
+
+        runner = Mock()
+        runner.stop_event.is_set.return_value = False
+        piece = Piece(((0, 0),))
+        before = Board(0, (piece, piece))
+        changed = Board(2, (None, piece))
+        frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        captures = iter((
+            [before], [], [changed, changed], ['success'],
+        ))
+
+        def wait_for(predicate, *_):
+            for value in next(captures):
+                result = predicate(frame, value)
+                if result is not None:
+                    return result
+            return None
+
+        def screen(rgb, value):
+            return value if isinstance(value, str) else (rgb, value)
+
+        with patch('tasks.lahai.scan_tray', return_value=(piece, (40, 40))):
+            self.assertEqual(_play(runner, wait_for, screen), 2)
+        self.assertEqual(runner.controller.drag_rotating.call_count, 2)
+        self.assertTrue(any('重新规划' in args[0] for args, _ in runner.log.call_args_list))
+
+    def test_loading_frame_does_not_abort_or_trigger_a_click(self):
+        canvas = np.zeros((1080, 1920), dtype=np.uint8)
+        for name in ('first_complete', 'levels_title', 'first_card'):
+            x, y, ref, _ = _anchor(name)
+            h, w = ref.shape
+            canvas[y:y+h, x:x+w] = (ref - ref.min()).astype(np.uint8)
+        runner = Mock()
+        runner.stop_event = threading.Event()
+        with tempfile.TemporaryDirectory() as directory:
+            runner.template_root = Path(directory) / 'templates' / 'lahai'
+
+            def capture(path, **_):
+                index = runner._capture_for_matching.call_count
+                if index == 1:
+                    return False
+                Image.fromarray(np.zeros_like(canvas) if index == 2 else canvas).save(path)
+
+            runner._capture_for_matching.side_effect = capture
+            run_lahai(runner)
+        self.assertEqual(runner._capture_for_matching.call_count, 3)
+        runner.controller.tap.assert_not_called()

@@ -69,6 +69,31 @@ def diagnose_activity(path):
     return 'warning', '未识别到拉海洛方块活动界面，请查看诊断截图。'
 
 
+def activity_page(gray):
+    if visible(gray, 'reward_title') and visible(gray, 'reward_continue'):
+        return 'reward'
+    if visible(gray, 'challenge_success'):
+        return 'board'
+    if visible(gray, 'corrupted_tutorial', .9) or visible(gray, 'tutorial_second'):
+        return 'tutorial_end'
+    if visible(gray, 'tutorial_first'):
+        return 'tutorial_first'
+    if visible(gray, 'guide_select'):
+        return 'guide'
+    if visible(gray, 'score_icon'):
+        return 'board'
+    if difficulty := first_difficulty(gray):
+        return difficulty
+    if visible(gray, 'event_title') and visible(gray, 'event_enter'):
+        return 'overview'
+    if visible(gray, 'levels_title') and visible(gray, 'first_card'):
+        if visible(gray, 'first_complete'):
+            return 'complete'
+        if visible(gray, 'first_in_progress'):
+            return 'levels'
+    return None
+
+
 def run_lahai(runner):
     controller = runner.controller
     if not callable(getattr(controller, 'drag_rotating', None)):
@@ -77,7 +102,8 @@ def run_lahai(runner):
     stop = runner.stop_event
 
     def capture():
-        runner._capture_for_matching(screenshot)
+        if runner._capture_for_matching(screenshot, loading=True) is False:
+            return None
         with Image.open(screenshot) as image:
             if image.size != SHAPE:
                 raise RuntimeError('拉海洛方块需要将游戏窗口设为 1920×1080。')
@@ -86,7 +112,8 @@ def run_lahai(runner):
     def wait_for(predicate, seconds=7):
         deadline = monotonic() + seconds
         while not stop.is_set() and monotonic() < deadline:
-            result = predicate(*capture())
+            captured = capture()
+            result = predicate(*captured) if captured else None
             if result is not None:
                 return result
             stop.wait(.15)
@@ -113,40 +140,54 @@ def run_lahai(runner):
         if not stop.is_set():
             controller.tap(x, y, precise=True)
 
+    def known_page(rgb, gray):
+        page = activity_page(gray)
+        return (rgb, gray, page) if page else None
+
     played = 0
-    for _ in range(12):
+    last_page, repeats = None, 0
+    for _ in range(24):
         if stop.is_set():
             return
-        rgb, gray = capture()
-        if visible(gray, 'first_complete') and visible(gray, 'levels_title'):
+        state = wait_for(known_page, 12)
+        if stop.is_set():
+            return
+        if state is None:
+            raise RuntimeError('等待活动画面超时。请停在拉海洛方块活动页、首组详情或积分棋盘后重试。')
+        rgb, gray, page = state
+        repeats = repeats + 1 if page == last_page else 0
+        last_page = page
+        if repeats >= 3:
+            raise RuntimeError('活动画面未切换，已停止重复点击。')
+        if page == 'complete':
             runner.log('回转的深空已完成。后续磁带尚未适配。')
             return
         if runner.dry_run:
             runner.log('预演：只截图，不发送方块输入。')
             return
-        if reward(gray):
+        if page == 'reward':
             click(960, 954)
             stop.wait(.7)
             continue
-        if visible(gray, 'event_title') and visible(gray, 'event_enter'):
+        if page == 'overview':
             click(1674, 990)
-        elif visible(gray, 'first_card') and visible(gray, 'first_in_progress'):
+        elif page == 'levels':
             click(380, 370)
-        elif difficulty := first_difficulty(gray):
-            if difficulty == '简单' and easy_complete(rgb):
+        elif page in ('简单', '困难'):
+            if page == '简单' and easy_complete(rgb):
                 click(225, 300)
             else:
                 click(1590, 990)
-        elif visible(gray, 'tutorial_second') or visible(gray, 'corrupted_tutorial', .9):
+        elif page == 'tutorial_end':
             if visible(gray, 'tutorial_confirm', .88):
                 click(960, 986)
             else:
                 click(1850, 242)
-        elif visible(gray, 'tutorial_first'):
+        elif page == 'tutorial_first':
             click(1413, 870)
-        elif visible(gray, 'guide_select'):
+        elif page == 'guide':
             stop.wait(.7)
-        elif visible(gray, 'score_icon') or visible(gray, 'challenge_success'):
+        elif page == 'board':
             if played >= 2:
                 raise RuntimeError('已完成两次挑战，未能确认返回选关。')
             outcome = _play(runner, wait_for, screen)
@@ -154,13 +195,9 @@ def run_lahai(runner):
                 return
             played += 1
             runner.log(f'挑战成功，已核对 {outcome} 次落子。')
-            wait_for(lambda _, g: True if reward(g) or visible(g, 'levels_title')
-                     or visible(g, 'first_hard', .93) else None, 7)
+            wait_for(lambda _, g: True if activity_page(g) in
+                     ('reward', 'levels', 'complete', '简单', '困难') else None, 12)
             continue
-        else:
-            if played:
-                raise RuntimeError('已经通关，但未识别到活动结算或选关页。')
-            raise RuntimeError('请先打开拉海洛方块活动页、回转的深空详情或积分棋盘。')
         stop.wait(.55)
     if not stop.is_set():
         raise RuntimeError('活动页面没有按预期切换，已停止。')
@@ -168,6 +205,7 @@ def run_lahai(runner):
 
 def _play(runner, wait_for, screen):
     state = wait_for(screen)
+    consecutive_retries = 0
     for step in range(120):
         if runner.stop_event.is_set():
             return step
@@ -210,12 +248,58 @@ def _play(runner, wait_for, screen):
                 return current
             return None
 
-        state = wait_for(settled)
+        state = wait_for(settled, 5)
         if isinstance(state, str):
             return step + 1
         if state is None and not runner.stop_event.is_set():
-            raise RuntimeError(f'第 {step+1} 次落子无法核对，已停止。')
+            stable = None
+
+            def recovered(frame, gray):
+                nonlocal stable
+                current = screen(frame, gray)
+                if isinstance(current, str):
+                    return current
+                if current is None:
+                    stable = None
+                    return None
+                _, after = current
+                if after.permanent != board.permanent or after.slots != board.slots:
+                    stable = None
+                    return None
+                old_count = sum(p is not None for p in board.pieces)
+                # Accept a different landing only if the tray shows that the move
+                # was consumed and the board is stable. Otherwise retry unchanged.
+                consumed = (after.occupied != board.occupied and
+                            ((old_count == 1 and all(after.pieces))
+                             or (old_count > 1 and all(
+                                 p == (None if i == move.slot else board.pieces[i])
+                                 for i, p in enumerate(after.pieces)))))
+                if after != board and not consumed:
+                    stable = None
+                    return None
+                if stable == after:
+                    return current
+                stable = after
+                return None
+
+            state = wait_for(recovered, 5)
+            if isinstance(state, str):
+                return step + 1
+            if runner.stop_event.is_set():
+                return step
+            if state is None:
+                raise RuntimeError(f'第 {step+1} 次落子后棋盘或候选区一直未稳定，已停止输入。')
+            if state[1] == board:
+                consecutive_retries += 1
+                if consecutive_retries > 2:
+                    raise RuntimeError('连续拖动未生效，已停止，当前棋局已保留。')
+                runner.log('方块未落下，棋盘保持原样，重新尝试。')
+            else:
+                consecutive_retries = 0
+                runner.log('落点与预计不同，已按稳定的新棋盘重新规划。')
+            continue
         if state:
+            consecutive_retries = 0
             runner.log(f'第 {step+1} 次落子已核对，消除 {cleared} 条线。')
     raise RuntimeError('达到方块任务步数上限。')
 
