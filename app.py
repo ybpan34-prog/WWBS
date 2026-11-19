@@ -109,8 +109,8 @@ DEFAULT_CONFIG = USER_SETTINGS_DIR / "weekly_tasks.json"
 TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
-APP_VERSION = "1.6.4beta"
-APP_BUILD = 5
+APP_VERSION = "1.6.4"
+APP_BUILD = 6
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -204,6 +204,7 @@ UPDATE_NOTICE = """v1.3.5 更新内容
 2. 请将游戏窗口调整为 1920*1080p 或等比例缩放。
 3. 请先完成周本的新手教程，并将速度调整至 MAX。"""
 UPDATE_HISTORY = [
+    ('v1.6.4', 'WWBS 1.6.4 正式版\n快捷任务新增「拉海洛方块·逆转」，支持回转的深空简单、困难及奖励确认。'),
     ('v1.6.4beta', 'WWBS 1.6.4 beta\n一键日常战后依次检查领取窗口、跟随箭头、寻找光球。\n每次向光球移动0.75秒，置信度相对下降超过30%时停步向身后找。'),
     ('v1.6.3', 'WWBS 1.6.3 正式版\n无音区选行自动滚动露出按钮，重开后直接接战。\n4C 自定义刷取支持副本与大世界，新增凝素领域刷取和剧情跳过对话。'),
     ('v1.6.2', 'WWBS 1.6.2 正式版\n日常奖励标志只用于转向。每识别三次光球重新复核箭头，纯向下的箭头触发水平左转。\n进场先用当前角色开打。排轴发送切人键后直接继续执行。'),
@@ -2709,7 +2710,8 @@ class App:
 
     @staticmethod
     def _normalize_start_action_order(saved) -> list[str]:
-        defaults = ["weekly_rewards", "weekly_astrite", "daily", "combat_4c_custom", "boss_challenge", "forgery", "tower"]
+        defaults = ["weekly_rewards", "weekly_astrite", "daily", "combat_4c_custom", "boss_challenge", "forgery", "tower",
+                    "lahai_blocks"]
         if not isinstance(saved, list):
             return defaults
         ordered = []
@@ -3240,6 +3242,10 @@ class App:
                                      "选择关卡和次数，使用分配的战斗轴", self._start_forgery, "forgery",
                                      controls=(("关卡", self.forgery_target, FORGERY_ZONES, lambda *_: None),
                                                ("次数", self.forgery_count, None, lambda *_: None)))
+        self._make_start_action_card(
+            action_list, "lahai_blocks", "拉海洛方块·逆转",
+            "从活动页开始，完成回转的深空简单和困难", self._start_lahai_blocks, "",
+        )
         self._repack_start_action_cards()
         Label(left, text="提示：将鼠标放在无音区或键位上滚动滚轮，可快速切换选项。",
               fg=COLORS["muted"], bg=COLORS["panel"],
@@ -6742,6 +6748,16 @@ class App:
         if self._ensure_admin_for_real_run():
             self._start_worker([task])
 
+    def _start_lahai_blocks(self) -> None:
+        if self.target_mode.get() != "client":
+            messagebox.showerror("模式不支持", "拉海洛方块需要 PC 客户端。", parent=self.root)
+            return
+        task = WeeklyTask(name="拉海洛方块·逆转", template_group="lahai",
+                          steps=[Step(action="lahai_blocks", label="识别棋盘并自动摆放方块")])
+        self.max_cycles = None
+        self.dry_run.set(False)
+        self._start_worker([task])
+
     def _start_forgery(self) -> None:
         target = self.forgery_target.get().strip()
         try:
@@ -7053,7 +7069,7 @@ class App:
 
     def _handle_successful_task_completion(self) -> None:
         self._pet_feedback("review", self._event_line("task_complete"))
-        if any(any(step.action in {"tower_challenge", "forgery_challenge", "story_skip"} for step in task.steps)
+        if any(any(step.action in {"tower_challenge", "forgery_challenge", "story_skip", "lahai_blocks"} for step in task.steps)
                for task in getattr(self, "_last_started_tasks", [])):
             self._log("本次任务已停止输入，保持当前／结算界面，不再操作，也不自动关机。")
             return
@@ -7201,7 +7217,7 @@ class App:
         if task.name in built_in:
             return built_in[task.name]
         by_action = {'combat_4c': '4c', 'daily_routine': 'daily', 'forgery_challenge': 'daily',
-                     'tower_challenge': 'tower', 'story_skip': DEFAULT_GROUP_KEY}
+                     'tower_challenge': 'tower', 'story_skip': DEFAULT_GROUP_KEY, 'lahai_blocks': 'lahai'}
         return next((by_action[step.action] for step in task.steps if step.action in by_action),
                     App._template_group_key(task.template_group))
 

@@ -712,6 +712,48 @@ class ClientWindowController:
         finally:
             self._send_mouse_button(MOUSEEVENTF_LEFTUP)
 
+    def drag_rotating(self, source: tuple[int, int], target: tuple[int, int], turns: int) -> None:
+        """Drag an activity tile and rotate it while the left button is held."""
+        self._ensure_window()
+        self._focus_window()
+        event = getattr(self, '_input_cancel_event', None)
+
+        def check():
+            if self._input_stopped() or user32.GetForegroundWindow() != self.hwnd:
+                raise RuntimeError("方块拖动已停止：鸣潮窗口失去焦点或任务已停止。")
+
+        def wait(delay):
+            event.wait(delay) if event is not None else time.sleep(delay)
+            check()
+
+        def move(point):
+            check()
+            if not user32.SetCursorPos(*self._client_to_screen(*self.screenshot_to_client(*point))):
+                raise RuntimeError("无法移动鼠标到鸣潮窗口。")
+
+        x, y = source
+        move(source)
+        try:
+            self._send_mouse_button(MOUSEEVENTF_LEFTDOWN)
+            wait(.10)
+            move((x - 16, y))
+            wait(.18)
+            move((x - 32, y))
+            wait(.12)
+            for _ in range(turns):
+                self._send_mouse_button(MOUSEEVENTF_RIGHTDOWN)
+                try:
+                    wait(.035)
+                finally:
+                    self._send_mouse_button(MOUSEEVENTF_RIGHTUP)
+                wait(.19)
+            move(target)
+            wait(.18)
+            move((target[0] + 1, target[1]))
+            wait(.12)
+        finally:
+            self._send_mouse_button(MOUSEEVENTF_LEFTUP)
+
     def text(self, value: str) -> None:
         raise RuntimeError("PC 客户端模式暂不支持自动输入文字。")
 

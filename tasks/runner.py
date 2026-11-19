@@ -209,6 +209,9 @@ class TaskRunner(Combat4CTask, DreamlandTask, OtherTask):
             run_forgery_challenge(self, step)
         elif step.action == "story_skip":
             run_story_skip(self)
+        elif step.action == "lahai_blocks":
+            from tasks.lahai import run_lahai
+            run_lahai(self)
         elif step.action == "swipe":
             if self.dry_run:
                 self.log("    干运行：跳过滑动。")
