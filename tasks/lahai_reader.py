@@ -9,7 +9,7 @@ from .lahai_solver import Piece, normalize
 # Color samples are from tile interiors, away from the tile glyph.
 PALETTE = np.array([(234, 93, 55), (255, 200, 99), (94, 94, 234),
                     (65, 170, 184), (223, 58, 105), (142, 60, 240)], dtype=np.int16)
-SLOTS = ((1588, 380, 1760, 548), (1588, 604, 1760, 773))
+SLOTS = ((1584, 375, 1765, 555), (1584, 600, 1765, 780))
 HARD_SLOTS = tuple((1584, y, 1765, y + 177) for y in (262, 487, 712))
 PITCH = 36
 

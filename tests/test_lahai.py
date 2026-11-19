@@ -9,12 +9,22 @@ from PIL import Image
 
 from app import App
 from tasks.lahai import _anchor, _play, first_difficulty, run_lahai
-from tasks.lahai_reader import Board
+from tasks.lahai_reader import Board, read_score_board
 from tasks.lahai_solver import Piece
 from tasks.lahai_solver import Move, apply_move
 
 
 class LahaiTests(unittest.TestCase):
+    def test_five_cell_blue_piece_at_either_tray_edge(self):
+        canvas = np.full((1080, 1920, 3), (24, 24, 65), dtype=np.uint8)
+        for top in (375, 600):
+            for tile in range(5):
+                y = top + 36 * tile
+                canvas[y:y+35, 1656:1691] = (94, 94, 234)
+        board = read_score_board(canvas)
+        self.assertEqual(tuple(piece.cells for piece in board.pieces),
+                         (((0, 0), (1, 0), (2, 0), (3, 0), (4, 0)),) * 2)
+
     def test_shifted_title_and_button_still_open_easy_challenge(self):
         canvas = np.zeros((1080, 1920), dtype=np.uint8)
         for name in ('first_easy', 'challenge_start'):
