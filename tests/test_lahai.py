@@ -8,11 +8,21 @@ import numpy as np
 from PIL import Image
 
 from app import App
-from tasks.lahai import run_lahai
+from tasks.lahai import _anchor, first_difficulty, run_lahai
 from tasks.lahai_solver import Move, apply_move
 
 
 class LahaiTests(unittest.TestCase):
+    def test_shifted_title_and_button_still_open_easy_challenge(self):
+        canvas = np.zeros((1080, 1920), dtype=np.uint8)
+        for name in ('first_easy', 'challenge_start'):
+            x, y, ref, _ = _anchor(name)
+            h, w = ref.shape
+            canvas[y:y+h, x+3:x+3+w] = (ref - ref.min()).astype(np.uint8)
+        self.assertEqual(first_difficulty(canvas), '简单')
+        canvas[960:, :] = 0
+        self.assertIsNone(first_difficulty(canvas))
+
     def test_release_shortcut_starts_native_task(self):
         app = Mock()
         app.target_mode.get.return_value = 'client'
@@ -27,7 +37,6 @@ class LahaiTests(unittest.TestCase):
         self.assertEqual(apply_move(2, 3, 3, 0, move, permanent=1), (1, 0, 1, 0))
 
     def test_completed_task_does_not_send_any_input(self):
-        from tasks.lahai import _anchor
         canvas = np.zeros((1080, 1920), dtype=np.uint8)
         for name in ('first_complete', 'levels_title'):
             x, y, ref, _ = _anchor(name)

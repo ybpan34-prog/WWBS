@@ -110,7 +110,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
 APP_VERSION = "1.6.4"
-APP_BUILD = 6
+APP_BUILD = 7
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -5186,7 +5186,10 @@ class App:
     def _show_task_error_feedback(self, error_text: str) -> None:
         detail = self._friendly_runtime_error(error_text)
         self._pet_feedback("failed", self._event_line("diagnose_error", detail=detail), 5200)
-        self._log(f"自动周本启动条件未满足，已快速报告并进入后台诊断：{detail}")
+        if self._task_with_action(getattr(self, "_last_started_tasks", ()), "lahai_blocks"):
+            self._log(f"拉海洛方块任务停止，正在检查活动画面：{detail}")
+        else:
+            self._log(f"自动周本启动条件未满足，已快速报告并进入后台诊断：{detail}")
         self._diagnose_runtime(announce=False)
 
     @staticmethod
@@ -5349,6 +5352,9 @@ class App:
                             findings.append(('ok', f'素材获取页面中的凝素领域{status}'))
                         else:
                             findings.append(('info', '当前画面未显示素材获取页面的凝素领域入口。'))
+                    elif self._task_with_action(diagnostic_tasks, "lahai_blocks") is not None:
+                        from tasks.lahai import diagnose_activity
+                        findings.append(diagnose_activity(preview))
                     elif self._task_with_action(diagnostic_tasks, "daily_routine") is not None:
                         required = [
                             "activity_full.png", "battle_timer_clock.png", "reward_prompt.png",

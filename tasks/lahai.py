@@ -27,10 +27,46 @@ def _anchor(name):
 def visible(gray, name, threshold=.85):
     x, y, ref, norm = _anchor(name)
     h, w = ref.shape
-    crop = gray[y:y+h, x:x+w].astype(np.float32)
-    crop -= crop.mean()
-    denom = norm * np.linalg.norm(crop)
-    return bool(denom and np.sum(ref * crop) / denom >= threshold)
+    def matches(dx, dy):
+        crop = gray[y+dy:y+dy+h, x+dx:x+dx+w].astype(np.float32)
+        if crop.shape != ref.shape:
+            return False
+        crop -= crop.mean()
+        denom = norm * np.linalg.norm(crop)
+        return bool(denom and np.sum(ref * crop) / denom >= threshold)
+
+    if matches(0, 0):
+        return True
+    for distance in range(1, 7):
+        for dy in range(-min(distance, 4), min(distance, 4) + 1):
+            dx = distance - abs(dy)
+            if matches(dx, dy) or (dx and matches(-dx, dy)):
+                return True
+    return False
+
+
+def first_difficulty(gray):
+    if not visible(gray, 'challenge_start', .90):
+        return None
+    if visible(gray, 'first_easy', .93):
+        return '简单'
+    if visible(gray, 'first_hard', .93):
+        return '困难'
+    return None
+
+
+def diagnose_activity(path):
+    with Image.open(path) as image:
+        if image.size != SHAPE:
+            return 'error', '拉海洛方块需要 1920×1080 游戏截图。'
+        gray = np.asarray(image.convert('L'))
+    if difficulty := first_difficulty(gray):
+        return 'ok', f'已识别「回转的深空·{difficulty}」和「开始挑战」。'
+    if visible(gray, 'score_icon'):
+        return 'ok', '已识别拉海洛方块积分棋盘。'
+    if visible(gray, 'levels_title') or visible(gray, 'event_title'):
+        return 'info', '已识别拉海洛方块活动界面，暂未确认首组可启动状态。'
+    return 'warning', '未识别到拉海洛方块活动界面，请查看诊断截图。'
 
 
 def run_lahai(runner):
@@ -96,10 +132,11 @@ def run_lahai(runner):
             click(1674, 990)
         elif visible(gray, 'first_card') and visible(gray, 'first_in_progress'):
             click(380, 370)
-        elif visible(gray, 'first_easy', .93) and easy_complete(rgb):
-            click(225, 300)
-        elif (visible(gray, 'first_easy', .93) or visible(gray, 'first_hard', .93)) and visible(gray, 'challenge_start', .9):
-            click(1590, 990)
+        elif difficulty := first_difficulty(gray):
+            if difficulty == '简单' and easy_complete(rgb):
+                click(225, 300)
+            else:
+                click(1590, 990)
         elif visible(gray, 'tutorial_second') or visible(gray, 'corrupted_tutorial', .9):
             if visible(gray, 'tutorial_confirm', .88):
                 click(960, 986)
