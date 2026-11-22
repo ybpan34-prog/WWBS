@@ -43,7 +43,7 @@ class WeeklyRewardsVision:
         return self.matches(screenshot, "weekly_tab.png", (540, 105, 745, 195))
 
     def inactive_tab(self, screenshot: Path):
-        return self._find(screenshot, 'weekly_tab_inactive.png', (540, 105, 745, 195), threshold=.80)
+        return self._find(screenshot, 'weekly_tab_inactive.png', (540, 105, 745, 195), threshold=.77)
 
     def guide_status(self, screenshot: Path) -> str | None:
         if self.weekly_page(screenshot):

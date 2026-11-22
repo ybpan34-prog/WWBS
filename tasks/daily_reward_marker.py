@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from image_matcher import _match_single_scale_gray
+from image_matcher import _fast_fft_length, _match_single_scale_gray, _window_sum
 
 
 @lru_cache(maxsize=1)
@@ -40,21 +40,41 @@ def _find_marker_in_region(image, bounds, width, reduction):
     region = region.resize((round(region.width*reduction), round(region.height*reduction)), Image.Resampling.LANCZOS)
     scene = np.asarray(region, dtype=np.float64)/255
     best = None
-    for template in _templates():
-        sizes = set()
-        for factor in (.8, .9, .97, 1.05, 1.15, 1.3):
-            side = max(12, round(37*width/1600*reduction*factor))
-            if side in sizes or side >= min(scene.shape):
-                continue
-            sizes.add(side)
-            patch = np.asarray(template.resize((side, side), Image.Resampling.LANCZOS), dtype=np.float64)/255
-            match = _match_single_scale_gray(scene, patch)
-            if best is None or match.score > best.score:
-                best = match
-    if best is None or best.score < .82:
+    scene_transforms = {}
+    sides = dict.fromkeys(max(12, round(37*width/1600*reduction*f))
+                          for f in (.8, .9, .97, 1.05, 1.15, 1.3))
+    for side in sides:
+        if side >= min(scene.shape):
+            continue
+        shape = tuple(_fast_fft_length(n+side-1) for n in scene.shape)
+        if shape not in scene_transforms:
+            scene_transforms[shape] = np.fft.rfft2(scene, s=shape, axes=(0, 1))
+        transform = scene_transforms[shape]
+        local_sum = _window_sum(scene, side, side)
+        norm = np.sqrt(np.maximum(_window_sum(scene*scene, side, side)-local_sum**2/side**2, 0))
+        for kernel, template_norm in _marker_kernels(side, shape):
+            corr = np.fft.irfft2(transform*kernel, s=shape, axes=(0, 1))
+            corr = corr[side-1:scene.shape[0], side-1:scene.shape[1]]
+            scores = np.divide(corr, norm*template_norm, out=np.full_like(corr, -1.),
+                               where=norm >= template_norm*.08)
+            y, x = np.unravel_index(np.argmax(scores), scores.shape)
+            score = min(1., float(scores[y, x]))
+            if best is None or score > best[0]:
+                best = score, x, y, side
+    if best is None or best[0] < .82:
         return None, None, 0.
-    return (left+round((best.x+best.width/2)/reduction),
-            top+round((best.y+best.height/2)/reduction), best.score)
+    score, x, y, side = best
+    return left+round((x+side/2)/reduction), top+round((y+side/2)/reduction), score
+
+
+@lru_cache(maxsize=6)
+def _marker_kernels(side, shape):
+    result = []
+    for template in _templates():
+        patch = np.asarray(template.resize((side, side), Image.Resampling.LANCZOS), dtype=np.float64)/255
+        patch -= patch.mean()
+        result.append((np.fft.rfft2(patch[::-1, ::-1], s=shape, axes=(0, 1)), np.linalg.norm(patch)))
+    return result
 
 
 @lru_cache(maxsize=1)

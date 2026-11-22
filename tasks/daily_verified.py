@@ -308,12 +308,13 @@ class VerifiedDailyNavigation(Daily154Navigation):
             count, row_y = len(rows), rows[0]
             def action(screen):
                 fresh = self._yellow_claim_rows(screen) if self._activity_ready(screen) else []
-                return self._tap((self._ratio_point(screen, .88, 0)[0], fresh[0])) if fresh else False
+                target = next((y for y in fresh if abs(y-row_y) <= 12), None)
+                return target is not None and self._tap((self._ratio_point(screen, .88, 0)[0], target))
             def claimed(screen):
                 fresh = self._yellow_claim_rows(screen)
                 return self._activity_ready(screen) and (
                     len(fresh) < count or all(abs(y-row_y) > 25 for y in fresh))
-            self._checks.transition('领取当前黄色任务奖励', claimed, action, require_action=True,
+            self._checks.transition('领取当前黄色任务奖励', claimed, action,
                 recovery=lambda p: self._tap(self._ratio_point(p, .13, .86)) if not self._normal(p) else False)
         else:
             raise RuntimeError('已逐项复核36次，任务奖励尚未清空；未提前推进。')
@@ -342,8 +343,25 @@ class VerifiedDailyNavigation(Daily154Navigation):
         for tab, label in ((2, '电台任务一键领取'), (1, '大众频道一键领取')):
             if not self._wait_daily_battlepass_tab(tab):
                 return
-            if self._click_optional_daily_template('one_click_claim.png', label, timeout=5., threshold=.66):
-                self._dismiss_reward_overlay_safely()
+            def settled(path):
+                return (self._daily_battlepass_tab_selected(path, tab)
+                        and self._radio_obtained_confirmation(path) is None
+                        and self._match(path, 'one_click_claim.png', .66) is None)
+
+            def claim_or_confirm(path):
+                confirmation = self._radio_obtained_confirmation(path)
+                if confirmation is not None:
+                    return self._tap(confirmation.center)
+                if self._daily_battlepass_tab_selected(path, tab):
+                    claim = self._match(path, 'one_click_claim.png', .66)
+                    return claim is not None and self._tap(claim.center)
+                # The ordinary obtained overlay also closes on empty space.
+                if not self._normal(path):
+                    return self._tap(self._ratio_point(path, .13, .86))
+                return False
+
+            if not self._checks.transition(label, settled, claim_or_confirm, timeout=18, max_actions=5):
+                return
 
     def _radio_obtained_confirmation(self, path):
         return DailyRadioVision(ROOT/'templates/daily').obtained_confirmation(path)
@@ -461,6 +479,8 @@ class VerifiedDailyNavigation(Daily154Navigation):
     def _continue_daily_into_weekly_travel(self):
         self.log('    电台领取结束，返回索拉指南复核周常完成情况。')
         if self.stop_event.is_set() or not self._open_terminal_destination('索拉指南'):
+            return
+        if not self._open_activity_page():
             return
         self._continue_daily_from_open_guide_page()
 

@@ -1764,8 +1764,20 @@ class OtherTask:
         # Pale yellow buttons contain dark text and patterned highlights. Join
         # those gaps so one button produces one centre, not several edge clicks.
         groups = np.split(active, np.flatnonzero(np.diff(active) > max(4, round(height*.015)))+1)
-        return [top+int((group[0]+group[-1])//2) for group in groups
-                if group[-1]-group[0]+1 >= max(12, round(height*.018))]
+        rows = []
+        for group in groups:
+            if group[-1]-group[0]+1 < max(12, round(height*.018)):
+                continue
+            y = top+int((group[0]+group[-1])//2)
+            x = round(width*.88)
+            center = image[y-round(height*.009):y+round(height*.009)+1,
+                           x-round(width*.04):x+round(width*.04)+1].astype(np.int16)
+            r, g, b = center.transpose(2, 0, 1)
+            # White row outlines and highlights must not turn the black
+            # “前往” button into a candidate. Check the button body itself.
+            if ((r > 225) & (g > 215) & (r-b > 25)).mean() >= .35:
+                rows.append(y)
+        return rows
 
     def _daily_activity_score_full(self, screenshot: Path) -> bool:
         from tasks.daily_activity import activity_counter_full

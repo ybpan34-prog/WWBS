@@ -1,4 +1,4 @@
-"""WWBS task for the currently available Lahai Blocks score challenges."""
+"""WWBS task for the first four Lahai Blocks cassettes."""
 from functools import lru_cache
 from pathlib import Path
 from time import monotonic
@@ -6,8 +6,9 @@ from time import monotonic
 import numpy as np
 from PIL import Image
 
+from image_matcher import _match_single_scale_gray
 from tasks.lahai_reader import read_score_board, scan_tray
-from tasks.lahai_solver import apply_move, plan
+from tasks.lahai_solver import plan, resolve_move
 
 NAME = "拉海洛方块·逆转"
 SHAPE = (1920, 1080)
@@ -45,14 +46,45 @@ def visible(gray, name, threshold=.85):
     return False
 
 
-def first_difficulty(gray):
+def challenge_detail(gray):
     if not visible(gray, 'challenge_start', .90):
         return None
     if visible(gray, 'first_easy', .93):
-        return '简单'
+        return '回转的深空', '简单'
     if visible(gray, 'first_hard', .93):
-        return '困难'
+        return '回转的深空', '困难'
+    for stage, label in ((2, '深埋于地心'), (3, '与你的黄昏'), (4, '虚诞之地')):
+        if visible(gray, f'stage{stage}_title', .90):
+            return label, ('简单' if gray[185:225, 210:370].mean() > 145 else '困难')
     return None
+
+
+def first_difficulty(gray):
+    detail = challenge_detail(gray)
+    return detail[1] if detail else None
+
+
+@lru_cache(maxsize=8)
+def _card_template(name):
+    return _anchor(name)[2].astype(np.float64)
+
+
+def cassette_target(gray):
+    """Use cassette titles and their own status strips, even on a scrolled list."""
+    complete = set()
+    for stage, title, y in ((1, 'first_card', 206), (2, 'stage2_card', 581),
+                            (3, 'stage3_card', 206), (4, 'stage4_card', 581)):
+        match = _match_single_scale_gray(gray[y-8:y+56, 75:1840].astype(np.float64),
+                                         _card_template(title))
+        if match.score < .86:
+            continue
+        x = match.x+75
+        strip = gray[y+218:y+263, x+19:x+234].astype(np.float64)
+        if _match_single_scale_gray(strip, _card_template('first_in_progress')).score >= .85:
+            return stage, (x+235, y+165)
+        if _match_single_scale_gray(strip, _card_template('first_complete')).score >= .85:
+            complete.add(stage)
+    return (0, None) if 4 in complete else (None, None)
 
 
 def diagnose_activity(path):
@@ -60,10 +92,10 @@ def diagnose_activity(path):
         if image.size != SHAPE:
             return 'error', '拉海洛方块需要 1920×1080 游戏截图。'
         gray = np.asarray(image.convert('L'))
-    if difficulty := first_difficulty(gray):
-        return 'ok', f'已识别「回转的深空·{difficulty}」和「开始挑战」。'
-    if visible(gray, 'score_icon'):
-        return 'ok', '已识别拉海洛方块积分棋盘。'
+    if detail := challenge_detail(gray):
+        return 'ok', f'已识别「{"·".join(detail)}」和「开始挑战」。'
+    if visible(gray, 'score_icon') or visible(gray, 'medal_icon') or visible(gray, 'dual_medal_icon'):
+        return 'ok', '已识别拉海洛方块棋盘。'
     if visible(gray, 'levels_title') or visible(gray, 'event_title'):
         return 'info', '已识别拉海洛方块活动界面，暂未确认首组可启动状态。'
     return 'warning', '未识别到拉海洛方块活动界面，请查看诊断截图。'
@@ -74,23 +106,23 @@ def activity_page(gray):
         return 'reward'
     if visible(gray, 'challenge_success'):
         return 'board'
-    if visible(gray, 'corrupted_tutorial', .9) or visible(gray, 'tutorial_second'):
+    if (visible(gray, 'corrupted_tutorial', .9) or visible(gray, 'tutorial_second')
+            or visible(gray, 'medal_tutorial', .9) or visible(gray, 'bomb_tutorial', .9)
+            or visible(gray, 'fault_tutorial', .9)):
         return 'tutorial_end'
     if visible(gray, 'tutorial_first'):
         return 'tutorial_first'
     if visible(gray, 'guide_select'):
         return 'guide'
-    if visible(gray, 'score_icon'):
+    if visible(gray, 'score_icon') or visible(gray, 'medal_icon') or visible(gray, 'dual_medal_icon'):
         return 'board'
     if difficulty := first_difficulty(gray):
         return difficulty
     if visible(gray, 'event_title') and visible(gray, 'event_enter'):
         return 'overview'
-    if visible(gray, 'levels_title') and visible(gray, 'first_card'):
-        if visible(gray, 'first_complete'):
-            return 'complete'
-        if visible(gray, 'first_in_progress'):
-            return 'levels'
+    if visible(gray, 'levels_title'):
+        stage, _ = cassette_target(gray)
+        return 'complete' if stage == 0 else 'levels'
     return None
 
 
@@ -127,9 +159,12 @@ def run_lahai(runner):
             return 'reward'
         if visible(gray, 'challenge_success'):
             return 'success'
-        if visible(gray, 'score_icon'):
+        dual_mode = visible(gray, 'dual_medal_icon')
+        medal_mode = dual_mode or visible(gray, 'medal_icon')
+        if medal_mode or visible(gray, 'score_icon'):
             try:
-                board = read_score_board(rgb)
+                board = read_score_board(rgb, medal_mode, bomb_mode=dual_mode or not medal_mode,
+                                         dual_mode=dual_mode)
                 if any(board.pieces):
                     return rgb, board
             except ValueError:
@@ -146,21 +181,21 @@ def run_lahai(runner):
 
     played = 0
     last_page, repeats = None, 0
-    for _ in range(24):
+    for _ in range(40):
         if stop.is_set():
             return
         state = wait_for(known_page, 12)
         if stop.is_set():
             return
         if state is None:
-            raise RuntimeError('等待活动画面超时。请停在拉海洛方块活动页、首组详情或积分棋盘后重试。')
+            raise RuntimeError('等待活动画面超时。请停在拉海洛方块活动页、关卡详情或棋盘后重试。')
         rgb, gray, page = state
         repeats = repeats + 1 if page == last_page else 0
         last_page = page
         if repeats >= 3:
             raise RuntimeError('活动画面未切换，已停止重复点击。')
         if page == 'complete':
-            runner.log('回转的深空已完成。后续磁带尚未适配。')
+            runner.log('虚诞之地已完成。')
             return
         if runner.dry_run:
             runner.log('预演：只截图，不发送方块输入。')
@@ -172,7 +207,11 @@ def run_lahai(runner):
         if page == 'overview':
             click(1674, 990)
         elif page == 'levels':
-            click(380, 370)
+            _, target = cassette_target(gray)
+            if target is None:
+                runner.log('当前没有可开始的受支持关卡；请确认目标磁带已解锁并显示在选关页。')
+                return
+            click(*target)
         elif page in ('简单', '困难'):
             if page == '简单' and easy_complete(rgb):
                 click(225, 300)
@@ -186,10 +225,13 @@ def run_lahai(runner):
         elif page == 'tutorial_first':
             click(1413, 870)
         elif page == 'guide':
-            stop.wait(.7)
+            if not wait_for(lambda _, g: True if not visible(g, 'guide_select') else None, 12):
+                if stop.is_set():
+                    return
+                raise RuntimeError('首次玩法引导未结束，已保留当前页面。')
         elif page == 'board':
-            if played >= 2:
-                raise RuntimeError('已完成两次挑战，未能确认返回选关。')
+            if played >= 8:
+                raise RuntimeError('已完成八次挑战，未能确认返回选关。')
             outcome = _play(runner, wait_for, screen)
             if stop.is_set():
                 return
@@ -214,13 +256,19 @@ def _play(runner, wait_for, screen):
         if state is None:
             raise RuntimeError('未能确认积分棋盘或新一批方块。')
         rgb, board = state
-        path = plan(8, 8, board.occupied, 0, board.pieces, rotate=True, permanent=board.permanent)
+        medal_mode = board.medal_mode
+        path = plan(8, 8, board.occupied, board.medals, board.pieces, rotate=True,
+                    permanent=board.permanent, medal_mode=medal_mode, bombs=board.bombs,
+                    secondary_medals=board.secondary_medals, faults=board.faults)
         if not path:
             raise RuntimeError('当前没有可用落点。')
         move = path[0]
-        expected, _, cleared, _ = apply_move(8, 8, board.occupied, 0, move, permanent=board.permanent)
+        expected, expected_medals, cleared, _, expected_bombs, expected_faults = resolve_move(
+            8, 8, board.occupied, board.medals, board.bombs, move,
+            permanent=board.permanent, faults=board.faults)
         x1, y1, x2, y2 = board.slots[move.slot]
-        piece, (cx, cy) = scan_tray(rgb[y1:y2, x1:x2])
+        piece, (cx, cy) = scan_tray(rgb[y1:y2, x1:x2], medal_mode,
+                                   board.dual_mode or not medal_mode, board.dual_mode)
         w = 1 + max(c for _, c in piece.cells)
         h = 1 + max(r for r, _ in piece.cells)
         r, c = min(piece.cells, key=lambda pos: (pos[0]+.5-h/2)**2 + (pos[1]+.5-w/2)**2)
@@ -243,7 +291,10 @@ def _play(runner, wait_for, screen):
             old_count = sum(p is not None for p in board.pieces)
             new_count = sum(p is not None for p in after.pieces)
             expected_count = old_count - 1 if old_count > 1 else len(board.slots)
-            if after.occupied == expected and new_count == expected_count and (
+            if (after.occupied == expected and after.medals == expected_medals
+                    and after.secondary_medals == ((board.secondary_medals | move.secondary_medal_mask) & expected)
+                    and after.bombs == expected_bombs and after.faults == expected_faults
+                    and new_count == expected_count) and (
                     old_count == 1 or after.pieces[move.slot] is None):
                 return current
             return None

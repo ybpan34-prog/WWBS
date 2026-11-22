@@ -8,13 +8,30 @@ import numpy as np
 from PIL import Image
 
 from app import App
-from tasks.lahai import _anchor, _play, first_difficulty, run_lahai
+from tasks.lahai import _anchor, _play, cassette_target, first_difficulty, run_lahai
 from tasks.lahai_reader import Board, read_score_board
-from tasks.lahai_solver import Piece
-from tasks.lahai_solver import Move, apply_move
+from tasks.lahai_solver import Move, Piece, apply_move, resolve_move
 
 
 class LahaiTests(unittest.TestCase):
+    @staticmethod
+    def cassette(second_status):
+        canvas = np.zeros((1080, 1920), dtype=np.uint8)
+        for name, point in (
+            ('levels_title', None), ('first_card', None), ('first_complete', (179, 433)),
+            ('stage2_card', (656, 581)), (second_status, (687, 807)),
+        ):
+            x, y, ref, _ = _anchor(name)
+            if point:
+                x, y = point
+            h, w = ref.shape
+            canvas[y:y+h, x:x+w] = (ref-ref.min()).astype(np.uint8)
+        return canvas
+
+    def test_completed_first_cassette_dispatches_second(self):
+        stage, point = cassette_target(self.cassette('first_in_progress'))
+        self.assertEqual((stage, point), (2, (891, 746)))
+
     def test_five_cell_blue_piece_at_either_tray_edge(self):
         canvas = np.full((1080, 1920, 3), (24, 24, 65), dtype=np.uint8)
         for top in (375, 600):
@@ -48,12 +65,31 @@ class LahaiTests(unittest.TestCase):
         move = Move(0, 0, 0, 2, 4, 0)
         self.assertEqual(apply_move(2, 3, 3, 0, move, permanent=1), (1, 0, 1, 0))
 
+    def test_blast_chains_without_removing_corrupted_tiles(self):
+        move = Move(0, 0, 0, 3, 1 << 3, 0)
+        permanent = 1 << 8
+        bombs = (1 << 1) | (1 << 5)
+        occupied = 7 | bombs | permanent | (1 << 9) | (1 << 15)
+        self.assertEqual(resolve_move(4, 4, occupied, 0, bombs, move, permanent=permanent),
+                         (permanent | (1 << 15), 0, 1, 0, 0, 0))
+
+    def test_faulted_bomb_unlocks_without_exploding_on_first_clear(self):
+        move = Move(0, 0, 0, 2, 4, 0)
+        self.assertEqual(resolve_move(3, 3, 11, 2, 2, move, faults=2),
+                         (10, 2, 1, 0, 2, 0))
+
+    def test_secondary_medals_survive_rotation_and_drive_planning(self):
+        from tasks.lahai_solver import plan
+
+        piece = Piece(((0, 0), (1, 0), (1, 1)), secondary_medals=((1, 1),))
+        self.assertEqual(piece.rotate().secondary_medals, ((1, 0),))
+        single = Piece(((0, 0),))
+        moves = plan(3, 3, 0b011000011, 0, (single,), medal_mode=True,
+                     secondary_medals=1 << 6)
+        self.assertEqual((moves[0].row, moves[0].col), (2, 2))
+
     def test_completed_task_does_not_send_any_input(self):
-        canvas = np.zeros((1080, 1920), dtype=np.uint8)
-        for name in ('first_complete', 'levels_title', 'first_card'):
-            x, y, ref, _ = _anchor(name)
-            h, w = ref.shape
-            canvas[y:y+h, x:x+w] = (ref - ref.min()).astype(np.uint8)
+        canvas = self.cassette('first_complete')
         runner = Mock()
         runner.stop_event = threading.Event()
         with tempfile.TemporaryDirectory() as directory:
@@ -92,11 +128,7 @@ class LahaiTests(unittest.TestCase):
         self.assertTrue(any('重新规划' in args[0] for args, _ in runner.log.call_args_list))
 
     def test_loading_frame_does_not_abort_or_trigger_a_click(self):
-        canvas = np.zeros((1080, 1920), dtype=np.uint8)
-        for name in ('first_complete', 'levels_title', 'first_card'):
-            x, y, ref, _ = _anchor(name)
-            h, w = ref.shape
-            canvas[y:y+h, x:x+w] = (ref - ref.min()).astype(np.uint8)
+        canvas = self.cassette('first_complete')
         runner = Mock()
         runner.stop_event = threading.Event()
         with tempfile.TemporaryDirectory() as directory:
