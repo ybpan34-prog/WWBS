@@ -9,7 +9,7 @@ const ACTIONS = [
 ];
 const ORDERS = [[1,2,3],[1,3,2],[2,1,3],[2,3,1],[3,1,2],[3,2,1]];
 const ACTIONS_V5 = [...ACTIONS, ['execute',1,0,1,1,true], ['skill_count',1,0,1,20,true], ['ultimate_count',1,0,1,20,true], ['dodge',1,0,1,1,true], ['switch_2',1,0,1,1,true], ['switch_3',1,0,1,1,true]];
-const ACTIONS_V6 = [...ACTIONS_V5, ['heavy_seconds',1,0,.2,30,false], ['switch_1',1,0,1,1,true]];
+const ACTIONS_V6 = [...ACTIONS_V5, ['heavy_seconds',1,0,.2,30,false], ['switch_1',1,0,1,1,true], ['jump',1,0,1,1,true]];
 export const supportedActions = ACTIONS_V6.map(([kind]) => kind);
 
 export function crc32(buffer) {

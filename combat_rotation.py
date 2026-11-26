@@ -14,10 +14,11 @@ ACTION_SPECS = {
     "idle_attack": ("空闲时持续普攻", "其他模块结束后普攻，每 N 下穿插重击", 1, 100),
     "attack_count": ("普攻 N 次", "按节奏点击左键 N 次", 1, 100),
     "jump_attack": ("跳跃普攻", "跳跃后普攻 N 次", 1, 20),
+    "jump": ("跳跃（空格）", "按一次空格跳跃", 1, 1),
     "dodge": ("闪避（右键）", "按排轴顺序点击一次鼠标右键", 1, 1),
     "switch_1": ("切换一号位", "立即切到一号位并开始该角色的排轴", 1, 1),
-    "switch_2": ("切换2号位", "立即切到2号位并开始该角色的排轴", 1, 1),
-    "switch_3": ("切换3号位", "立即切到3号位并开始该角色的排轴", 1, 1),
+    "switch_2": ("切换二号位", "立即切到二号位并开始该角色的排轴", 1, 1),
+    "switch_3": ("切换三号位", "立即切到三号位并开始该角色的排轴", 1, 1),
     "attack_seconds": ("普攻 N 秒", "按顺序执行的普攻时长", 0.2, 30),
     "heavy_count": ("重击 N 次", "长按左键进行重击", 1, 20),
     "heavy_seconds": ("长按重击 N 秒", "持续按住左键 N 秒", 0.2, 30),
@@ -32,7 +33,7 @@ ACTION_SPECS = {
 }
 
 DEFAULT_VALUES = {
-    "idle_attack": (20, 0), "attack_count": (15, 0), "jump_attack": (3, 0),
+    "idle_attack": (20, 0), "attack_count": (15, 0), "jump_attack": (3, 0), "jump": (1, 0),
     "attack_seconds": (3, 0), "heavy_count": (1, 0), "heavy_seconds": (1, 0),
     "skill": (1, 5), "ultimate": (1, 15), "echo": (1, 20),
     "approach": (0.09, 0.75), "wait": (1, 0),
@@ -366,6 +367,11 @@ class RotationClock:
 
     def next_action(self, now):
         if now >= self.visit_deadline:
+            # A timed-out action must not bypass the visit's explicit destination.
+            for item in self.columns[self.slot]:
+                target = SWITCH_ACTIONS.get(item["kind"])
+                if target is not None and target != self.slot:
+                    return {"kind": item["kind"], "module": item}
             self._next_slot(now)
         column = self.columns[self.slot]
         if self.needs_select:

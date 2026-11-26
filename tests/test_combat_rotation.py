@@ -16,6 +16,23 @@ class RotationTests(unittest.TestCase):
     def clock(self, modules, duration=5):
         return RotationClock(modules, 0, slot_times={str(n): duration for n in (1, 2, 3)})
 
+    def test_expired_visits_follow_explicit_two_character_loop(self):
+        clock = self.clock([new_module("wait", 1), new_module("switch_3", 1),
+                            new_module("jump", 2), new_module("wait", 3),
+                            new_module("switch_1", 3)], duration=1)
+        self.assertEqual(clock.next_action(0)["module"]["slot"], 1)
+        self.assertEqual(clock.next_action(.1)["kind"], "wait")
+        for now, target in ((1, 3), (2, 1), (3, 3)):
+            self.assertEqual(clock.next_action(now)["kind"], f"switch_{target}")
+            clock.switch_to(target, now)
+            self.assertEqual(clock.next_action(now + .1)["kind"], "wait")
+
+    def test_standalone_jump_does_not_start_an_attack_sequence(self):
+        clock = self.clock([new_module("jump")])
+        self.assertEqual(clock.next_action(0)["kind"], "select_slot")
+        self.assertEqual(clock.next_action(.1)["kind"], "jump")
+        self.assertIsNone(clock.next_action(.5))
+
     def test_fresh_install_uses_ansanwei_for_all_modes(self):
         with tempfile.TemporaryDirectory() as directory:
             store = load_store(Path(directory) / "combat-presets.json")
