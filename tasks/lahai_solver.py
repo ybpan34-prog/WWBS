@@ -84,7 +84,7 @@ def blast_masks(rows, cols):
                  for y in range(rows) for x in range(cols))
 
 
-def resolve_move(rows, cols, board, medals, bombs, move, *, permanent=0, faults=0):
+def resolve_move(rows, cols, board, medals, bombs, move, *, permanent=0, faults=0, severe_faults=0):
     if board & move.mask:
         raise ValueError('placement overlaps the board')
     filled, tokens = board | move.mask, medals | move.medal_mask
@@ -101,7 +101,8 @@ def resolve_move(rows, cols, board, medals, bombs, move, *, permanent=0, faults=
         cleared |= blast_masks(rows, cols)[bit.bit_length()-1] & ~permanent
     removed = cleared & ~faults
     return ((filled & ~removed) | permanent, tokens & ~removed, count,
-            (tokens & removed).bit_count(), remaining, faults & ~cleared)
+            (tokens & removed).bit_count(), remaining, (faults & ~cleared) | severe_faults,
+            severe_faults & ~cleared)
 
 
 @lru_cache(maxsize=4096)
@@ -122,7 +123,7 @@ def board_value(rows, cols, board, medals):
 
 
 def plan(rows, cols, board, medals, pieces, *, medal_mode=False, rotate=False, width=20,
-         permanent=0, bombs=0, secondary_medals=0, faults=0):
+         permanent=0, bombs=0, secondary_medals=0, faults=0, severe_faults=0):
     """Plan across the visible batch. Returns an empty tuple if all moves overlap."""
     if not (1 <= rows <= 16 and 1 <= cols <= 16 and 0 < width <= 64):
         raise ValueError('unsupported board or search size')
@@ -132,26 +133,27 @@ def plan(rows, cols, board, medals, pieces, *, medal_mode=False, rotate=False, w
         raise ValueError('invalid board or medal mask')
     moves = {i: tuple(Move(i, *args) for args in options(rows, cols, p, rotate))
              for i, p in enumerate(pieces) if p is not None}
-    beam = [(0., 0., board, medals, secondary_medals, bombs, faults, tuple(moves), ())]
+    beam = [(0., 0., board, medals, secondary_medals, bombs, faults, severe_faults, tuple(moves), ())]
     best = ()
     while beam:
         candidates = {}
-        for _, earned, grid, tokens, secondary, explosives, stuck, todo, path in beam:
+        for _, earned, grid, tokens, secondary, explosives, stuck, severe, todo, path in beam:
             for slot in todo:
                 remaining = tuple(i for i in todo if i != slot)
                 for move in moves[slot]:
                     if grid & move.mask:
                         continue
-                    nxt, next_tokens, cleared, collected, next_bombs, next_faults = resolve_move(
-                        rows, cols, grid, tokens, explosives, move, permanent=permanent, faults=stuck)
+                    nxt, next_tokens, cleared, collected, next_bombs, next_faults, next_severe = resolve_move(
+                        rows, cols, grid, tokens, explosives, move, permanent=permanent,
+                        faults=stuck, severe_faults=severe)
                     secondary_with_move = secondary | move.secondary_medal_mask
                     next_secondary = secondary_with_move & nxt
                     collected += (secondary_with_move ^ next_secondary).bit_count()
                     gain = 8 * cleared + 5 * cleared ** 2 + (95 if medal_mode else 2) * collected
-                    gain += 30 * (stuck ^ next_faults).bit_count()
+                    gain += 30 * ((stuck ^ next_faults).bit_count() + (severe ^ next_severe).bit_count())
                     value = earned + gain - 0.12 * move.turns
                     quick = value - 0.8 * nxt.bit_count()
-                    key = (nxt, next_tokens, next_secondary, next_bombs, next_faults, remaining)
+                    key = (nxt, next_tokens, next_secondary, next_bombs, next_faults, next_severe, remaining)
                     prior = candidates.get(key)
                     if prior is None or value > prior[1]:
                         candidates[key] = (quick, value, *key, path + (move,))

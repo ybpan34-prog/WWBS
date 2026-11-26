@@ -111,7 +111,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
 APP_VERSION = "1.6.4"
-APP_BUILD = 11
+APP_BUILD = 12
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -205,7 +205,7 @@ UPDATE_NOTICE = """v1.3.5 更新内容
 2. 请将游戏窗口调整为 1920*1080p 或等比例缩放。
 3. 请先完成周本的新手教程，并将速度调整至 MAX。"""
 UPDATE_HISTORY = [
-    ('v1.6.4', 'WWBS 1.6.4 正式版\n「拉海洛方块·逆转」支持前四关的简单、困难及奖励确认。'),
+    ('v1.6.4', 'WWBS 1.6.4 正式版\n「拉海洛方块·逆转」支持七关的简单、困难及奖励确认。'),
     ('v1.6.4beta', 'WWBS 1.6.4 beta\n一键日常战后依次检查领取窗口、跟随箭头、寻找光球。\n每次向光球移动0.75秒，置信度相对下降超过30%时停步向身后找。'),
     ('v1.6.3', 'WWBS 1.6.3 正式版\n无音区选行自动滚动露出按钮，重开后直接接战。\n4C 自定义刷取支持副本与大世界，新增凝素领域刷取和剧情跳过对话。'),
     ('v1.6.2', 'WWBS 1.6.2 正式版\n日常奖励标志只用于转向。每识别三次光球重新复核箭头，纯向下的箭头触发水平左转。\n进场先用当前角色开打。排轴发送切人键后直接继续执行。'),
@@ -3253,7 +3253,7 @@ class App:
                                                ("次数", self.forgery_count, None, lambda *_: None)))
         self._make_start_action_card(
             action_list, "lahai_blocks", "拉海洛方块·逆转",
-            "从活动页开始，完成前四关的简单和困难", self._start_lahai_blocks, "",
+            "从活动页开始，完成七关的简单和困难", self._start_lahai_blocks, "",
         )
         self._repack_start_action_cards()
         Label(left, text="提示：将鼠标放在无音区或键位上滚动滚轮，可快速切换选项。",

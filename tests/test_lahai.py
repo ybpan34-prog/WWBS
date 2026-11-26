@@ -9,7 +9,7 @@ from PIL import Image
 
 from app import App
 from tasks.lahai import _anchor, _play, cassette_target, first_difficulty, run_lahai
-from tasks.lahai_reader import Board, read_score_board
+from tasks.lahai_reader import Board, FOUR_SLOTS, read_score_board
 from tasks.lahai_solver import Move, Piece, apply_move, resolve_move
 
 
@@ -32,6 +32,17 @@ class LahaiTests(unittest.TestCase):
         stage, point = cassette_target(self.cassette('first_in_progress'))
         self.assertEqual((stage, point), (2, (891, 746)))
 
+    def test_completed_sixth_cassette_dispatches_seventh(self):
+        canvas = np.zeros((1080, 1920), dtype=np.uint8)
+        for name, (x, y) in (
+            ('stage6_card', (835, 581)), ('first_complete', (873, 808)),
+            ('stage7_card', (1346, 205)), ('first_in_progress', (1380, 433)),
+        ):
+            _, _, ref, _ = _anchor(name)
+            h, w = ref.shape
+            canvas[y:y+h, x:x+w] = (ref-ref.min()).astype(np.uint8)
+        self.assertEqual(cassette_target(canvas), (7, (1581, 371)))
+
     def test_five_cell_blue_piece_at_either_tray_edge(self):
         canvas = np.full((1080, 1920, 3), (24, 24, 65), dtype=np.uint8)
         for top in (375, 600):
@@ -41,6 +52,17 @@ class LahaiTests(unittest.TestCase):
         board = read_score_board(canvas)
         self.assertEqual(tuple(piece.cells for piece in board.pieces),
                          (((0, 0), (1, 0), (2, 0), (3, 0), (4, 0)),) * 2)
+
+    def test_four_slot_layout_reads_last_piece_and_pink_fault(self):
+        canvas = np.full((1080, 1920, 3), (24, 24, 65), dtype=np.uint8)
+        canvas[100:155, 510:570] = (245, 143, 208)
+        for left, top, _, _ in FOUR_SLOTS:
+            canvas[top:top+177, left:left+181] = (25, 26, 45)
+            canvas[top+50:top+85, left+50:left+85] = (94, 94, 234)
+        board = read_score_board(canvas, bomb_mode=True)
+        self.assertEqual(board.slots, FOUR_SLOTS)
+        self.assertEqual(tuple(piece.cells for piece in board.pieces), (((0, 0),),) * 4)
+        self.assertEqual(board.faults, 1)
 
     def test_shifted_title_and_button_still_open_easy_challenge(self):
         canvas = np.zeros((1080, 1920), dtype=np.uint8)
@@ -71,12 +93,20 @@ class LahaiTests(unittest.TestCase):
         bombs = (1 << 1) | (1 << 5)
         occupied = 7 | bombs | permanent | (1 << 9) | (1 << 15)
         self.assertEqual(resolve_move(4, 4, occupied, 0, bombs, move, permanent=permanent),
-                         (permanent | (1 << 15), 0, 1, 0, 0, 0))
+                         (permanent | (1 << 15), 0, 1, 0, 0, 0, 0))
 
     def test_faulted_bomb_unlocks_without_exploding_on_first_clear(self):
         move = Move(0, 0, 0, 2, 4, 0)
         self.assertEqual(resolve_move(3, 3, 11, 2, 2, move, faults=2),
-                         (10, 2, 1, 0, 2, 0))
+                         (10, 2, 1, 0, 2, 0, 0))
+
+    def test_severe_fault_requires_two_clears_before_it_can_be_removed(self):
+        move = Move(0, 0, 0, 2, 4, 0)
+        self.assertEqual(resolve_move(3, 3, 11, 2, 2, move, faults=2, severe_faults=2),
+                         (10, 2, 1, 0, 2, 2, 0))
+        self.assertEqual(resolve_move(3, 3, 11, 2, 2, move, faults=2),
+                         (10, 2, 1, 0, 2, 0, 0))
+        self.assertEqual(resolve_move(3, 3, 11, 2, 2, move), (0, 0, 1, 1, 0, 0, 0))
 
     def test_secondary_medals_survive_rotation_and_drive_planning(self):
         from tasks.lahai_solver import plan

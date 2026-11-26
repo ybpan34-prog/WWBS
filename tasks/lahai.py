@@ -1,4 +1,4 @@
-"""WWBS task for the first four Lahai Blocks cassettes."""
+"""WWBS task for the all seven Lahai Blocks cassettes."""
 from functools import lru_cache
 from pathlib import Path
 from time import monotonic
@@ -13,6 +13,8 @@ from tasks.lahai_solver import plan, resolve_move
 NAME = "拉海洛方块·逆转"
 SHAPE = (1920, 1080)
 TEMPLATES = Path(__file__).resolve().parent.parent / 'templates' / 'lahai'
+CASSETTES = ('回转的深空', '深埋于地心', '与你的黄昏', '虚诞之地',
+             '赫利俄斯之炽', '炉芯深处', '隧门尽头')
 
 
 @lru_cache(maxsize=32)
@@ -25,8 +27,9 @@ def _anchor(name):
     return int(x), int(y), ref, np.linalg.norm(ref)
 
 
-def visible(gray, name, threshold=.85):
+def visible(gray, name, threshold=.85, *, offset_y=0):
     x, y, ref, norm = _anchor(name)
+    y += offset_y
     h, w = ref.shape
     def matches(dx, dy):
         crop = gray[y+dy:y+dy+h, x+dx:x+dx+w].astype(np.float32)
@@ -53,7 +56,7 @@ def challenge_detail(gray):
         return '回转的深空', '简单'
     if visible(gray, 'first_hard', .93):
         return '回转的深空', '困难'
-    for stage, label in ((2, '深埋于地心'), (3, '与你的黄昏'), (4, '虚诞之地')):
+    for stage, label in enumerate(CASSETTES[1:], start=2):
         if visible(gray, f'stage{stage}_title', .90):
             return label, ('简单' if gray[185:225, 210:370].mean() > 145 else '困难')
     return None
@@ -72,8 +75,9 @@ def _card_template(name):
 def cassette_target(gray):
     """Use cassette titles and their own status strips, even on a scrolled list."""
     complete = set()
-    for stage, title, y in ((1, 'first_card', 206), (2, 'stage2_card', 581),
-                            (3, 'stage3_card', 206), (4, 'stage4_card', 581)):
+    for stage in range(1, len(CASSETTES) + 1):
+        title = 'first_card' if stage == 1 else f'stage{stage}_card'
+        y = 206 if stage % 2 else 581
         match = _match_single_scale_gray(gray[y-8:y+56, 75:1840].astype(np.float64),
                                          _card_template(title))
         if match.score < .86:
@@ -84,7 +88,7 @@ def cassette_target(gray):
             return stage, (x+235, y+165)
         if _match_single_scale_gray(strip, _card_template('first_complete')).score >= .85:
             complete.add(stage)
-    return (0, None) if 4 in complete else (None, None)
+    return (0, None) if len(CASSETTES) in complete else (None, None)
 
 
 def diagnose_activity(path):
@@ -94,7 +98,7 @@ def diagnose_activity(path):
         gray = np.asarray(image.convert('L'))
     if detail := challenge_detail(gray):
         return 'ok', f'已识别「{"·".join(detail)}」和「开始挑战」。'
-    if visible(gray, 'score_icon') or visible(gray, 'medal_icon') or visible(gray, 'dual_medal_icon'):
+    if visible(gray, 'score_icon') or visible(gray, 'medal_icon') or visible(gray, 'dual_medal_icon') or visible(gray, 'triple_medal_icon'):
         return 'ok', '已识别拉海洛方块棋盘。'
     if visible(gray, 'levels_title') or visible(gray, 'event_title'):
         return 'info', '已识别拉海洛方块活动界面，暂未确认首组可启动状态。'
@@ -108,13 +112,13 @@ def activity_page(gray):
         return 'board'
     if (visible(gray, 'corrupted_tutorial', .9) or visible(gray, 'tutorial_second')
             or visible(gray, 'medal_tutorial', .9) or visible(gray, 'bomb_tutorial', .9)
-            or visible(gray, 'fault_tutorial', .9)):
+            or visible(gray, 'fault_tutorial', .9) or visible(gray, 'severe_fault_tutorial', .9)):
         return 'tutorial_end'
     if visible(gray, 'tutorial_first'):
         return 'tutorial_first'
     if visible(gray, 'guide_select'):
         return 'guide'
-    if visible(gray, 'score_icon') or visible(gray, 'medal_icon') or visible(gray, 'dual_medal_icon'):
+    if visible(gray, 'score_icon') or visible(gray, 'medal_icon') or visible(gray, 'dual_medal_icon') or visible(gray, 'triple_medal_icon'):
         return 'board'
     if difficulty := first_difficulty(gray):
         return difficulty
@@ -159,12 +163,15 @@ def run_lahai(runner):
             return 'reward'
         if visible(gray, 'challenge_success'):
             return 'success'
-        dual_mode = visible(gray, 'dual_medal_icon')
-        medal_mode = dual_mode or visible(gray, 'medal_icon')
+        final_mode = (visible(gray, 'final_medal_icon')
+                      or visible(gray, 'final_medal_icon', offset_y=103))
+        dual_mode = final_mode or visible(gray, 'dual_medal_icon')
+        triple_mode = visible(gray, 'triple_medal_icon')
+        medal_mode = dual_mode or triple_mode or visible(gray, 'medal_icon')
         if medal_mode or visible(gray, 'score_icon'):
             try:
-                board = read_score_board(rgb, medal_mode, bomb_mode=dual_mode or not medal_mode,
-                                         dual_mode=dual_mode)
+                board = read_score_board(rgb, medal_mode, bomb_mode=dual_mode or triple_mode or not medal_mode,
+                                         dual_mode=dual_mode, triple_mode=triple_mode, final_mode=final_mode)
                 if any(board.pieces):
                     return rgb, board
             except ValueError:
@@ -195,7 +202,7 @@ def run_lahai(runner):
         if repeats >= 3:
             raise RuntimeError('活动画面未切换，已停止重复点击。')
         if page == 'complete':
-            runner.log('虚诞之地已完成。')
+            runner.log('隧门尽头已完成。')
             return
         if runner.dry_run:
             runner.log('预演：只截图，不发送方块输入。')
@@ -230,8 +237,8 @@ def run_lahai(runner):
                     return
                 raise RuntimeError('首次玩法引导未结束，已保留当前页面。')
         elif page == 'board':
-            if played >= 8:
-                raise RuntimeError('已完成八次挑战，未能确认返回选关。')
+            if played >= 2 * len(CASSETTES):
+                raise RuntimeError('已完成十四次挑战，未能确认返回选关。')
             outcome = _play(runner, wait_for, screen)
             if stop.is_set():
                 return
@@ -259,16 +266,18 @@ def _play(runner, wait_for, screen):
         medal_mode = board.medal_mode
         path = plan(8, 8, board.occupied, board.medals, board.pieces, rotate=True,
                     permanent=board.permanent, medal_mode=medal_mode, bombs=board.bombs,
-                    secondary_medals=board.secondary_medals, faults=board.faults)
+                    secondary_medals=board.secondary_medals, faults=board.faults,
+                    severe_faults=board.severe_faults)
         if not path:
             raise RuntimeError('当前没有可用落点。')
         move = path[0]
-        expected, expected_medals, cleared, _, expected_bombs, expected_faults = resolve_move(
+        expected, expected_medals, cleared, _, expected_bombs, expected_faults, expected_severe = resolve_move(
             8, 8, board.occupied, board.medals, board.bombs, move,
-            permanent=board.permanent, faults=board.faults)
+            permanent=board.permanent, faults=board.faults, severe_faults=board.severe_faults)
         x1, y1, x2, y2 = board.slots[move.slot]
         piece, (cx, cy) = scan_tray(rgb[y1:y2, x1:x2], medal_mode,
-                                   board.dual_mode or not medal_mode, board.dual_mode)
+                                   board.dual_mode or board.triple_mode or not medal_mode,
+                                   board.dual_mode, board.triple_mode, board.final_mode)
         w = 1 + max(c for _, c in piece.cells)
         h = 1 + max(r for r, _ in piece.cells)
         r, c = min(piece.cells, key=lambda pos: (pos[0]+.5-h/2)**2 + (pos[1]+.5-w/2)**2)
@@ -294,6 +303,7 @@ def _play(runner, wait_for, screen):
             if (after.occupied == expected and after.medals == expected_medals
                     and after.secondary_medals == ((board.secondary_medals | move.secondary_medal_mask) & expected)
                     and after.bombs == expected_bombs and after.faults == expected_faults
+                    and after.severe_faults == expected_severe
                     and new_count == expected_count) and (
                     old_count == 1 or after.pieces[move.slot] is None):
                 return current
@@ -320,11 +330,19 @@ def _play(runner, wait_for, screen):
                 old_count = sum(p is not None for p in board.pieces)
                 # Accept a different landing only if the tray shows that the move
                 # was consumed and the board is stable. Otherwise retry unchanged.
-                consumed = (after.occupied != board.occupied and
-                            ((old_count == 1 and all(after.pieces))
-                             or (old_count > 1 and all(
-                                 p == (None if i == move.slot else board.pieces[i])
-                                 for i, p in enumerate(after.pieces)))))
+                grid_changed = (
+                    after.occupied != board.occupied or after.faults != board.faults
+                    or after.medals != board.medals or after.secondary_medals != board.secondary_medals
+                    or after.bombs != board.bombs
+                    or after.severe_faults != board.severe_faults
+                )
+                consumed = ((old_count == 1 and all(after.pieces))
+                            or (old_count > 1 and after.pieces[move.slot] is None
+                                and all((p.cells if p else None) ==
+                                        (previous.cells if previous else None)
+                                        for i, (p, previous) in enumerate(zip(after.pieces, board.pieces))
+                                        if i != move.slot)))
+                consumed = consumed and (grid_changed or after.pieces != board.pieces)
                 if after != board and not consumed:
                     stable = None
                     return None

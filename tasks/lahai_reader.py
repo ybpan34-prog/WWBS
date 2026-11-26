@@ -13,6 +13,7 @@ PALETTE = np.array([(234, 93, 55), (255, 200, 99), (94, 94, 234),
                     (65, 170, 184), (223, 58, 105), (142, 60, 240)], dtype=np.int16)
 SLOTS = ((1584, 375, 1765, 555), (1584, 600, 1765, 780))
 HARD_SLOTS = tuple((1584, y, 1765, y + 177) for y in (262, 487, 712))
+FOUR_SLOTS = tuple((1584, y, 1765, y + 177) for y in (150, 375, 600, 825))
 PITCH = 36
 
 
@@ -28,6 +29,9 @@ class Board:
     dual_mode: bool = False
     medal_mode: bool = False
     faults: int = 0
+    triple_mode: bool = False
+    severe_faults: int = 0
+    final_mode: bool = False
 
 
 @lru_cache(maxsize=8)
@@ -44,7 +48,7 @@ def _has_icon(rgb, x, y, size, kind):
     reference = _icon_reference(size, kind)
     side = size // 2
     threshold = .60 if size == 18 and kind in ('snow_medal', 'void_medal') else (
-        .85 if kind.endswith('_fault') else .72)
+        .76 if kind.endswith('_severe') else .85 if kind.endswith('_fault') else .72)
     for dy in (0, -1, 1, -2, 2):
         for dx in (0, -1, 1, -2, 2):
             patch = rgb[y+dy-side:y+dy+side, x+dx-side:x+dx+side]
@@ -58,7 +62,8 @@ def _has_icon(rgb, x, y, size, kind):
     return False
 
 
-def scan_tray(rgb, medal_mode=False, bomb_mode=False, dual_mode=False):
+def scan_tray(rgb, medal_mode=False, bomb_mode=False, dual_mode=False, triple_mode=False,
+              final_mode=False):
     delta = np.abs(rgb[:, :, None, :].astype(np.int16) - PALETTE)
     tile_mask = np.any(np.max(delta, axis=-1) <= 45, axis=-1)
     mask = Image.fromarray(tile_mask.astype(np.uint8) * 255)
@@ -75,8 +80,12 @@ def scan_tray(rgb, medal_mode=False, bomb_mode=False, dual_mode=False):
     cells = []
     marks = {}
     kinds = ('snow_medal', 'void_medal') if dual_mode else ('sun_medal',) if medal_mode else ()
+    if triple_mode:
+        kinds += ('fire_medal', 'spiral_medal')
+    if final_mode:
+        kinds += ('leaf_medal',)
     if bomb_mode:
-        kinds += ('bomb',)
+        kinds = ('bomb',) + kinds
     for r in range(rows):
         for c in range(cols):
             top, left = y + r * PITCH + 5, x + c * PITCH + 5
@@ -102,25 +111,28 @@ def scan_tray(rgb, medal_mode=False, bomb_mode=False, dual_mode=False):
         todo -= adjacent
     if todo:
         raise ValueError('Tray tiles are disconnected')
-    medals = tuple(cell for cell in cells if marks.get(cell) in ('snow_medal', 'sun_medal'))
+    medals = tuple(cell for cell in cells if marks.get(cell) in (
+        'snow_medal', 'sun_medal', 'fire_medal', 'spiral_medal', 'leaf_medal'))
     bombs = tuple(cell for cell in cells if marks.get(cell) == 'bomb')
     secondary = tuple(cell for cell in cells if marks.get(cell) == 'void_medal')
     return Piece(normalize(tuple(cells)), medals, bombs, secondary), (x + width / 2, y + height / 2)
 
 
-def pieces_from_tray(rgb, medal_mode=False, bomb_mode=False, dual_mode=False):
-    sample = scan_tray(rgb, medal_mode, bomb_mode, dual_mode)
+def pieces_from_tray(rgb, medal_mode=False, bomb_mode=False, dual_mode=False, triple_mode=False,
+                     final_mode=False):
+    sample = scan_tray(rgb, medal_mode, bomb_mode, dual_mode, triple_mode, final_mode)
     return sample[0] if sample else None
 
 
-def read_score_board(frame, medal_mode=False, slots=None, *, bomb_mode=False, dual_mode=False):
+def read_score_board(frame, medal_mode=False, slots=None, *, bomb_mode=False, dual_mode=False,
+                     triple_mode=False, final_mode=False):
     h, w = frame.shape[:2]
     if abs(w * 9 - h * 16) > 16:
         raise ValueError('Only the 16:9 score board is calibrated')
     if (w, h) != (1920, 1080):
         frame = np.asarray(Image.fromarray(frame).resize((1920, 1080), Image.Resampling.BILINEAR))
     rgb = frame[:, :, :3]
-    occupied = permanent = medals = bombs = secondary = faults = 0
+    occupied = permanent = medals = bombs = secondary = faults = severe = 0
     for r in range(8):
         for c in range(8):
             x, y = 540 + c * 114, 130 + r * 114
@@ -129,10 +141,42 @@ def read_score_board(frame, medal_mode=False, slots=None, *, bomb_mode=False, du
             if sample[0] < 52 and sample[1] < 52 and sample[2] < 105:
                 continue
             bomb = bomb_mode and _has_icon(rgb, x+22, y+3, 58, 'bomb')
+            red, green, blue = rgb[y-28:y-10, x-20:x-2].mean(axis=(0, 1))
+            pink_fault = bomb_mode and red > 233 and 105 < green < 170 and blue > 175
+            orange_fault = triple_mode and red > 244 and 170 < green < 195 and 65 < blue < 92
+            if pink_fault or orange_fault:
+                faults |= bit
+            triple_medal = triple_mode and any(
+                _has_icon(rgb, x+22, y+3, 58, kind) for kind in ('fire_medal', 'spiral_medal'))
+            triple_fault = triple_mode and (
+                (orange_fault and _has_icon(rgb, x+22, y+3, 58, 'fire_fault'))
+                or (pink_fault and _has_icon(rgb, x+22, y+3, 58, 'spiral_fault'))
+                or (green > 213 and red > 244 and _has_icon(rgb, x+22, y+3, 58, 'sun_fault')))
+            if triple_fault:
+                faults |= bit
+            if triple_fault or triple_medal:
+                medals |= bit
             snow = dual_mode and _has_icon(rgb, x+22, y+3, 58, 'snow_medal')
             void = dual_mode and _has_icon(rgb, x+22, y+3, 58, 'void_medal')
+            leaf_fault = final_mode and green > 185 and _has_icon(rgb, x+22, y+3, 58, 'leaf_fault')
+            leaf = leaf_fault or (final_mode and _has_icon(rgb, x+22, y+3, 58, 'leaf_medal'))
+            if leaf_fault:
+                faults |= bit
+            if final_mode:
+                severe_leaf = green > 170 and red < 130 and (
+                    _has_icon(rgb, x-13, y-23, 28, 'leaf_severe')
+                    or _has_icon(rgb, x-13, y-23, 28, 'leaf_bomb_severe'))
+                severe_snow = red < 130 and blue > 200 and _has_icon(
+                    rgb, x-13, y-23, 28, 'snow_severe')
+                severe_void = red > 180 and blue > 200 and _has_icon(
+                    rgb, x-13, y-23, 28, 'void_severe')
+                if severe_snow or severe_void or severe_leaf:
+                    severe |= bit
+                    faults |= bit
+                    snow = snow or severe_snow
+                    void = void or severe_void
+                leaf = leaf or (severe_leaf and not bomb)
             if dual_mode:
-                red, green, _ = rgb[y-28:y-10, x-20:x-2].mean(axis=(0, 1))
                 snow_fault = green > 130 and _has_icon(rgb, x+22, y+3, 58, 'snow_fault')
                 void_fault = red > 180 and _has_icon(rgb, x+22, y+3, 58, 'void_fault')
                 if snow_fault or void_fault:
@@ -142,9 +186,10 @@ def read_score_board(frame, medal_mode=False, slots=None, *, bomb_mode=False, du
             if sample.min() >= 75 and sample.max() <= 165 and np.ptp(sample) < 20:
                 permanent |= bit
                 occupied |= bit
-            elif bomb or snow or void or np.min(np.max(np.abs(PALETTE - sample), axis=1)) <= 48:
+            elif (bomb or snow or void or leaf or faults & bit or triple_medal
+                  or np.min(np.max(np.abs(PALETTE - sample), axis=1)) <= 48):
                 occupied |= bit
-                if snow or (medal_mode and not dual_mode and _has_icon(rgb, x+19, y+7, 58, 'sun_medal')):
+                if snow or leaf or (medal_mode and not dual_mode and _has_icon(rgb, x+19, y+7, 58, 'sun_medal')):
                     medals |= bit
                 if void:
                     secondary |= bit
@@ -153,8 +198,15 @@ def read_score_board(frame, medal_mode=False, slots=None, *, bomb_mode=False, du
             else:
                 raise ValueError(f'Unrecognized grid cell at row {r+1}, column {c+1}')
     if slots is None:
-        dark = rgb[273:285, 1600:1620]
-        slots = HARD_SLOTS if permanent or (dark.mean() < 33 and dark[:, :, 2].mean() < 55) else SLOTS
-    pieces = tuple(pieces_from_tray(rgb[y1:y2, x1:x2], medal_mode, bomb_mode, dual_mode)
+        first_four = rgb[160:175, 1600:1620]
+        first_three = rgb[273:285, 1600:1620]
+        if first_four.mean() < 33 and first_four[:, :, 2].mean() < 55:
+            slots = FOUR_SLOTS
+        else:
+            slots = HARD_SLOTS if permanent or (
+                first_three.mean() < 33 and first_three[:, :, 2].mean() < 55) else SLOTS
+    pieces = tuple(pieces_from_tray(rgb[y1:y2, x1:x2], medal_mode, bomb_mode, dual_mode,
+                                   triple_mode, final_mode)
                    for x1, y1, x2, y2 in slots)
-    return Board(occupied, pieces, permanent, slots, medals, bombs, secondary, dual_mode, medal_mode, faults)
+    return Board(occupied, pieces, permanent, slots, medals, bombs, secondary, dual_mode, medal_mode,
+                 faults, triple_mode, severe, final_mode)
