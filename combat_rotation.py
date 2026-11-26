@@ -91,7 +91,7 @@ def _previous_default_store() -> dict:
     return store
 
 
-def default_store() -> dict:
+def _october_default_store() -> dict:
     """Factory axis supplied as 默认战斗轴 / WWBS4 on 2026-10-19."""
     store = _previous_default_store()
     preset = store['presets'][0]
@@ -105,6 +105,47 @@ def default_store() -> dict:
         first.append(module)
     preset['modules'] = first + [m for m in preset['modules'] if m['slot'] == 3]
     return store
+
+
+def default_store() -> dict:
+    modules = []
+    for slot, kind, value, interval in (
+        (1, 'wait', 0.5, 0.0),
+        (1, 'skill', 1, 5.0),
+        (1, 'execute', 1, 0.0),
+        (1, 'attack_seconds', 5, 0.0),
+        (1, 'execute', 1, 0.0),
+        (1, 'heavy_count', 3, 0.0),
+        (1, 'ultimate', 1, 1.0),
+        (1, 'wait', 0.5, 0.0),
+        (1, 'dodge', 1, 0.0),
+        (1, 'skill', 1, 1.0),
+        (1, 'switch_3', 1, 0.0),
+        (2, 'attack_count', 1, 0.0),
+        (2, 'wait', 0.5, 0.0),
+        (2, 'ultimate', 1, 5.0),
+        (2, 'wait', 0.5, 0.0),
+        (2, 'skill', 1, 5.0),
+        (2, 'echo', 1, 5.0),
+        (2, 'switch_1', 1, 0.0),
+        (3, 'wait', 0.5, 0.0),
+        (3, 'ultimate', 1, 10.0),
+        (3, 'dodge', 1, 0.0),
+        (3, 'attack_count', 3, 0.0),
+        (3, 'echo', 1, 10.0),
+        (3, 'skill', 1, 5.0),
+        (3, 'jump_attack', 3, 0.0),
+        (3, 'switch_2', 1, 0.0),
+    ):
+        module = new_module(kind, slot)
+        module.update(value=value, interval=interval)
+        modules.append(module)
+    preset = {
+        "id": "default", "name": "暗散维", "slot_times": {"1": 10, "2": 5, "3": 10},
+        "slot_order": [3, 2, 1], "modules": modules,
+    }
+    return {"version": 5, "active": "default",
+            "modes": dict.fromkeys(COMBAT_MODES, "default"), "presets": [preset]}
 
 
 def validate_store(raw) -> dict:
@@ -164,7 +205,7 @@ def validate_store(raw) -> dict:
             if sum(m["kind"] == "idle_attack" and m["slot"] == slot for m in modules) > 1:
                 raise ValueError("每个角色位只能添加一个空闲普攻模块")
         if not modules and raw.get("version", 1) == 1:
-            modules = default_store()["presets"][0]["modules"]
+            modules = _october_default_store()["presets"][0]["modules"]
         if not modules or len(modules) > 100:
             raise ValueError("每个预设须有 1 到 100 个模块")
         times = source.get("slot_times", {})
@@ -227,7 +268,7 @@ def load_store(path: Path) -> dict:
                         for prior in (defaults, _previous_default_store()['presets'][0]))
         if (preset["id"] == "default" and preset["name"] == "默认战斗轴"
                 and preset["slot_order"] == [1, 2, 3] and untouched):
-            replacement = default_store()["presets"][0]
+            replacement = _october_default_store()["presets"][0]
             old_ids = {}
             for item in preset["modules"]:
                 old_ids.setdefault((item["slot"], item["kind"]), []).append(item["id"])

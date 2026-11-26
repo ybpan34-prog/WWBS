@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import Mock, call, patch
 
 import app
-from combat_rotation import (BattleMonitor, IdleAttackWorker, RotationClock, _legacy_default_store, active_modules, default_store,
+from combat_rotation import (BattleMonitor, IdleAttackWorker, RotationClock, _legacy_default_store, _october_default_store, active_modules,
                              load_store, new_module, save_store, validate_store)
 
 
@@ -16,18 +16,19 @@ class RotationTests(unittest.TestCase):
     def clock(self, modules, duration=5):
         return RotationClock(modules, 0, slot_times={str(n): duration for n in (1, 2, 3)})
 
-    def test_default_keeps_intervals_and_heavy_frequency(self):
-        modules = [m for m in active_modules(default_store()) if m['slot'] == 1]
-        self.assertEqual([m['kind'] for m in modules], ['idle_attack', 'attack_count', 'heavy_count', 'skill', 'attack_count', 'ultimate', 'echo', 'approach'])
-        self.assertEqual(modules[0]['value'], 40)
-        self.assertEqual(modules[5]['interval'], 15)
-        self.assertEqual(modules[3]['interval'], 5)
-        self.assertEqual(default_store()['presets'][0]['slot_times'], {'1': 30, '2': 15, '3': 4})
+    def test_fresh_install_uses_ansanwei_for_all_modes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = load_store(Path(directory) / "combat-presets.json")
+        preset, = store["presets"]
+        self.assertEqual(preset["name"], "暗散维")
+        self.assertEqual(preset["slot_order"], [3, 2, 1])
+        self.assertEqual(preset["slot_times"], {"1": 10, "2": 5, "3": 10})
+        self.assertEqual(set(store["modes"].values()), {preset["id"]})
 
     def test_default_healing_sequence_runs_q_before_return_in_both_modes(self):
         for mode in ('daily', 'combat_4c'):
             with self.subTest(mode=mode):
-                store = default_store()
+                store = _october_default_store()
                 modules = active_modules(store, mode)
                 third = [m for m in modules if m['slot'] == 3]
                 self.assertEqual([m['kind'] for m in third],
@@ -178,7 +179,7 @@ class RotationTests(unittest.TestCase):
             self.assertEqual((result['kind'], result['module']['slot']), ('select_slot', 2))
 
     def test_station_time_and_mode_assignment_are_persistent(self):
-        store = default_store()
+        store = _october_default_store()
         other = {'id': 'custom', 'name': '自定义', 'slot_times': {'1': 7, '2': 3.5, '3': 4},
                  'modules': [new_module('jump_attack', 3)]}
         store['presets'].append(other)
@@ -194,7 +195,7 @@ class RotationTests(unittest.TestCase):
             self.assertEqual(active_modules(loaded, 'daily')[0]['value'], 3)
 
     def test_old_continuous_migrates_without_losing_slots_or_parameters(self):
-        store = default_store()
+        store = _october_default_store()
         store['version'] = 2
         store['presets'][0]['modules'] = [m for m in store['presets'][0]['modules'] if m['slot'] == 1]
         item = next(m for m in store['presets'][0]['modules'] if m['kind'] == 'idle_attack')
@@ -207,7 +208,7 @@ class RotationTests(unittest.TestCase):
         self.assertEqual(migrated_item['slot'], 3)
 
     def test_beta2_heal_removed_and_default_ten_migrates_to_fifteen(self):
-        store = default_store()
+        store = _october_default_store()
         store['version'] = 1
         del store['modes']
         modules = store['presets'][0]['modules']
@@ -227,11 +228,11 @@ class RotationTests(unittest.TestCase):
 
     def test_invalid_times_counts_and_duplicate_idle_in_one_column_rejected(self):
         for bad in (0, float('nan'), float('inf'), 121):
-            store = default_store()
+            store = _october_default_store()
             store['presets'][0]['slot_times']['1'] = bad
             with self.assertRaises(ValueError):
                 validate_store(store)
-        store = default_store()
+        store = _october_default_store()
         store['presets'][0]['modules'].append(new_module('idle_attack'))
         with self.assertRaises(ValueError):
             validate_store(store)
@@ -311,7 +312,7 @@ class RotationTests(unittest.TestCase):
     def build_ui(self, root):
         window = app.App.__new__(app.App)
         window.root = root
-        window.rotation_store = default_store()
+        window.rotation_store = _october_default_store()
         window.rotation_choice = tk.StringVar()
         window.rotation_tab = tk.Frame(root, bg=app.COLORS['panel'])
         window.rotation_tab.pack(fill=tk.BOTH, expand=True)

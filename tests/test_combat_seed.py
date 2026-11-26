@@ -10,7 +10,7 @@ from unittest.mock import patch
 import zlib
 
 import app
-from combat_rotation import ACTION_SPECS, default_store, load_store, new_module, validate_store
+from combat_rotation import ACTION_SPECS, _october_default_store, default_store, load_store, new_module, validate_store
 from combat_seed import MAX_PAYLOAD_BYTES, SHORT_DICT, decode_seed, export_seed, import_seed
 from ui_controls import RoundedButton
 
@@ -38,7 +38,7 @@ def content(preset):
 
 class CombatSeedTests(unittest.TestCase):
     def setUp(self):
-        self.store = default_store()
+        self.store = _october_default_store()
         self.preset = self.store["presets"][0]
         self.preset["slot_order"] = [3, 1, 2]
         self.preset["slot_times"]["1"] = 31.5
@@ -139,7 +139,7 @@ class CombatSeedTests(unittest.TestCase):
         self.assertEqual(store['presets'][-1]['name'], self.preset['name']+'（导入）')
 
     def test_compact_default_and_second_generation_seed_compatibility(self):
-        original = default_store()['presets'][0]
+        original = _october_default_store()['presets'][0]
         seed = export_seed(original)
         self.assertLessEqual(len(seed), 90)
         self.assertEqual(content(decode_seed(seed)), content(original))

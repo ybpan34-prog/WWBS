@@ -24,6 +24,7 @@ from tkinter import font as tkfont
 from PIL import Image, ImageTk
 
 from image_matcher import TemplateMatcher
+from session_logs import create_session_log, prune_session_logs
 from tasks.reward_orb_scan import REWARD_SEARCH_SECONDS, orb_confidence
 from tasks.models import TaskNeedsReview
 from tasks.combat_4c_entrance import BOSS_AVATARS, BossChallengeEntrance
@@ -110,7 +111,7 @@ TEMPLATES_DIR = APP_DIR / "templates"
 DEFAULT_GROUP_KEY = "default"
 APP_ICON = APP_DIR / "wwbs.ico"
 APP_VERSION = "1.6.4"
-APP_BUILD = 10
+APP_BUILD = 11
 COMBAT_PRESETS_CONFIG = (Path(sys.executable).resolve().parent
                          if getattr(sys, "frozen", False) else APP_DIR) / "combat-presets.json"
 RUN_NOTICE_DIR = APP_DIR / "assets" / "run-notice"
@@ -1051,11 +1052,19 @@ class App:
         self.prob_astrite.trace_add("write", self._sync_pulls_from_astrite)
         self.prob_pulls.trace_add("write", self._sync_astrite_from_pulls)
         self.log_queue: queue.Queue[str] = queue.Queue()
+        self._log_lock = threading.Lock()
+        self._log_directory = USER_SETTINGS_DIR / "logs"
+        self._session_log_path = None
+        try:
+            self._session_log_path = create_session_log(self._log_directory)
+            prune_session_logs(self._log_directory)
+        except OSError as exc:
+            self._log(f"运行日志文件夹处理失败：{exc}")
         try:
             self.rotation_store = load_store(COMBAT_PRESETS_CONFIG)
         except (OSError, ValueError, TypeError) as exc:
             self.rotation_store = default_store()
-            self.log_queue.put(f"战斗排轴配置读取失败，已使用默认轴：{exc}")
+            self._log(f"战斗排轴配置读取失败，已使用默认轴：{exc}")
         self.tasks: list[WeeklyTask] = []
         self.stop_event = threading.Event()
         self._manual_stop_requested = False
@@ -2965,7 +2974,7 @@ class App:
             with Image.open(io.BytesIO(image_bytes)) as source:
                 self.theme_banner_source = source.convert("RGB")
         except (OSError, KeyError, zipfile.BadZipFile) as exc:
-            self.log_queue.put(f"{definition['name']}背景读取失败：{exc}")
+            self._log(f"{definition['name']}背景读取失败：{exc}")
             return
 
         self.theme_banner = Canvas(
@@ -5055,7 +5064,17 @@ class App:
         log_scrollbar.configure(command=self.log_text.yview)
         self.log_text.pack(side=LEFT, fill=BOTH, expand=True)
         log_scrollbar.pack(side=RIGHT, fill="y")
-        self._ui_button(self.log_tab, text="清空日志", command=lambda: self.log_text.delete("1.0", END)).pack(anchor="e")
+        actions = Frame(self.log_tab, bg=COLORS["panel"])
+        actions.pack(fill=X)
+        self._ui_button(actions, text="打开日志文件夹", command=self._open_log_directory).pack(side=LEFT)
+        self._ui_button(actions, text="清空显示", command=lambda: self.log_text.delete("1.0", END)).pack(side=RIGHT)
+
+    def _open_log_directory(self) -> None:
+        try:
+            self._log_directory.mkdir(parents=True, exist_ok=True)
+            os.startfile(self._log_directory)
+        except OSError as exc:
+            messagebox.showerror("无法打开日志文件夹", str(exc), parent=self.root)
 
     def _show_startup_notice_once(self) -> None:
         if getattr(self, '_startup_notice_handled', False):
@@ -5141,7 +5160,7 @@ class App:
                 speak_on_interact=self.pet_id == "jingran",
                 chatter_delay_range=(12000, 24000) if self.pet_id == "jingran" else None,
             )
-            self.log_queue.put(f"{self.pet_name}已启动：拖动移动，双击互动，右键执行功能或运行诊断。")
+            self._log(f"{self.pet_name}已启动：拖动移动，双击互动，右键执行功能或运行诊断。")
             welcome_factory = self.pet_definition.get("welcome_dialogue")
             if callable(welcome_factory) and not self.cartethyia_agent_enabled.get():
                 welcome = welcome_factory()
@@ -5154,7 +5173,7 @@ class App:
                     ),
                 )
         except Exception as exc:
-            self.log_queue.put(f"{self.pet_name}启动失败：{exc}")
+            self._log(f"{self.pet_name}启动失败：{exc}")
 
     def _toggle_desktop_pet(self) -> None:
         if self.desktop_pet is None:
@@ -7374,8 +7393,19 @@ class App:
         return labels.get(weekday.lower(), weekday)
 
     def _log(self, message: str) -> None:
-        stamp = datetime.now().strftime("%H:%M:%S")
-        self.log_queue.put(f"[{stamp}] {message}")
+        with self._log_lock:
+            stamp = datetime.now().strftime("%H:%M:%S")
+            line = f"[{stamp}] {message}"
+            self.log_queue.put(line)
+            if self._session_log_path is not None:
+                try:
+                    # An older running instance must not recreate a pruned log.
+                    with self._session_log_path.open("r+b") as output:
+                        output.seek(0, os.SEEK_END)
+                        output.write((line + "\n").encode("utf-8", errors="replace"))
+                except OSError as exc:
+                    self._session_log_path = None
+                    self.log_queue.put(f"[{stamp}] 无法继续保存运行日志：{exc}")
 
     def _notify_mouse_move_failure(self) -> None:
         now = time.monotonic()
