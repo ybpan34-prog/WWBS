@@ -15,6 +15,7 @@ a = Analysis(
     datas=template_data+[
         ('weekly_tasks.json', '.'),
         ('wwbs-version.json', '.'),
+        ('release-notes-v1.6.4-summary.md', '.'),
         ('wwbs.ico', '.'),
         ('assets/run-notice', 'assets/run-notice'),
         ('assets/rain', 'assets/rain'),
